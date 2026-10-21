@@ -23,9 +23,11 @@ const tool =
 
 /**
  * The tools under the answers: 0.75x, "Repetir verso" and the hint. The hint sits in a dashed lime border, the mark
- * of an ad spot. In this phase it is free; behind an ad it shows the spot but stays off, since there are no ads yet.
+ * of an ad spot. In this phase it is free; behind an ad (the public phase) it keeps that lime spot but stays off,
+ * since there are no ads yet (ruling R46). A free hint with nothing to help with greys out.
  */
 export function ToolsBar({ onSlow, onRepeat, onHint, hintPerk, slow, hintDisabled = false }: ToolsBarProps) {
+  const hintLook = hintPerk === 'free' ? 'disabled:border-border disabled:text-faint' : '';
   return (
     <div className="mt-auto flex gap-2">
       <button
@@ -44,7 +46,7 @@ export function ToolsBar({ onSlow, onRepeat, onHint, hintPerk, slow, hintDisable
           type="button"
           onClick={onHint}
           disabled={hintPerk !== 'free' || hintDisabled}
-          className={`${tool} flex-[1.1] border-[1.5px] border-dashed border-lime text-lime disabled:border-border disabled:text-faint`}
+          className={`${tool} flex-[1.1] border-[1.5px] border-dashed border-lime text-lime ${hintLook}`}
         >
           {t(hintPerk === 'free' ? 'jogo.hint' : 'jogo.hintAd')}
         </button>

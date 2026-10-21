@@ -171,9 +171,9 @@ function pausesAt(s: GameState, blank: Blank, previousMs: number, timeMs: number
 
 /**
  * Pending, skipped, or missed with auto-repeat on: a wait holds for it. A miss without auto-repeat lets the song
- * move on.
+ * move on. The game screen uses the same rule to pick the blank in play.
  */
-function awaitsAnswer(s: GameState, blank: Blank): boolean {
+export function awaitsAnswer(s: GameState, blank: Blank): boolean {
   const status = s.status[blank.id];
   return status === 'pending' || status === 'skipped' || (status === 'wrong' && s.autoRepeat);
 }

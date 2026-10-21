@@ -13,6 +13,11 @@ interface LyricPanelProps {
   current: number;
   blanks: Blank[];
   status: Record<string, BlankStatus>;
+  /**
+   * The blank the player answers now, as the game screen picked it for the answer area: it gets the solid
+   * "sua vez" slot. The panel never picks one itself, so the slot and the options always point at the same blank.
+   */
+  inPlayId?: string;
   /** Show the line's translation under it, when there is one, in place of "Traduzir verso". */
   showTranslation: boolean;
   /** The translation of the line in play, once something has fetched it. */
@@ -113,6 +118,7 @@ export function LyricPanel({
   current,
   blanks,
   status,
+  inPlayId,
   showTranslation,
   translation,
   onTranslate,
@@ -124,7 +130,6 @@ export function LyricPanel({
   const next = lines[current + 1];
   const blanksOf = (lineIndex: number) => blanks.filter((blank) => blank.lineIndex === lineIndex);
   const own = blanksOf(current);
-  const inPlay = own.find((blank) => status[blank.id] !== 'correct');
   const answered = own.filter((blank) => status[blank.id] === 'correct' || status[blank.id] === 'wrong').at(-1);
   const shownTranslation = showTranslation && translation ? translation : null;
 
@@ -136,7 +141,7 @@ export function LyricPanel({
         </p>
       )}
       <p data-testid="line-current" className="font-heading text-verse leading-snug font-bold">
-        <LineText text={line.text} blanks={own} status={status} onExplain={onExplain} inPlayId={inPlay?.id} />
+        <LineText text={line.text} blanks={own} status={status} onExplain={onExplain} inPlayId={inPlayId} />
       </p>
       {shownTranslation && (
         <p data-testid="translation" className="text-lyric text-muted">

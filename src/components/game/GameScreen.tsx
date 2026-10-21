@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import { DjBop, type DjBopExpression } from '@/components/brand/DjBop';
 import { t } from '@/i18n/t';
 import { getEntitlements } from '@/lib/entitlements';
-import { gameReducer, initGame, summaryOf, type GameEvent, type GameState } from '@/lib/game/reducer';
+import { awaitsAnswer, gameReducer, initGame, summaryOf, type GameEvent, type GameState } from '@/lib/game/reducer';
 import { playHit, playMiss } from '@/lib/game/sfx';
 import { cleanTitle } from '@/lib/lyrics/cleanTitle';
 import type { VideoRecord } from '@/lib/lyrics/resolveSong';
@@ -67,22 +67,27 @@ function waitingBlank(game: GameState): Blank | undefined {
   return game.blanks.find((blank) => blank.id === game.waitingBlankId);
 }
 
-/** The line on screen: the one the game waits on, otherwise the last one that has started (the first, before any). */
-function currentLineIndex(game: GameState, timeMs: number): number {
+/**
+ * The line on screen: the one the game waits on, otherwise the last one that has started by the game's clock (the
+ * first, before any). That clock moves only with the TICKs the game took, so a stale reading of the player right
+ * after a seek never shows on screen.
+ */
+function currentLineIndex(game: GameState): number {
   const waiting = waitingBlank(game);
   if (waiting) return waiting.lineIndex;
-  return Math.max(0, game.lines.findLastIndex((line) => line.startMs <= timeMs));
+  return Math.max(0, game.lines.findLastIndex((line) => line.startMs <= game.lastTickMs));
 }
 
 /**
- * The blank to answer now: the one the game waits on, otherwise the first one of the line on screen that is not
- * right yet. When all of that line's blanks are right, its last one, so its answer stays on screen.
+ * The blank to answer now, which both the answer area and the "sua vez" slot of the lyrics show: the one the game
+ * waits on, otherwise the first one of the line on screen that awaits an answer as the reducer sees it (a miss with
+ * auto-repeat off does not). When none does, the line's last blank, so the last answer stays on screen.
  */
 function currentBlank(game: GameState, lineIndex: number): Blank | null {
   const waiting = waitingBlank(game);
   if (waiting) return waiting;
   const onLine = game.blanks.filter((blank) => blank.lineIndex === lineIndex);
-  return onLine.find((blank) => game.status[blank.id] !== 'correct') ?? onLine.at(-1) ?? null;
+  return onLine.find((blank) => awaitsAnswer(game, blank)) ?? onLine.at(-1) ?? null;
 }
 
 /** There is no help sheet yet: "Traduzir verso", "Não entendi" and a tapped word open nothing for now. */
@@ -195,12 +200,13 @@ export function GameScreen({ adapter, mode, lines, blanks, video, onEnd, headerS
     run([{ type: 'seek', ms: 0 }, { type: 'play' }]);
   }, [run]);
 
-  // The clock goes to the game as TICK, except just after a seek, when it may still be the old position.
-  const timeMs = usePlayerTime(adapter, TICK_MS);
+  // The player's raw clock goes to the game as TICK, except just after a seek, when it may still be the old
+  // position. Nothing on screen reads it directly: the screen follows the game's clock (`lastTickMs`).
+  const readingMs = usePlayerTime(adapter, TICK_MS);
   useEffect(() => {
     if (performance.now() < ticksFromRef.current) return;
-    dispatch({ type: 'TICK', timeMs });
-  }, [timeMs, dispatch]);
+    dispatch({ type: 'TICK', timeMs: readingMs });
+  }, [readingMs, dispatch]);
 
   // The song is over: its result goes to the song screen, once.
   useEffect(() => {
@@ -211,7 +217,7 @@ export function GameScreen({ adapter, mode, lines, blanks, video, onEnd, headerS
 
   useEffect(() => () => clearTimeout(djTimerRef.current), []);
 
-  const lineIndex = currentLineIndex(game, timeMs);
+  const lineIndex = currentLineIndex(game);
   const blank = currentBlank(game, lineIndex);
   const solved = blank !== null && game.status[blank.id] === 'correct';
   const hinted = blank !== null && game.hinted[blank.id] === true;
@@ -265,7 +271,7 @@ export function GameScreen({ adapter, mode, lines, blanks, video, onEnd, headerS
 
   const { artist, track } = cleanTitle(video.title, video.channel);
   const durationMs = adapter.getDurationMs();
-  const progress = durationMs > 0 ? Math.min(100, (timeMs / durationMs) * 100) : 0;
+  const progress = durationMs > 0 ? Math.min(100, (game.lastTickMs / durationMs) * 100) : 0;
 
   const header = (
     <header className="flex items-center gap-2.5 px-4 pt-4">
@@ -305,7 +311,7 @@ export function GameScreen({ adapter, mode, lines, blanks, video, onEnd, headerS
       {headerSlot ? createPortal(header, headerSlot) : header}
       <section className="flex flex-1 flex-col gap-4">
         <div aria-hidden="true" className="h-1 overflow-hidden rounded-full bg-elevated">
-          <div className="h-full bg-lime" style={{ width: `${progress}%` }} />
+          <div data-testid="progress" className="h-full bg-lime" style={{ width: `${progress}%` }} />
         </div>
         {/* Under the player, never over it. It stands in for the game area, which is only hidden, so the answers
             already picked are still there when the sheet closes. */}
@@ -316,6 +322,7 @@ export function GameScreen({ adapter, mode, lines, blanks, video, onEnd, headerS
             current={lineIndex}
             blanks={game.blanks}
             status={game.status}
+            inPlayId={blank?.id}
             showTranslation={settings.alwaysShowTranslation}
             onTranslate={noHelpYet}
             onExplain={noHelpYet}

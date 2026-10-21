@@ -75,6 +75,9 @@ export function EscolhaArea({ blank, options, hinted = false, solved = false, on
         const hit = choice === blank.answer && done;
         const miss = choice !== blank.answer && picked.includes(choice);
         const greyed = choice === greyedOut;
+        // A tried option is only aria-disabled (`pick` ignores it): a disabled button would lose the focus the tap
+        // gave it, and a screen reader would not read its result.
+        const tried = hit || miss;
         const look = hit
           ? 'bg-lime font-bold text-bg'
           : miss
@@ -86,7 +89,8 @@ export function EscolhaArea({ blank, options, hinted = false, solved = false, on
           <button
             key={choice}
             type="button"
-            disabled={done || miss || greyed}
+            disabled={!tried && (done || greyed)}
+            aria-disabled={tried || undefined}
             aria-label={hit ? t('escolha.hit', { palavra: choice }) : miss ? t('escolha.miss', { palavra: choice }) : undefined}
             onClick={() => pick(choice)}
             className={`${option} ${look}`}

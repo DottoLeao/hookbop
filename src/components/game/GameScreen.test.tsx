@@ -260,6 +260,64 @@ describe('GameScreen: Escolha', () => {
   });
 });
 
+describe('GameScreen: one blank in play', () => {
+  const TWO_BLANK_LINES: LyricLine[] = [{ ...LINES[0], text: "Please don't let me down, I'm begging you" }, LINES[1], LINES[2]];
+  const A: Blank = { id: '0:2', lineIndex: 0, tokenIndex: 2, answer: 'let' };
+  const B: Blank = { id: '0:6', lineIndex: 0, tokenIndex: 6, answer: 'begging' };
+
+  /** The blank slots of the line in play, in order. */
+  function slots() {
+    return within(screen.getByTestId('line-current'))
+      .getAllByText('lacuna')
+      .map((label) => label.parentElement!);
+  }
+
+  it('moves the "sua vez" slot and the options together to the next blank after a miss with auto-repeat off', () => {
+    saveSettings(localStorage, { ...DEFAULT_SETTINGS, autoRepeatOnMiss: false });
+    renderGame({ lines: TWO_BLANK_LINES, blanks: [A, B] });
+    expect(option('let')).toBeInTheDocument();
+    expect(slots()[0]).not.toHaveClass('border-dashed');
+    expect(slots()[1]).toHaveClass('border-dashed');
+
+    fireEvent.click(option('late'));
+
+    expect(option('begging')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'late, errou' })).not.toBeInTheDocument();
+    const [slotA, slotB] = slots();
+    expect(slotA).toHaveClass('border-dashed');
+    expect(slotB).not.toHaveClass('border-dashed');
+    expect(slotB).toHaveClass('border-lime', 'bg-card');
+  });
+});
+
+describe('GameScreen: the screen follows the clock the game accepted', () => {
+  /** A player that still reports the middle of the song on the first read after the game's opening seek. */
+  class StalePlayer extends FakePlayerAdapter {
+    private staleRead = false;
+
+    override seekTo(ms: number): void {
+      super.seekTo(ms);
+      this.staleRead = true;
+    }
+
+    override getCurrentTimeMs(): number {
+      if (!this.staleRead) return super.getCurrentTimeMs();
+      this.staleRead = false;
+      return 60000;
+    }
+  }
+
+  it('never shows a line from a stale reading, nor works out options for a blank that is not in play', () => {
+    fake = new StalePlayer(DURATION_MS);
+    renderGame({ blanks: [LET, GAVE, STREET] });
+
+    expect(screen.getByTestId('line-current')).toHaveTextContent("Please don't lacuna me down");
+    expect(distractorsAskedFor()).toEqual(['let']);
+    // The bar shows where the game is, not the stale reading.
+    expect(screen.getByTestId('progress').style.width).toBe('0%');
+  });
+});
+
 describe('GameScreen: the clock right after a seek (ruling R44)', () => {
   it('ignores the clock for 300 ms after Repetir verso, so a stale reading does not pause the line again', () => {
     renderGame();
@@ -609,7 +667,9 @@ describe('ToolsBar', () => {
     const { onHint } = renderTools('ad');
 
     const hint = screen.getByRole('button', { name: 'Dica · anúncio' });
-    expect(hint).toHaveClass('border-dashed');
+    // The ad spot keeps its lime dashed border (ruling R46), never the grey of a tool that is off.
+    expect(hint).toHaveClass('border-dashed', 'border-lime');
+    expect(hint.className).not.toMatch(/disabled:border-border/);
     expect(hint).toBeDisabled();
     fireEvent.click(hint);
     expect(onHint).not.toHaveBeenCalled();

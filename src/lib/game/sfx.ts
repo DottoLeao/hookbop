@@ -58,12 +58,12 @@ function beep(frequency: number, durationMs: number): void {
   }
 }
 
-/** The sound of a first-try hit; it climbs with the combo. */
+/** The sound of a hit, retries included (ruling R45); it climbs with the combo. */
 export function playHit(combo: number): void {
   beep(hitFrequency(combo), HIT_MS);
 }
 
-/** The sound of a first-try miss. */
+/** The sound of a miss, retries included (ruling R45). */
 export function playMiss(): void {
   beep(MISS_HZ, MISS_MS);
 }

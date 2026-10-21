@@ -39,8 +39,14 @@ describe('EscolhaArea', () => {
     expect(hit).toHaveClass('bg-lime');
     expect(hit.querySelector('[data-icon="check"]')).not.toBeNull();
     expect(document.body.textContent).not.toMatch(/acertou|errou/i);
-    // The question is over: nothing else can be picked.
-    for (const button of screen.getAllByRole('button')) expect(button).toBeDisabled();
+    // The question is over. The picked option stays focusable, so focus stays on it and its result is read out;
+    // a second tap does nothing. The others can no longer be picked.
+    expect(hit).toHaveAttribute('aria-disabled', 'true');
+    expect(hit).not.toHaveAttribute('disabled');
+    fireEvent.click(hit);
+    expect(onAnswer).toHaveBeenCalledOnce();
+    expect(option('late')).toBeDisabled();
+    expect(option('lead')).toBeDisabled();
   });
 
   it('turns a wrong option red with a cross, and the other two can still be picked', () => {
@@ -52,7 +58,10 @@ describe('EscolhaArea', () => {
     const miss = option('late, errou');
     expect(miss).toHaveClass('bg-error');
     expect(miss.querySelector('[data-icon="cross"]')).not.toBeNull();
-    expect(miss).toBeDisabled();
+    expect(miss).toHaveAttribute('aria-disabled', 'true');
+    expect(miss).not.toHaveAttribute('disabled');
+    fireEvent.click(miss);
+    expect(onAnswer).toHaveBeenCalledOnce();
     expect(document.body.textContent).not.toMatch(/acertou|errou/i);
     expect(option('let')).toBeEnabled();
     expect(option('lead')).toBeEnabled();
@@ -79,7 +88,7 @@ describe('EscolhaArea', () => {
 
     rerender(<EscolhaArea blank={BLANK} options={OPTIONS} onAnswer={vi.fn()} hinted />);
 
-    expect(option('late, errou')).toBeDisabled();
+    expect(option('late, errou')).toHaveAttribute('aria-disabled', 'true');
     expect(option('lead')).toBeDisabled();
     expect(option('lead')).toHaveClass('border-dashed');
     expect(option('let')).toBeEnabled();
@@ -89,7 +98,10 @@ describe('EscolhaArea', () => {
     const onAnswer = renderArea({ solved: true });
 
     expect(option('let, acertou')).toHaveClass('bg-lime');
-    for (const button of screen.getAllByRole('button')) expect(button).toBeDisabled();
+    expect(option('let, acertou')).toHaveAttribute('aria-disabled', 'true');
+    expect(option('late')).toBeDisabled();
+    expect(option('lead')).toBeDisabled();
+    fireEvent.click(option('let, acertou'));
     fireEvent.click(option('lead'));
     expect(onAnswer).not.toHaveBeenCalled();
   });
