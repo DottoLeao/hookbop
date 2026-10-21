@@ -27,7 +27,7 @@ describe('normalizeTyped', () => {
   });
 
   it('removes the no-break space a phone keyboard may add', () => {
-    expect(normalizeTyped('get ')).toBe('get');
+    expect(normalizeTyped('get\u00a0')).toBe('get');
   });
 
   it('turns every apostrophe-like mark a keyboard makes into the plain one', () => {
@@ -37,7 +37,7 @@ describe('normalizeTyped', () => {
   });
 
   it('removes zero-width characters and direction marks wherever they are', () => {
-    for (const mark of ['​', '‌', '‍', '⁠', '﻿', '‎', '‏']) {
+    for (const mark of ['\u200b', '\u200c', '\u200d', '\u2060', '\ufeff', '\u200e', '\u200f']) {
       expect(normalizeTyped(`get${mark}`)).toBe('get');
       expect(normalizeTyped(`${mark}get`)).toBe('get');
       expect(normalizeTyped(`g${mark}et`)).toBe('get');
@@ -45,11 +45,44 @@ describe('normalizeTyped', () => {
     }
   });
 
+  it('removes the other invisible characters a keyboard or a pasted text may carry', () => {
+    const marks = [
+      ['\u202a', 'left-to-right embedding'],
+      ['\u202b', 'right-to-left embedding'],
+      ['\u202c', 'pop directional formatting'],
+      ['\u202d', 'left-to-right override'],
+      ['\u202e', 'right-to-left override'],
+      ['\u2066', 'left-to-right isolate'],
+      ['\u2067', 'right-to-left isolate'],
+      ['\u2068', 'first strong isolate'],
+      ['\u2069', 'pop directional isolate'],
+      ['\u061c', 'arabic letter mark'],
+      ['\u00ad', 'soft hyphen'],
+      ['\u180e', 'mongolian vowel separator'],
+    ];
+    for (const [mark, name] of marks) {
+      expect(normalizeTyped(`get${mark}`), name).toBe('get');
+      expect(normalizeTyped(`${mark}get`), name).toBe('get');
+      expect(normalizeTyped(`g${mark}et`), name).toBe('get');
+      expect(normalizeTyped(`get. ${mark}`), name).toBe('get');
+      expect(matchTyped(`${mark}Get${mark}`, 'get').result, name).toBe('exact');
+    }
+  });
+
+  it('keeps the characters that sit next to those ranges', () => {
+    expect(normalizeTyped('g\u2029et')).toBe('g\u2029et'); // paragraph separator
+    expect(normalizeTyped('g\u202fet')).toBe('g\u202fet'); // narrow no-break space inside
+    expect(normalizeTyped('g\u206aet')).toBe('g\u206aet'); // inhibit symmetric swapping
+    expect(normalizeTyped('g¬et')).toBe('g¬et'); // not sign
+  });
+
   it('puts accented letters in their composed form', () => {
-    expect(normalizeTyped('café')).toBe('café');
-    expect(normalizeTyped('cafe​́')).toBe('café'); // an invisible character between them
-    expect(normalizeTyped('CAFÉ')).toBe('café'); // a capital with its accent apart
-    expect(normalizeTyped('Café')).toBe('café');
+    const composed = 'caf\u00e9'; // e with an acute accent, one character
+    expect(normalizeTyped('cafe\u0301')).toBe(composed); // e followed by a combining accent
+    expect(normalizeTyped('CAFE\u0301')).toBe(composed); // a capital with its accent apart
+    expect(normalizeTyped('cafe\u200b\u0301')).toBe(composed); // an invisible character between them
+    expect(normalizeTyped('Caf\u00e9')).toBe(composed);
+    expect(composed).toHaveLength(4);
   });
 
   it('removes an ellipsis from the end, as a character or as three full stops', () => {
@@ -64,7 +97,7 @@ describe('normalizeTyped', () => {
     expect(normalizeTyped('')).toBe('');
     expect(normalizeTyped('  ')).toBe('');
     expect(normalizeTyped(' . ')).toBe('');
-    expect(normalizeTyped('​')).toBe('');
+    expect(normalizeTyped('\u200b')).toBe('');
     expect(normalizeTyped('…')).toBe('');
   });
 });
@@ -83,10 +116,10 @@ describe('matchTyped', () => {
     expect(matchTyped('don`t', "don't").result).toBe('exact');
     expect(matchTyped('get…', 'get').result).toBe('exact');
     expect(matchTyped('get...', 'get').result).toBe('exact');
-    expect(matchTyped('get​', 'get').result).toBe('exact');
-    expect(matchTyped('‎get‏', 'get').result).toBe('exact');
-    expect(matchTyped('﻿get', 'get').result).toBe('exact');
-    expect(matchTyped('café', 'café').result).toBe('exact');
+    expect(matchTyped('get\u200b', 'get').result).toBe('exact');
+    expect(matchTyped('\u200eget\u200f', 'get').result).toBe('exact');
+    expect(matchTyped('\ufeffget', 'get').result).toBe('exact');
+    expect(matchTyped('cafe\u0301', 'caf\u00e9').result).toBe('exact'); // typed apart, answer in one piece
   });
 
   it('gives no corrected letters for an exact answer or a wrong one', () => {
@@ -165,7 +198,7 @@ describe('matchTyped', () => {
   it('marks the dropped apostrophe whatever the case, the marks and the stray characters of the keyboard', () => {
     expect(matchTyped('WERE', "We’re")).toEqual({ result: 'corrected', correctedIndices: [2] });
     expect(matchTyped(' cause. ', '‘cause')).toEqual({ result: 'corrected', correctedIndices: [0] });
-    expect(matchTyped('its​', "it's")).toEqual({ result: 'corrected', correctedIndices: [2] });
+    expect(matchTyped('its\u200b', "it's")).toEqual({ result: 'corrected', correctedIndices: [2] });
   });
 
   it('does not take the apostrophe rule for an answer without an apostrophe, or other letters left out', () => {

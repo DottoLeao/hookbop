@@ -317,3 +317,56 @@ describe('makeDistractors and homophones', () => {
     expect(offeredForRed.has('reed')).toBe(true);
   }, SLOW);
 });
+
+describe('makeDistractors and words that start with an apostrophe', () => {
+  const FIFTY = Array.from({ length: 50 }, (_, i) => `apostrophe-${i}`);
+
+  it("never offers cause, or a form of it, for the answer 'cause", () => {
+    for (const seed of FIFTY) {
+      const d = makeDistractors("'cause", [], seed).map((w) => w.toLowerCase());
+      expect(d).toHaveLength(2);
+      for (const same of ['cause', "'cause", 'causes', 'caused', 'causing']) expect(d).not.toContain(same);
+    }
+  }, SLOW);
+
+  it("never offers goodbye for a quoted 'goodbye", () => {
+    for (const seed of FIFTY) {
+      const d = makeDistractors("'goodbye", [], seed).map((w) => w.toLowerCase());
+      expect(d).toHaveLength(2);
+      for (const same of ['goodbye', "'goodbye", 'goodbyes']) expect(d).not.toContain(same);
+    }
+  }, SLOW);
+
+  it('does the same for a curly quote, capitals and a typographic apostrophe', () => {
+    for (const seed of SEEDS) {
+      for (const answer of ['‘Cause', '’CAUSE', '´cause']) {
+        const d = makeDistractors(answer, [], seed).map((w) => w.toLowerCase());
+        expect(d).not.toContain('cause');
+      }
+    }
+  }, SLOW);
+
+  it('uses the homophones of the word inside the quotes', () => {
+    // "knight" sounds exactly like "night", and the quote must not hide it.
+    for (const seed of SEEDS) expect(makeDistractors("'night", [], seed)).not.toContain('knight');
+  }, SLOW);
+
+  it('leaves out a line word that starts with an apostrophe', () => {
+    const first = makeDistractors('let', [], 's1');
+    const quoted = first.map((w) => `'${w}`);
+    for (const seed of SEEDS) {
+      for (const w of makeDistractors('let', quoted, seed)) expect(first).not.toContain(w);
+    }
+  }, SLOW);
+
+  it('still gives two different real words that are not the quoted word', () => {
+    for (const answer of ["'cause", "'til", "'em", "'bout"]) {
+      const d = makeDistractors(answer, [], 'quoted');
+      expect(new Set(d).size).toBe(2);
+      for (const w of d) {
+        expect(isRealWord(w)).toBe(true);
+        expect(w).not.toBe(answer.slice(1));
+      }
+    }
+  });
+});

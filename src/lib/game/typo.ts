@@ -5,8 +5,14 @@ import { isRealWord } from './words';
 /** An answer needs at least this many letters (apostrophes do not count) before a typo in it is forgiven. */
 const MIN_LETTERS_TO_FORGIVE = 3;
 
-/** Characters a keyboard may add that nobody sees: zero-width space, joiners, word joiner, BOM and direction marks. */
-const INVISIBLE = /[​-‏⁠﻿]/g;
+/**
+ * Characters a keyboard or a pasted text may carry that nobody sees:
+ *  - zero-width space and joiners (U+200B to U+200D), word joiner (U+2060) and byte order mark (U+FEFF);
+ *  - direction marks (U+200E, U+200F, U+061C), embeddings and overrides (U+202A to U+202E), isolates (U+2066 to
+ *    U+2069);
+ *  - soft hyphen (U+00AD) and Mongolian vowel separator (U+180E).
+ */
+const INVISIBLE = /[\u00AD\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g;
 
 export interface TypedMatch {
   result: 'exact' | 'corrected' | 'wrong';

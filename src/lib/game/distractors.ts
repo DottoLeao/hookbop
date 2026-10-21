@@ -30,6 +30,15 @@ function sound(word: string): string {
 }
 
 /**
+ * The word as the pool spells it, for comparing: lowercase, with plain apostrophes and without the one that may
+ * start it ("'cause" is the word "cause", and a quoted "'goodbye" is "goodbye"). The pool has no apostrophes.
+ */
+function plain(word: string): string {
+  const folded = foldWord(word);
+  return folded.startsWith("'") ? folded.slice(1) : folded;
+}
+
+/**
  * For each word, the other words that sound exactly like it (night, knight). A word that is in two groups has the
  * words of both, but the groups are not chained: "red" and "reed" are not homophones because both are "read".
  */
@@ -91,7 +100,9 @@ function closestFirst(
  *
  * A candidate comes from the list of common words (without the offensive ones) and is not the answer, not a word of
  * the line, not the answer with s, 's, ed or ing, and not a homophone of the answer (night and knight can not be
- * told apart by ear). It is at most 2 letters longer or shorter than the answer.
+ * told apart by ear). A quote at the start of a word does not make it another word: for "'cause" the word "cause"
+ * is the answer, and for a line word "'til" the word "til" is in the line. A candidate is at most 2 letters longer
+ * or shorter than the answer.
  * The order of preference is:
  *   1. words that sound like the answer (same primary Double Metaphone code), the fewest edits first;
  *   2. then the other words that are 1 to 3 edits away, the fewest edits first.
@@ -104,10 +115,14 @@ export function makeDistractors(answer: string, lineTokens: string[], seed: stri
   const rng = seededRng(seed);
   const target = foldWord(answer);
   const targetSound = sound(target);
-  const inLine = new Set(lineTokens.map(foldWord));
-  // Words that cannot be told apart from the answer, by ear or in meaning: its forms and the words that sound like it.
-  const related = new Set([...inflections(target), ...(HOMOPHONES.get(target) ?? [])]);
-  const pool = distractorPool().filter((word) => word !== target && !inLine.has(word) && !related.has(word));
+  const inLine = new Set(lineTokens.map(plain));
+  // The answer itself, its forms and the words that sound like it can not be told apart from it, by ear or in
+  // meaning. The quote at the start of the answer does not make a word different, so it is left out of the comparison.
+  const bare = plain(answer);
+  const same = new Set(
+    [target, ...inflections(target), ...(HOMOPHONES.get(target) ?? []), ...(HOMOPHONES.get(bare) ?? [])].map(plain),
+  );
+  const pool = distractorPool().filter((word) => !same.has(word) && !inLine.has(word));
 
   // Splitting by sound first saves the edit count of the many words that sound nothing like the answer.
   const alike: string[] = [];
