@@ -1,4 +1,4 @@
-interface NameSource {
+export interface NameSource {
   email?: string | null;
   user_metadata?: Record<string, unknown> | null;
 }

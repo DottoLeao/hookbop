@@ -16,6 +16,9 @@ export const ptBR = {
   'entrar.google': 'Entrar com Google',
   'entrar.email': 'Receber link por e-mail',
   'entrar.emailLabel': 'Seu e-mail',
+  'entrar.codeLabel': 'Ou digite o código do e-mail',
+  'entrar.codeSubmit': 'Entrar',
+  'entrar.codeInvalid': 'Código inválido. Confere e tenta de novo.',
   'entrar.sent': 'Link enviado! Confere seu e-mail.',
   'entrar.error': 'Não rolou. Tenta de novo?',
   // Uma mensagem por motivo de /entrar?estado=. 'sem-convite' e 'used' dizem o mesmo.

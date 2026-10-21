@@ -248,6 +248,19 @@ otp_expiry = 3600
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
 
+# Sign-in e-mails carry the link AND the six-digit code ({{ .Token }}): the installed iOS app
+# cannot use the link (Mail opens it in Safari, which has no access to the app session), so
+# it types the code instead. With "Confirm email" on, a person's first sign-in gets the
+# confirmation e-mail and every later one the magic-link e-mail, so both use the same body.
+# The hosted project needs the same two templates pasted into Auth > Emails in the dashboard.
+[auth.email.template.magic_link]
+subject = "Seu acesso ao Hookbop"
+content_path = "./supabase/templates/magic_link.html"
+
+[auth.email.template.confirmation]
+subject = "Seu acesso ao Hookbop"
+content_path = "./supabase/templates/magic_link.html"
+
 # Uncomment to customize email template
 # [auth.email.template.invite]
 # subject = "You have been invited"

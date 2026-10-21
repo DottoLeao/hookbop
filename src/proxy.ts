@@ -21,5 +21,5 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   // Everything except Next.js internals and the favicon the browser asks for by itself.
-  matcher: ['/((?!_next/|favicon\.ico$).*)'],
+  matcher: ['/((?!_next/|favicon\\.ico$).*)'],
 };
