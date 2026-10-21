@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PlayerError, PlayerState } from './adapter';
+import type { PlayerAdapter, PlayerError, PlayerState } from './adapter';
 
 const API_SRC = 'https://www.youtube.com/iframe_api';
 
@@ -90,10 +90,11 @@ describe('createYouTubeAdapter', () => {
   });
 
   async function setup() {
-    const { createYouTubeAdapter } = await import('./youtubeAdapter');
+    // PlayerLoadError comes from the same fresh module as createYouTubeAdapter, so instanceof works.
+    const { createYouTubeAdapter, PlayerLoadError } = await import('./youtubeAdapter');
     const el = document.createElement('div');
     document.body.appendChild(el);
-    return { createYouTubeAdapter, el };
+    return { createYouTubeAdapter, PlayerLoadError, el };
   }
 
   /** Starts an adapter, finishes the API load and fires onReady, like a real page would. */
@@ -181,7 +182,7 @@ describe('createYouTubeAdapter', () => {
     const { createYouTubeAdapter, el } = await setup();
 
     const failed = createYouTubeAdapter(el, 'dQw4w9WgXcQ');
-    const failure = expect(failed).rejects.toThrow();
+    const failure = expect(failed).rejects.toMatchObject({ reason: 'other' });
     apiScripts()[0].dispatchEvent(new Event('error'));
     await failure;
     expect(apiScripts()).toHaveLength(0);
@@ -260,6 +261,187 @@ describe('createYouTubeAdapter', () => {
 
     expect(onState).not.toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  describe('a video that cannot play', () => {
+    it.each([
+      [101, 'not_embeddable'],
+      [150, 'not_embeddable'],
+      [100, 'not_found'],
+      [2, 'other'],
+    ])('rejects, instead of hanging, when YouTube reports error %i before the player is ready', async (code, reason) => {
+      const { createYouTubeAdapter, PlayerLoadError, el } = await setup();
+      const outcome = createYouTubeAdapter(el, 'dQw4w9WgXcQ').then(
+        () => null,
+        (e: unknown) => e,
+      );
+      finishLoadingApi();
+      await flush();
+      const player = FakeYTPlayer.instances[0];
+
+      player.options.events.onError({ data: code });
+
+      const error = await outcome;
+      expect(error).toBeInstanceOf(PlayerLoadError);
+      expect(error).toMatchObject({ reason });
+      expect(player.destroy).toHaveBeenCalledTimes(1);
+    });
+
+    it('hands the error to a subscriber that arrives after it fired', async () => {
+      const { adapter, player } = await readyAdapter();
+      player.options.events.onError({ data: 101 });
+
+      const late = vi.fn();
+      adapter.onError(late);
+
+      expect(late).toHaveBeenCalledTimes(1);
+      expect(late).toHaveBeenCalledWith('not_embeddable');
+    });
+
+    it('keeps only the last error for late subscribers, and still tells the ones already listening', async () => {
+      const { adapter, player } = await readyAdapter();
+      const early = vi.fn();
+      adapter.onError(early);
+
+      player.options.events.onError({ data: 101 });
+      player.options.events.onError({ data: 100 });
+      const late = vi.fn();
+      adapter.onError(late);
+
+      expect(early.mock.calls).toEqual([['not_embeddable'], ['not_found']]);
+      expect(late.mock.calls).toEqual([['not_found']]);
+    });
+
+    it('does not call a late subscriber when nothing went wrong', async () => {
+      const { adapter } = await readyAdapter();
+      const late = vi.fn();
+      adapter.onError(late);
+      expect(late).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('the ready timeout', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** Starts the call and records how it ends, without leaving a rejection unhandled. */
+    async function start(opts?: { readyTimeoutMs?: number }) {
+      const { createYouTubeAdapter, PlayerLoadError, el } = await setup();
+      const result = { settled: false, outcome: undefined as unknown };
+      const done = createYouTubeAdapter(el, 'dQw4w9WgXcQ', opts).then(
+        (value) => value,
+        (error: unknown) => error,
+      );
+      void done.then((value) => {
+        result.settled = true;
+        result.outcome = value;
+      });
+      return { result, done, PlayerLoadError };
+    }
+
+    it('rejects with other after 15 s by default, and destroys the player', async () => {
+      const { result, done, PlayerLoadError } = await start();
+      finishLoadingApi();
+
+      await vi.advanceTimersByTimeAsync(14999);
+      const player = FakeYTPlayer.instances[0];
+      expect(result.settled).toBe(false);
+      expect(player.destroy).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      const error = await done;
+      expect(error).toBeInstanceOf(PlayerLoadError);
+      expect(error).toMatchObject({ reason: 'other' });
+      expect(player.destroy).toHaveBeenCalledTimes(1);
+    });
+
+    it('takes the time from readyTimeoutMs', async () => {
+      const { result, done, PlayerLoadError } = await start({ readyTimeoutMs: 2000 });
+      finishLoadingApi();
+
+      await vi.advanceTimersByTimeAsync(1999);
+      expect(result.settled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await done).toBeInstanceOf(PlayerLoadError);
+      expect(result.outcome).toMatchObject({ reason: 'other' });
+    });
+
+    it('also covers a script that never finishes loading, and then builds no player', async () => {
+      const { done, PlayerLoadError } = await start({ readyTimeoutMs: 1000 });
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(await done).toBeInstanceOf(PlayerLoadError);
+
+      finishLoadingApi(); // the script turns up too late
+      await vi.advanceTimersByTimeAsync(0);
+      expect(FakeYTPlayer.instances).toHaveLength(0);
+    });
+
+    it('clears the timer when YouTube reports an error before the player is ready', async () => {
+      const { done, PlayerLoadError } = await start({ readyTimeoutMs: 1000 });
+      finishLoadingApi();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(vi.getTimerCount()).toBe(1);
+
+      FakeYTPlayer.instances[0].options.events.onError({ data: 150 });
+
+      expect(await done).toMatchObject({ reason: 'not_embeddable' });
+      expect(await done).toBeInstanceOf(PlayerLoadError);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('clears the timer once the player is ready, and keeps the player alive', async () => {
+      const { done } = await start({ readyTimeoutMs: 1000 });
+      finishLoadingApi();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(vi.getTimerCount()).toBe(1);
+      const player = FakeYTPlayer.instances[0];
+      player.options.events.onReady();
+      const adapter = (await done) as PlayerAdapter;
+      expect(vi.getTimerCount()).toBe(0);
+
+      await vi.advanceTimersByTimeAsync(60000);
+
+      expect(player.destroy).not.toHaveBeenCalled();
+      adapter.play();
+      expect(player.playVideo).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('does nothing after destroy, and never calls into the destroyed player', async () => {
+    const { adapter, player } = await readyAdapter();
+    player.getCurrentTime.mockReturnValue(12);
+    player.getDuration.mockReturnValue(180);
+    player.options.events.onError({ data: 101 }); // latched, but must not reach anyone after destroy
+    adapter.destroy();
+    const listener = vi.fn();
+
+    expect(() => {
+      adapter.play();
+      adapter.pause();
+      adapter.seekTo(1000);
+      adapter.setRate(0.75);
+      adapter.onState(listener)();
+      adapter.onError(listener)();
+      adapter.destroy();
+    }).not.toThrow();
+
+    expect(adapter.getCurrentTimeMs()).toBe(0);
+    expect(adapter.getDurationMs()).toBe(0);
+    expect(player.getCurrentTime).not.toHaveBeenCalled();
+    expect(player.getDuration).not.toHaveBeenCalled();
+    expect(player.playVideo).not.toHaveBeenCalled();
+    expect(player.pauseVideo).not.toHaveBeenCalled();
+    expect(player.seekTo).not.toHaveBeenCalled();
+    expect(player.setPlaybackRate).not.toHaveBeenCalled();
+    expect(player.destroy).toHaveBeenCalledTimes(1);
+    expect(listener).not.toHaveBeenCalled();
   });
 
   it('destroys the YouTube player and drops the listeners', async () => {
