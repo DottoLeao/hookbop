@@ -1,0 +1,19 @@
+[
+  "a", "an", "the",
+  "in", "on", "at", "to", "of", "for", "with", "by", "from", "into", "onto", "upon", "about",
+  "and", "or", "but", "so", "if", "then", "than", "as", "nor",
+  "i", "you", "he", "she", "it", "we", "they", "me", "him", "her", "us", "them",
+  "my", "your", "his", "its", "our", "their", "mine", "yours", "hers", "ours", "theirs",
+  "myself", "yourself", "himself", "herself", "itself", "ourselves", "themselves",
+  "is", "am", "are", "was", "were", "be", "been", "being",
+  "do", "does", "did", "have", "has", "had",
+  "will", "would", "can", "could", "shall", "should", "may", "might", "must",
+  "not", "no", "just", "too", "very", "all", "any", "some",
+  "that", "this", "these", "those", "there", "here",
+  "what", "who", "whom", "whose", "which", "when", "where", "why", "how",
+  "i'm", "i'll", "i've", "i'd", "you're", "you'll", "you've", "you'd",
+  "he's", "she's", "it's", "we're", "we'll", "we've", "they're", "they'll", "they've",
+  "that's", "there's", "here's", "what's", "who's", "let's",
+  "don't", "doesn't", "didn't", "can't", "won't", "wouldn't", "couldn't", "shouldn't",
+  "isn't", "aren't", "wasn't", "weren't", "haven't", "hasn't", "hadn't"
+]
