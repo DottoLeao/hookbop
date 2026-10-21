@@ -1082,7 +1082,7 @@ export function getHelp(userId: string, r: HelpRequest, deps: HelpDeps, nowMs: n
 Esta task publica o app, o que tem efeito fora do computador. **Peça confirmação explícita ao dono antes do Step 4.**
 
 - [ ] **Step 1:** Confira os pré-requisitos 1, 3, 4 e 5 com o dono: projeto no Supabase, Google configurado no Supabase, chave da Anthropic e domínio registrado.
-- [ ] **Step 2:** Aplique as migrações no projeto hospedado com `npx supabase link --project-ref <ref>` e `npx supabase db push`. Rode o seed com o e-mail do dono. No Supabase Auth, cadastre as URLs de retorno `https://<domínio>/auth/callback` e `http://localhost:3000/auth/callback`.
+- [ ] **Step 2:** Aplique as migrações no projeto hospedado com `npx supabase link --project-ref <ref>` e `npx supabase db push`. Rode o seed com o e-mail do dono. No Supabase Auth, cadastre as URLs de retorno `https://<domínio>/auth/callback` e `http://localhost:3000/auth/callback`. No painel do Supabase, em Auth, confirme que **"Confirm email" está ligado**. Sem isso, qualquer pessoa pode virar dona do app se cadastrando com o e-mail do dono, porque o `db push` não leva essa configuração do `config.toml`.
 - [ ] **Step 3:** Ligue o projeto à Vercel e configure as variáveis de ambiente:
   - `NEXT_PUBLIC_SUPABASE_URL`
   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
