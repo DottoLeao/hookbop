@@ -13,6 +13,49 @@ export const ptBR = {
 
   'home.pastePlaceholder': 'Cole o link do YouTube',
 
+  // Tela da música (/jogar/[youtubeId]): carregar, erros, calibrar e escolher o modo.
+  'jogar.back': 'Voltar',
+  'jogar.loading': 'Procurando a letra...',
+  'jogar.lyricsSlow': 'O banco de letras tá lento. Tenta de novo?',
+  'jogar.retry': 'Tentar de novo',
+  'jogar.videoUnavailable': 'Esse clipe não toca fora do YouTube.',
+  'jogar.pasteAnother': 'Colar outro link',
+  'jogar.noLyrics': 'Ainda não temos a letra dessa.',
+  'jogar.searchAudio': 'Procurar a versão áudio oficial',
+
+  'calibrar.title': 'Acertar o tempo',
+  'calibrar.hint': 'Dá o play no clipe e toca em “Começou!” quando esta linha começar:',
+  'calibrar.start': 'Começou!',
+  'calibrar.minus': '−0,5 s',
+  'calibrar.plus': '+0,5 s',
+  'calibrar.offset': 'Ajuste: {valor}',
+  'calibrar.save': 'Salvar',
+  'calibrar.saveError': 'Não rolou salvar. Tenta de novo?',
+  'calibrar.skip': 'Pular',
+  'calibrar.switchToAudio': 'Trocar para a versão áudio oficial',
+
+  'modo.title': 'Escolher o modo',
+  'modo.question': 'Como você quer jogar?',
+  'modo.change': 'Trocar',
+  'modo.changeLabel': 'Trocar de música',
+  'modo.escolha': 'Escolha',
+  'modo.escolha.desc': 'Escolha a palavra que falta entre 3 opções',
+  'modo.digitacao': 'Digitação',
+  'modo.digitacao.desc': 'Digite a palavra. Erro de digitação é perdoado',
+  'modo.karaoke': 'Karaokê',
+  'modo.karaoke.desc': 'Cante junto, com a tradução embaixo',
+  'modo.montar': 'Monte o verso',
+  'modo.montar.desc': 'Coloque as palavras na ordem certa',
+  'modo.difficulty': 'Dificuldade',
+  'modo.play': 'Jogar',
+
+  'dificuldade.facil': 'Fácil',
+  'dificuldade.medio': 'Médio',
+  'dificuldade.dificil': 'Difícil',
+
+  // Só até a tela de jogo de verdade chegar.
+  'jogo.blankCount': 'Lacunas: {n}',
+
   'entrar.google': 'Entrar com Google',
   'entrar.email': 'Receber link por e-mail',
   'entrar.emailLabel': 'Seu e-mail',
