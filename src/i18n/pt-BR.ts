@@ -55,8 +55,28 @@ export const ptBR = {
   'dificuldade.medio': 'Médio',
   'dificuldade.dificil': 'Difícil',
 
-  // Só até a tela de jogo de verdade chegar.
-  'jogo.blankCount': 'Lacunas: {n}',
+  // Tela de jogo: cabeçalho, letra, ferramentas e configurações.
+  'jogo.song': '{musica} · {artista}',
+  'jogo.mode': 'Modo {modo}',
+  'jogo.comboLabel': 'Combo',
+  'jogo.combo': 'x{n}',
+  'jogo.settings': 'Configurações',
+  'jogo.settingsDone': 'Pronto',
+  'jogo.blank': 'lacuna',
+  'jogo.translate': 'Traduzir verso',
+  'jogo.explain': 'Não entendi',
+  'jogo.slow': '0.75x',
+  'jogo.repeat': 'Repetir verso',
+  'jogo.hint': 'Dica',
+  'jogo.hintAd': 'Dica · anúncio',
+  'config.alwaysShowTranslation': 'Mostrar tradução sempre',
+  'config.autoRepeatOnMiss': 'Repetir sozinho depois de errar',
+  'config.sounds': 'Sons',
+
+  // Modo Escolha. "acertou" e "errou" só aparecem no nome acessível do botão, nunca na tela.
+  'escolha.question': 'Escolha a palavra que falta',
+  'escolha.hit': '{palavra}, acertou',
+  'escolha.miss': '{palavra}, errou',
 
   'entrar.google': 'Entrar com Google',
   'entrar.email': 'Receber link por e-mail',

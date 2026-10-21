@@ -1,0 +1,101 @@
+'use client';
+
+import { useState } from 'react';
+import { t } from '@/i18n/t';
+import { tokenize } from '@/lib/game/blanks';
+import { makeDistractors } from '@/lib/game/distractors';
+import { seededRng, shuffled } from '@/lib/game/rng';
+import type { Blank, LyricLine } from '@/lib/types';
+
+/**
+ * The three options of a blank: its answer and two distractors, in an order drawn from the blank id and the video,
+ * so a song always asks the same question the same way. Finding the distractors can take ~100 ms the first time,
+ * so the game screen asks only for the blank in play.
+ */
+export function escolhaOptions(blank: Blank, line: LyricLine, youtubeId: string): string[] {
+  const seed = `${blank.id}${youtubeId}`;
+  return shuffled([blank.answer, ...makeDistractors(blank.answer, tokenize(line.text), seed)], seededRng(seed));
+}
+
+interface EscolhaAreaProps {
+  blank: Blank;
+  /** The answer and its distractors, in the order to show them (`escolhaOptions`). */
+  options: readonly string[];
+  /** A hint was used on the blank: one wrong option that was not tried yet is greyed out. */
+  hinted?: boolean;
+  /** The blank is already right: the answer shows its check, and nothing can be picked. */
+  solved?: boolean;
+  onAnswer: (correct: boolean) => void;
+}
+
+const option =
+  'flex min-h-13 min-w-0 items-center justify-center gap-1.5 rounded-answer px-2 text-center text-button [overflow-wrap:anywhere] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime';
+
+/** ✓ or ✕ in the button's text color (design/canvas/Componentes.dc.html, "Respostas"). */
+function ResultIcon({ hit }: { hit: boolean }) {
+  return (
+    <svg
+      data-icon={hit ? 'check' : 'cross'}
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="shrink-0"
+    >
+      <path d={hit ? 'M5 12l5 5 9-10' : 'M7 7l10 10M17 7L7 17'} />
+    </svg>
+  );
+}
+
+/**
+ * "Escolha a palavra que falta": three answer buttons (design/canvas/Escolha.dc.html, Limão colors). A right pick
+ * turns lime with ✓ and closes the question; a wrong one turns red with ✕ and the other two stay open for another
+ * try. The result is said only in the button's accessible name ("let, acertou"), never as text on screen.
+ */
+export function EscolhaArea({ blank, options, hinted = false, solved = false, onAnswer }: EscolhaAreaProps) {
+  const [picked, setPicked] = useState<readonly string[]>([]);
+  const done = solved || picked.includes(blank.answer);
+  // The first wrong option in the row that was not tried: once the hint is in, that one stays the same.
+  const greyedOut = hinted ? options.find((o) => o !== blank.answer && !picked.includes(o)) : undefined;
+
+  function pick(choice: string) {
+    if (done || picked.includes(choice)) return;
+    setPicked([...picked, choice]);
+    onAnswer(choice === blank.answer);
+  }
+
+  return (
+    <div role="group" aria-label={t('escolha.question')} className="grid grid-cols-3 gap-2">
+      {options.map((choice) => {
+        const hit = choice === blank.answer && done;
+        const miss = choice !== blank.answer && picked.includes(choice);
+        const greyed = choice === greyedOut;
+        const look = hit
+          ? 'bg-lime font-bold text-bg'
+          : miss
+            ? 'bg-error font-bold text-bg'
+            : greyed
+              ? 'border-[1.5px] border-dashed border-border font-semibold text-faint'
+              : 'bg-card font-semibold text-text disabled:text-muted';
+        return (
+          <button
+            key={choice}
+            type="button"
+            disabled={done || miss || greyed}
+            aria-label={hit ? t('escolha.hit', { palavra: choice }) : miss ? t('escolha.miss', { palavra: choice }) : undefined}
+            onClick={() => pick(choice)}
+            className={`${option} ${look}`}
+          >
+            {(hit || miss) && <ResultIcon hit={hit} />}
+            {choice}
+          </button>
+        );
+      })}
+    </div>
+  );
+}

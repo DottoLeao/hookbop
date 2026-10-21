@@ -170,6 +170,9 @@ function officialAudioSearchUrl(video: VideoRecord): string {
   return `https://www.youtube.com/results?search_query=${encodeURIComponent(`${artist} ${track} official audio`)}`;
 }
 
+/** The end of a song does nothing yet: the game screen stays on its last state. */
+function endGame() {}
+
 const action =
   'flex min-h-11 w-full items-center justify-center rounded-button px-4 text-center text-button font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime';
 const primaryAction = `${action} bg-lime text-bg`;
@@ -210,6 +213,8 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
   const sleep = deps.sleep ?? defaultSleep;
 
   const playerBoxRef = useRef<HTMLDivElement>(null);
+  // Where the game screen puts its header, above the player box.
+  const [gameHeaderSlot, setGameHeaderSlot] = useState<HTMLDivElement | null>(null);
   const openedAtRef = useRef<number | null>(null);
   const [playerAttempt, setPlayerAttempt] = useState(0);
   const [lyricsAttempt, setLyricsAttempt] = useState(0);
@@ -439,6 +444,8 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
             blanks={phase.blanks}
             video={phase.video}
             timeToReadyMs={timeToReadyMs ?? 0}
+            onEnd={endGame}
+            headerSlot={gameHeaderSlot}
           />
         );
     }
@@ -479,6 +486,8 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
           {title && <h1 className="font-heading text-button font-bold">{title}</h1>}
         </header>
       )}
+      {/* The game screen's header, drawn into this box through a portal. It adds no box of its own to the layout. */}
+      <div ref={setGameHeaderSlot} className="contents" />
       {/* The YouTube player's box. Its child is created by the player effect, never by React. */}
       <div
         ref={playerBoxRef}

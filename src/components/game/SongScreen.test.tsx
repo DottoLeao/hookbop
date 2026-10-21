@@ -568,6 +568,21 @@ describe('SongScreen: mode picker', () => {
 
     expect(gameProps().timeToReadyMs).toBe(2500);
   });
+
+  it('gives the game a place for its header above the player, and an onEnd that does nothing yet', async () => {
+    render(<SongScreen youtubeId={ID} deps={makeDeps()} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+
+    pick('Escolha');
+
+    const { headerSlot, onEnd } = gameProps();
+    expect(headerSlot).toBeInstanceOf(HTMLElement);
+    expect(headerSlot!.compareDocumentPosition(screen.getByTestId('player')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The song screen draws no header of its own during the game.
+    expect(screen.queryByRole('link', { name: 'Voltar' })).not.toBeInTheDocument();
+    expect(() => onEnd({ totalBlanks: 1, firstTryCorrect: 1, pct: 100, maxCombo: 1, xp: 12 }, [])).not.toThrow();
+    expect(screen.getByTestId('game-screen')).toBeInTheDocument();
+  });
 });
 
 describe('SongScreen: the player lifetime', () => {
