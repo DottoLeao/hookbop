@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LyricLine } from '@/lib/types';
-import { selectBlanks, tokenize } from './blanks';
+import { hasBlankableWord, selectBlanks, tokenize } from './blanks';
 import { seededRng, shuffled } from './rng';
 
 /** A line that is 3 s long (inside the playable range) unless the test says otherwise. */
@@ -192,7 +192,7 @@ describe('selectBlanks', () => {
     });
 
     it('does not treat the verb as a phrasal verb when the particle comes before it', () => {
-      const lines = [line(0, 'Down below I let go')];
+      const lines = [line(0, 'Down the street I let go')];
       const answers = new Set(SEEDS.flatMap((seed) => selectBlanks(lines, 'dificil', seed).map((b) => b.answer)));
       // Without a particle after it, "let" is only an ordinary word, so it does not win every time.
       expect(answers.size).toBeGreaterThan(1);
@@ -231,7 +231,9 @@ describe('selectBlanks', () => {
     });
 
     it('never picks any of the ad-lib shapes, stretched or not, in any case', () => {
-      const adLibs = 'ohh ooh oohh YEAHHH yeah yaaa laaa naaa uhhh hey woah whoa ahhh mmm haaa';
+      const adLibs =
+        'ohh ooh oohh oooh ooooh ooo YEAHHH yeah yaaa laaa naaa nanana lalala dadada uhhh hey heyyy ' +
+        'woah whoa whoaa woooah ahhh mmm hmm huh haaa';
       const lines = [line(0, `${adLibs} sunshine`)];
       for (const seed of SEEDS) {
         expect(selectBlanks(lines, 'dificil', seed).map((b) => b.answer)).toEqual(['sunshine']);
@@ -266,6 +268,150 @@ describe('selectBlanks', () => {
     it('gives no blank to a line made only of ad-libs, stopwords and short words', () => {
       const lines = [line(0, 'Oh oh oh yeah'), line(1, 'I am in it'), line(2, 'Na na na'), line(3, '')];
       expect(selectBlanks(lines, 'dificil', 's')).toEqual([]);
+    });
+  });
+
+  describe('ad-libs and real words', () => {
+    it('does not mistake real words for ad-libs', () => {
+      const words = ['laugh', 'honey', 'hurry', 'heart', 'nap', 'hold', 'yarn', 'dance', 'ahead', 'whole', 'woman', 'hug'];
+      for (const word of words) {
+        expect(selectBlanks([line(0, `oh oh ${word}`)], 'dificil', 's').map((b) => b.answer)).toEqual([word]);
+      }
+    });
+  });
+
+  describe('prepositions and particles', () => {
+    it('never picks a loose preposition or a bare particle', () => {
+      const loose =
+        'under around after before between against across behind beyond near until since during within along ' +
+        'among toward towards below beneath beside above over through without down up out off away';
+      const lines = [line(0, `${loose} sunshine`)];
+      for (const seed of SEEDS) {
+        expect(selectBlanks(lines, 'dificil', seed).map((b) => b.answer)).toEqual(['sunshine']);
+      }
+    });
+
+    it('never picks "through" in "Run through the fire"', () => {
+      const lines = [line(0, 'Run through the fire')];
+      const answers = new Set(SEEDS.flatMap((seed) => selectBlanks(lines, 'dificil', seed).map((b) => b.answer)));
+      expect(answers.has('through')).toBe(false);
+      expect([...answers].sort()).toEqual(['Run', 'fire']);
+    });
+
+    it('still finds a phrasal verb whose particle is now a stopword', () => {
+      for (const seed of SEEDS) {
+        expect(selectBlanks([line(0, 'Time to wake up')], 'dificil', seed).map((b) => b.answer)).toEqual(['wake']);
+        expect(selectBlanks([line(0, 'Time to give up now')], 'dificil', seed).map((b) => b.answer)).toEqual(['give']);
+      }
+    });
+  });
+
+  describe('a leading apostrophe', () => {
+    it("is ignored when looking up stopwords and ad-libs, so 'you, 'hey, 'ooh and 'the are not blanks", () => {
+      const lines = [line(0, "'you 'hey 'ooh 'the sunshine")];
+      for (const seed of SEEDS) {
+        expect(selectBlanks(lines, 'dificil', seed).map((b) => b.answer)).toEqual(['sunshine']);
+      }
+    });
+
+    it("is ignored when looking for a phrasal verb too, so a quoted 'let ... down still wins", () => {
+      for (const seed of SEEDS) {
+        expect(selectBlanks([line(0, "Please 'let me down' again")], 'dificil', seed).map((b) => b.answer)).toEqual([
+          "'let",
+        ]);
+        expect(selectBlanks([line(0, "Please let me 'down again")], 'dificil', seed).map((b) => b.answer)).toEqual([
+          'let',
+        ]);
+      }
+    });
+
+    it("is ignored for the contraction list too, so a quoted 'gonna is still a contraction", () => {
+      for (const seed of SEEDS) {
+        expect(selectBlanks([line(0, "Please 'gonna fly tonight")], 'dificil', seed).map((b) => b.answer)).toEqual([
+          "'gonna",
+        ]);
+      }
+    });
+
+    it("does not stop 'cause from being a contraction", () => {
+      expect(selectBlanks([line(0, "Stay 'cause I care")], 'dificil', 's').map((b) => b.answer)).toEqual(["'cause"]);
+    });
+  });
+
+  describe('lines in capitals', () => {
+    it('gives an ALL CAPS line a blank, because capitals say nothing about names there', () => {
+      const lines = [line(0, 'I LOVE THE WAY YOU MOVE')];
+      const answers = new Set<string>();
+      for (const seed of SEEDS) {
+        const picked = selectBlanks(lines, 'dificil', seed).map((b) => b.answer);
+        expect(picked).toHaveLength(1);
+        picked.forEach((answer) => answers.add(answer));
+      }
+      expect([...answers].sort()).toEqual(['LOVE', 'MOVE', 'WAY']);
+    });
+
+    it('compares stopwords and the lists without caring about case', () => {
+      const lines = [line(0, "I'M GONNA MAKE IT TONIGHT")];
+      for (const seed of SEEDS) {
+        expect(selectBlanks(lines, 'dificil', seed).map((b) => b.answer)).toEqual(['GONNA']);
+      }
+    });
+
+    it('still gives the phrasal verb priority on an ALL CAPS line', () => {
+      const lines = [line(0, "DON'T LET ME DOWN AGAIN")];
+      for (const seed of SEEDS) {
+        expect(selectBlanks(lines, 'dificil', seed)).toEqual([
+          { id: '0:1', lineIndex: 0, tokenIndex: 1, answer: 'LET' },
+        ]);
+      }
+    });
+
+    it('can pick a capitalized word in the middle of a Title Case line', () => {
+      const answers = new Set<string>();
+      for (const seed of SEEDS) {
+        selectBlanks([line(0, 'Chasing Your Heart Tonight')], 'dificil', seed).forEach((b) => answers.add(b.answer));
+      }
+      expect([...answers].sort()).toEqual(['Chasing', 'Heart', 'Tonight']);
+    });
+
+    it('does not let a short lowercase word turn the name rule back on', () => {
+      const answers = new Set<string>();
+      for (const seed of SEEDS) {
+        selectBlanks([line(0, 'Dancing in Paris Tonight')], 'dificil', seed).forEach((b) => answers.add(b.answer));
+      }
+      expect([...answers].sort()).toEqual(['Dancing', 'Paris', 'Tonight']);
+    });
+
+    it('gives the phrasal verb priority on a Title Case line too', () => {
+      // "Hold On To Your Heart Tonight": hold + on is a phrasal verb, so "Hold" wins over Heart and Tonight.
+      for (const seed of SEEDS) {
+        expect(selectBlanks([line(0, 'Hold On To Your Heart Tonight')], 'dificil', seed).map((b) => b.answer)).toEqual([
+          'Hold',
+        ]);
+      }
+    });
+
+    it('keeps the name rule on a normal line that has one lowercase word of 3 letters or more', () => {
+      for (const seed of SEEDS) {
+        expect(selectBlanks([line(0, 'DANCING with MARIA TONIGHT')], 'dificil', seed).map((b) => b.answer)).toEqual([
+          'DANCING',
+        ]);
+      }
+    });
+  });
+
+  describe('hasBlankableWord', () => {
+    it('is true when the line has a usable word, in any case', () => {
+      expect(hasBlankableWord(tokenize('Dancing with Maria tonight'))).toBe(true);
+      expect(hasBlankableWord(tokenize('I LOVE THE WAY'))).toBe(true);
+    });
+
+    it('is false for ad-libs, stopwords, short words and names alone', () => {
+      expect(hasBlankableWord(tokenize('Oh oh oh yeah'))).toBe(false);
+      expect(hasBlankableWord(tokenize('Na na na na'))).toBe(false);
+      expect(hasBlankableWord(tokenize('I am in it'))).toBe(false);
+      expect(hasBlankableWord(tokenize('Oh you and Maria'))).toBe(false);
+      expect(hasBlankableWord([])).toBe(false);
     });
   });
 

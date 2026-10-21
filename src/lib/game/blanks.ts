@@ -15,8 +15,11 @@ const LINE_SHARE: Record<Difficulty, number> = { facil: 1 / 3, medio: 1 / 2, dif
 const LONG_LINE_WORDS = 8;
 const MIN_LETTERS = 3;
 
-/** Sounds people sing that are not words to learn. */
-const AD_LIB = /^(oh+|ooh+|yeah+|ya+|la+|na+|uh+|hey|woah|whoa|ah+|mm+|ha+)$/i;
+/**
+ * Sounds people sing that are not words to learn, stretched or not: o/oh/ooh, yeah, ya, la, na, uh, hey/heyyy,
+ * woah/whoa/woooah, ah, mm/hm/hmm, ha, huh, and runs of la, na or da such as nanana, lalala and dadada.
+ */
+const AD_LIB = /^(o+h*|yeah+|ya+|la+|na+|uh+|h?ey+|wh?o+a+h*|ah+|mm+|hm+|ha+|hu?h|(?:la|na|da)+)$/i;
 
 const STOPWORDS = new Set<string>(stopwordList);
 const CONTRACTIONS = new Set<string>(contractionList);
@@ -70,28 +73,57 @@ function letterCount(token: string): number {
 }
 
 /**
+ * The token in lower case and without the apostrophe that may start it, which is how stopwords, ad-libs and
+ * phrasal verbs are looked up ("'you" is "you"). The contraction list is checked with the apostrophe too,
+ * because some of its entries start with one ("'cause").
+ */
+function lookupForm(token: string): string {
+  const word = token.toLowerCase();
+  return word.startsWith("'") ? word.slice(1) : word;
+}
+
+/**
+ * True on an ALL CAPS or Title Case line, where every word of 3 letters or more starts with a capital.
+ * Capitals mean nothing there, so they cannot tell a name from any other word.
+ */
+function capitalsAreNoSignal(tokens: string[]): boolean {
+  return tokens.filter((token) => letterCount(token) >= MIN_LETTERS).every(isCapitalized);
+}
+
+/**
  * The token positions that can be a blank, best first: the verb of a phrasal verb whose particle comes later in the line,
  * then a contraction from the list, then any content word of 3 letters or more. Ad-libs never count,
- * and neither does a capitalized word that does not start the line, because it is a name.
+ * and neither does a capitalized word that does not start the line, because it is a name (unless the whole
+ * line is in capitals, where that tells nothing). Lists are compared in lower case.
  */
 function rankedCandidates(tokens: string[]): [phrasal: number[], contractions: number[], content: number[]] {
   const phrasal: number[] = [];
   const contractions: number[] = [];
   const content: number[] = [];
+  const namesShowByCapital = !capitalsAreNoSignal(tokens);
   tokens.forEach((token, position) => {
-    if (AD_LIB.test(token)) return;
-    if (position > 0 && isCapitalized(token)) return;
-    const word = token.toLowerCase();
+    const word = lookupForm(token);
+    if (AD_LIB.test(word)) return;
+    if (namesShowByCapital && position > 0 && isCapitalized(token)) return;
     const particles = PARTICLES_BY_VERB.get(word);
-    if (particles && tokens.slice(position + 1).some((later) => particles.has(later.toLowerCase()))) {
+    if (particles && tokens.slice(position + 1).some((later) => particles.has(lookupForm(later)))) {
       phrasal.push(position);
-    } else if (CONTRACTIONS.has(word)) {
+    } else if (CONTRACTIONS.has(token.toLowerCase()) || CONTRACTIONS.has(word)) {
       contractions.push(position);
     } else if (!STOPWORDS.has(word) && letterCount(token) >= MIN_LETTERS) {
       content.push(position);
     }
   });
   return [phrasal, contractions, content];
+}
+
+function hasCandidate(groups: number[][]): boolean {
+  return groups.some((group) => group.length > 0);
+}
+
+/** True when at least one word of the line could be a blank. Blanks and tile lines both ask for it. */
+export function hasBlankableWord(tokens: string[]): boolean {
+  return hasCandidate(rankedCandidates(tokens));
 }
 
 /** Takes `count` positions from the best group that still has any, one at a time, at random inside the group. */
@@ -119,7 +151,7 @@ export function selectBlanks(lines: LyricLine[], difficulty: Difficulty, seed: s
       const tokens = tokenize(line.text);
       return { line, tokens, groups: rankedCandidates(tokens) };
     })
-    .filter(({ groups }) => groups.some((group) => group.length > 0));
+    .filter(({ groups }) => hasCandidate(groups));
 
   const blanks: Blank[] = [];
   for (const { line, tokens, groups } of drawLines(eligible, difficulty, rng)) {
