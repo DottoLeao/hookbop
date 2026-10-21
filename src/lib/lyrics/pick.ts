@@ -19,17 +19,41 @@ const DURATION_REACH_S = 30;
 /** Scores closer than this are a tie (floating point noise is not a difference). */
 const SCORE_TIE = 1e-9;
 
+/** A group in round or square brackets at the end of a title, with the space before it. */
+const TRAILING_GROUP = /\s*(?:\([^()]*\)|\[[^[\]]*\])\s*$/;
+
+/** A dash (hyphen, en or em) between spaces, and everything after it. */
+const DASH_SUFFIX = /\s+[-–—]\s+.*$/;
+
 interface Scored {
   candidate: LrclibCandidate;
   score: number;
   durationDiffS: number;
 }
 
+/**
+ * The title without the decorations LRCLIB entries often carry at the end:
+ * "(Remastered 2011)", "[Live]", "(feat. X)", " - Radio Edit". Removed over and over until none is left,
+ * so "Song (feat. Y) - Live (2011)" becomes "Song".
+ */
+function stripTrailingDecorations(title: string): string {
+  let text = title.trim();
+  for (;;) {
+    const next = text.replace(TRAILING_GROUP, '').replace(DASH_SUFFIX, '').trim();
+    if (next === text) return text;
+    text = next;
+  }
+}
+
 /** The candidate's score, or null when it cannot be used (no synced lyrics, or a different song). */
 function scoreOf(candidate: LrclibCandidate, q: LyricsQuery): Scored | null {
   if (!candidate.syncedLyrics?.trim()) return null;
 
-  const trackSimilarity = diceSimilarity(candidate.trackName, q.track);
+  // A decorated entry ("Song (Remastered 2011)") counts as the song it decorates, so the better of both reads wins.
+  const trackSimilarity = Math.max(
+    diceSimilarity(candidate.trackName, q.track),
+    diceSimilarity(stripTrailingDecorations(candidate.trackName), q.track),
+  );
   if (trackSimilarity < MIN_TRACK_SIMILARITY) return null;
 
   const artistSimilarity = diceSimilarity(candidate.artistName, q.artist);
@@ -50,7 +74,8 @@ function isBetter(a: Scored, b: Scored): boolean {
 
 /**
  * The candidate that best matches the song, or null when none is good enough.
- * Only candidates with synced lyrics and a title at least 0.6 similar to the track count.
+ * Only candidates with synced lyrics and a title at least 0.6 similar to the track count;
+ * the title is compared as written and without its trailing decorations, and the better match counts.
  * The score is 0.5 title + 0.3 artist + 0.2 duration; on a tie the closer duration wins,
  * and on a full tie the earlier candidate stays.
  */

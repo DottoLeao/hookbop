@@ -21,6 +21,30 @@ describe('pickBestCandidate', () => {
     expect(pickBestCandidate([{ ...base, id: 4, trackName: 'Completely Other', duration: 200 }], q)).toBeNull();
   });
 
+  it.each([
+    ['a year-tagged remaster in parentheses', 'Song (Remastered 2011)'],
+    ['a featuring credit in parentheses', 'Song (feat. Y)'],
+    ['a dash suffix', 'Song - Live at X'],
+    ['a decoration in square brackets', 'Song [Remastered]'],
+    ['several decorations in a row', 'Song (Live) [Remastered] - Radio Edit (2011)'],
+    ['a parenthesis before a dash suffix', 'Song (feat. Y) - Live at X'],
+  ])('accepts a title decorated with %s', (_name, trackName) => {
+    const decorated = { ...base, id: 20, trackName, duration: 200 };
+    expect(pickBestCandidate([decorated], q)).toBe(decorated);
+  });
+
+  it('only strips decorations from the end of the title', () => {
+    // Without "(Live)" this would read "Song X" (0.75 against "Song"); as written it scores about 0.46.
+    const middle = { ...base, id: 21, trackName: 'Song (Live) X', duration: 200 };
+    expect(pickBestCandidate([middle], q)).toBeNull();
+  });
+
+  it('still rejects an unrelated title, decorated or not', () => {
+    expect(pickBestCandidate([{ ...base, id: 22, trackName: 'Completely Other', duration: 200 }], q)).toBeNull();
+    expect(pickBestCandidate([{ ...base, id: 23, trackName: 'Completely Other (Remastered 2011)', duration: 200 }], q)).toBeNull();
+    expect(pickBestCandidate([{ ...base, id: 24, trackName: '(Intro)', duration: 200 }], q)).toBeNull();
+  });
+
   it('returns null when there are no candidates', () => {
     expect(pickBestCandidate([], q)).toBeNull();
   });

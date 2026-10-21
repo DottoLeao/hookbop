@@ -2,7 +2,7 @@
 function normalize(text: string): string {
   return text
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .normalize('NFC')
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, '')

@@ -4,9 +4,9 @@ import type { LyricsLookup, LyricsQuery, LyricsSource } from './source';
 const API_URL = 'https://lrclib.net/api';
 const DEFAULT_TIMEOUT_MS = 6000;
 
-/** What one LRCLIB call came back with. */
+/** What one LRCLIB call came back with. `candidates` is empty only when the service sent an empty list. */
 type Answer =
-  | { kind: 'body'; body: unknown }
+  | { kind: 'candidates'; candidates: LrclibCandidate[] }
   | { kind: 'not_found' }
   | { kind: 'unavailable' };
 
@@ -25,20 +25,30 @@ function isCandidate(value: unknown): value is LrclibCandidate {
   );
 }
 
-/** /api/get answers with one song and /api/search with a list; both become a list of usable songs. */
+/**
+ * /api/get answers with one song and /api/search with a list; both become a list of songs.
+ * An empty list is a real "nothing here". Anything else that holds no well-formed song
+ * (junk entries, an error object, null) is not an answer we can trust, so it is `unavailable`.
+ */
+function parseAnswer(body: unknown): Answer {
+  if (Array.isArray(body) && body.length === 0) return { kind: 'candidates', candidates: [] };
+  const items: unknown[] = Array.isArray(body) ? body : [body];
+  const candidates = items.filter(isCandidate);
+  return candidates.length > 0 ? { kind: 'candidates', candidates } : UNAVAILABLE;
+}
+
 function candidatesIn(answer: Answer): LrclibCandidate[] {
-  if (answer.kind !== 'body') return [];
-  const items: unknown[] = Array.isArray(answer.body) ? answer.body : [answer.body];
-  return items.filter(isCandidate);
+  return answer.kind === 'candidates' ? answer.candidates : [];
 }
 
 /**
  * Lyrics from LRCLIB (https://lrclib.net), asking /api/get and /api/search at the same time.
  * Both calls share one timeout (6 s unless `timeoutMs` says otherwise) that aborts them together.
- * A 404 or an empty list is `not_found`; a 5xx, any other bad status, a network error, an answer
- * that is not JSON or an abort is `unavailable`. Whatever the service could not tell us about is
- * never reported as "no lyrics": if one call is unavailable and the other has no usable
- * candidate, the lookup is `unavailable`.
+ * A 404 or an empty list is `not_found`; a 5xx, any other bad status, a network error, an abort,
+ * an answer that is not JSON and a 200 whose body holds no well-formed song (but is not an empty
+ * list) are `unavailable`. Whatever the service could not tell us about is never reported as
+ * "no lyrics": if one call is unavailable and the other has no usable candidate, the lookup is
+ * `unavailable`.
  */
 export function createLrclibSource(opts: { fetch: typeof fetch; client: string; timeoutMs?: number }): LyricsSource {
   // Taken off `opts` so it runs as a plain function: the browser's fetch throws
@@ -54,7 +64,7 @@ export function createLrclibSource(opts: { fetch: typeof fetch; client: string; 
       });
       if (response.status === 404) return NOT_FOUND;
       if (!response.ok) return UNAVAILABLE;
-      return { kind: 'body', body: await response.json() };
+      return parseAnswer(await response.json());
     } catch {
       // Network error, abort by the timeout, or a body that is not JSON.
       return UNAVAILABLE;

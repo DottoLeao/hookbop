@@ -133,6 +133,17 @@ describe('createLrclibSource', () => {
       expect(await sourceOver(fetchFn).find(q)).toEqual({ status: 'unavailable' });
     });
 
+    it.each([
+      ['a non-empty array with no valid entry', [null, 5, 'x', {}, candidate({ id: 'nope' })]],
+      ['an object that is not a candidate', { message: 'rate limited' }],
+    ])('when a 200 answer is %s, from either call', async (_name, body) => {
+      const onSearch = routed({ get: status(404), search: answers(body) });
+      expect(await sourceOver(onSearch).find(q)).toEqual({ status: 'unavailable' });
+
+      const onGet = routed({ get: answers(body), search: status(404) });
+      expect(await sourceOver(onGet).find(q)).toEqual({ status: 'unavailable' });
+    });
+
     it('but still finds lyrics when the other call answered with a good candidate', async () => {
       const fetchFn = routed({ get: status(503), search: answers([candidate({ id: 5 })]) });
       expect(await sourceOver(fetchFn).find(q)).toMatchObject({ status: 'found', result: { ref: '5' } });
