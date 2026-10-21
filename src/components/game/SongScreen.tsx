@@ -7,9 +7,9 @@ import { t } from '@/i18n/t';
 import { selectBlanks } from '@/lib/game/blanks';
 import { selectTileLines } from '@/lib/game/tiles';
 import { cleanTitle } from '@/lib/lyrics/cleanTitle';
-import { applyOffset } from '@/lib/lyrics/lrc';
+import { applyOffset, parseLrc } from '@/lib/lyrics/lrc';
 import { createLrclibSource } from '@/lib/lyrics/lrclib';
-import { resolveSong, type SongResolution, type VideoRecord } from '@/lib/lyrics/resolveSong';
+import { resolveSong, type SongResolution, type SongStore, type VideoRecord } from '@/lib/lyrics/resolveSong';
 import type { PlayerAdapter, PlayerError } from '@/lib/player/adapter';
 import { createYouTubeAdapter, PlayerLoadError } from '@/lib/player/youtubeAdapter';
 import { createBrowserSupabase } from '@/lib/supabase/client';
@@ -23,29 +23,46 @@ import { ModePicker } from './ModePicker';
 /** How the app introduces itself to LRCLIB, as its API asks. */
 const LRCLIB_CLIENT = 'Hookbop/0.1 (+https://hookbop.app)';
 
+/** YouTube may report a duration of 0 until it has the video's details, so it is read again this often... */
+const DURATION_POLL_MS = 100;
+/** ...for at most this long (ruling R42). */
+const DURATION_WAIT_MS = 3000;
+
 /** What the song screen reaches outside itself for. Tests pass fakes; the app uses `browserDeps`. */
 export interface SongScreenDeps {
-  /** Finds the lyrics and what the app remembers about the video. */
-  resolve: (youtubeId: string, videoDurationS: number) => Promise<SongResolution>;
+  /** Finds the lyrics and what the app remembers about the video, reading and saving through `store`. */
+  resolve: (youtubeId: string, videoDurationS: number, store: SongStore) => Promise<SongResolution>;
+  /** Where videos are remembered. The screen hands `resolve` a read-only view of it when the duration is unknown. */
+  store: SongStore;
   /** Starts the player on `el`. YouTube replaces `el` with its iframe. */
   createAdapter: (el: HTMLElement, youtubeId: string) => Promise<PlayerAdapter>;
   /** Records this player's offset vote and gives back the new median, in ms. */
   saveOffsetVote: (youtubeId: string, offsetMs: number) => Promise<number>;
   /** A clock in ms, for timeToReadyMs. `performance.now` when left out. */
   now?: () => number;
+  /** Waits `ms`, between two reads of the duration. A timer when left out. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 const defaultNow = () => performance.now();
+const defaultSleep = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
 
-/** The real thing: Supabase through the signed-in member's browser client, YouTube and LRCLIB. */
+/** The `videos` table through the signed-in member's browser client, made on first use (never during SSR). */
+const browserStore: SongStore = {
+  getVideo: (id) => createSupabaseSongStore(createBrowserSupabase()).getVideo(id),
+  upsertVideo: (video) => createSupabaseSongStore(createBrowserSupabase()).upsertVideo(video),
+};
+
+/** The real thing: Supabase, YouTube and LRCLIB. */
 const browserDeps: SongScreenDeps = {
-  resolve: (youtubeId, videoDurationS) =>
+  resolve: (youtubeId, videoDurationS, store) =>
     resolveSong(youtubeId, videoDurationS, {
-      store: createSupabaseSongStore(createBrowserSupabase()),
+      store,
       meta: fetchVideoMeta,
       lyrics: createLrclibSource({ fetch: window.fetch, client: LRCLIB_CLIENT }),
       now: () => new Date(),
     }),
+  store: browserStore,
   createAdapter: (el, youtubeId) => createYouTubeAdapter(el, youtubeId),
   saveOffsetVote: async (youtubeId, offsetMs) => {
     const { data, error } = await createBrowserSupabase().rpc('set_offset_vote', {
@@ -56,7 +73,35 @@ const browserDeps: SongScreenDeps = {
     return data;
   },
   now: defaultNow,
+  sleep: defaultSleep,
 };
+
+/**
+ * The store as seen by a device that could not read the video's duration: it reads, but saves nothing.
+ * A lookup made with a duration of 0 can pick the wrong lyrics, and it must not end up in the row every
+ * member shares.
+ */
+function readOnlyStore(store: SongStore): SongStore {
+  return {
+    getVideo: (id) => store.getVideo(id),
+    upsertVideo: async (video) => {
+      console.warn('The video duration is unknown, so this lookup is not saved.', video.youtubeId);
+    },
+  };
+}
+
+/** The player's duration in ms, read again every 100 ms while it is 0, for at most 3 s. 0 if it never came. */
+async function waitForDurationMs(
+  adapter: PlayerAdapter,
+  sleep: (ms: number) => Promise<void>,
+  closed: () => boolean,
+): Promise<number> {
+  for (let waitedMs = 0; ; waitedMs += DURATION_POLL_MS) {
+    const durationMs = adapter.getDurationMs();
+    if (durationMs > 0 || waitedMs >= DURATION_WAIT_MS || closed()) return durationMs;
+    await sleep(DURATION_POLL_MS);
+  }
+}
 
 /** Where the screen is. The player error, kept apart, wins over all of these. */
 type Phase =
@@ -82,7 +127,9 @@ function phaseFor(resolution: SongResolution, adapter: PlayerAdapter): Phase {
       const { video, lines } = resolution;
       // Lyrics with no line in them give nothing to play.
       if (lines.length === 0) return { kind: 'no_lyrics', video };
-      return resolution.needsCalibration
+      // The sheet opens by itself only while nobody has calibrated this video (ruling R43). Once the
+      // players have a median, it is one tap away in the mode picker ("Ajustar o tempo").
+      return resolution.needsCalibration && video.offsetMs === 0
         ? { kind: 'calibration', adapter, video, lines }
         : { kind: 'picker', adapter, video, lines };
     }
@@ -93,6 +140,18 @@ function phaseFor(resolution: SongResolution, adapter: PlayerAdapter): Phase {
     case 'video_unavailable':
       return { kind: 'video_unavailable' };
   }
+}
+
+/**
+ * The lines as the lyrics have them, before any offset, parsed the way resolveSong parses them. Votes are
+ * measured against these, and a new median is applied to these, because `applyOffset` stops at 0 and so
+ * the shifted lines cannot always be shifted back.
+ */
+function linesAsWritten(video: VideoRecord, lines: LyricLine[]): LyricLine[] {
+  const { lyricsLrc, lyricsDurationS } = video;
+  // A ready video always holds its lyrics; this fallback only keeps the types honest.
+  if (lyricsLrc === undefined || lyricsDurationS === undefined) return applyOffset(lines, -video.offsetMs);
+  return parseLrc(lyricsLrc, lyricsDurationS * 1000);
 }
 
 /** The blanks of a game: whole lines in Monte o verso, none in Karaokê, words in the other two. */
@@ -146,8 +205,9 @@ function PasteAnother({ className }: { className: string }) {
  * in every state, so the clip is never torn down between loading, calibrating, picking and playing.
  */
 export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: string; deps?: SongScreenDeps }) {
-  const { resolve, createAdapter, saveOffsetVote } = deps;
+  const { resolve, store, createAdapter, saveOffsetVote } = deps;
   const now = deps.now ?? defaultNow;
+  const sleep = deps.sleep ?? defaultSleep;
 
   const playerBoxRef = useRef<HTMLDivElement>(null);
   const openedAtRef = useRef<number | null>(null);
@@ -155,6 +215,7 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
   const [lyricsAttempt, setLyricsAttempt] = useState(0);
   const [adapter, setAdapter] = useState<PlayerAdapter | null>(null);
   const [playerError, setPlayerError] = useState<PlayerError | null>(null);
+  const [playerStarted, setPlayerStarted] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
   const [timeToReadyMs, setTimeToReadyMs] = useState<number | null>(null);
 
@@ -178,7 +239,7 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
 
     let closed = false;
     let live: PlayerAdapter | null = null;
-    let stopListening: (() => void) | null = null;
+    const stopListening: (() => void)[] = [];
 
     createAdapter(target, youtubeId).then(
       (ready) => {
@@ -187,9 +248,23 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
           return;
         }
         live = ready;
-        // An error that came in before this line is replayed inside onError itself, before it returns,
-        // so the callback only records it and never unsubscribes.
-        stopListening = ready.onError((error) => setPlayerError(error));
+        // An error the player already had is replayed inside onError itself, before it returns, so the
+        // callback only records it (it never unsubscribes) and the check comes after the call.
+        let replayed = false;
+        stopListening.push(
+          ready.onError((error) => {
+            replayed = true;
+            setPlayerError(error);
+          }),
+        );
+        // A clip that cannot play needs no lyrics.
+        if (replayed) return;
+        // Whether the clip has played at all: before that, its time cannot be used to calibrate.
+        stopListening.push(
+          ready.onState((state) => {
+            if (state === 'playing') setPlayerStarted(true);
+          }),
+        );
         setAdapter(ready);
       },
       (error: unknown) => {
@@ -200,7 +275,7 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
 
     return () => {
       closed = true;
-      stopListening?.();
+      for (const stop of stopListening) stop();
       live?.destroy();
       host.remove();
     };
@@ -211,32 +286,44 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
     if (!adapter) return;
     let closed = false;
 
-    resolve(youtubeId, adapter.getDurationMs() / 1000).then(
-      (resolution) => {
-        if (closed) return;
-        const next = phaseFor(resolution, adapter);
-        if (next.kind === 'calibration' || next.kind === 'picker') {
-          const elapsedMs = Math.round(now() - (openedAtRef.current ?? 0));
-          setTimeToReadyMs((known) => known ?? elapsedMs);
-        }
-        setPhase(next);
-      },
-      (error: unknown) => {
+    async function findSong(player: PlayerAdapter) {
+      const durationMs = await waitForDurationMs(player, sleep, () => closed);
+      if (closed) return;
+      // Without a duration the lookup is a best guess: it saves nothing, and it cannot tell whether the
+      // video runs longer than the lyrics, so it never asks for a calibration.
+      const durationKnown = durationMs > 0;
+
+      let resolution: SongResolution;
+      try {
+        resolution = await resolve(youtubeId, durationMs / 1000, durationKnown ? store : readOnlyStore(store));
+      } catch (error) {
         if (closed) return;
         // The store or the video details failed: as far as the player can tell, the lyrics are slow.
         console.warn('Could not resolve the song.', error);
         setPhase({ kind: 'lyrics_unavailable' });
-      },
-    );
+        return;
+      }
+      if (closed) return;
+      if (!durationKnown && resolution.status === 'ready') resolution = { ...resolution, needsCalibration: false };
 
+      const next = phaseFor(resolution, player);
+      if (next.kind === 'calibration' || next.kind === 'picker') {
+        const elapsedMs = Math.round(now() - (openedAtRef.current ?? 0));
+        setTimeToReadyMs((known) => known ?? elapsedMs);
+      }
+      setPhase(next);
+    }
+
+    void findSong(adapter);
     return () => {
       closed = true;
     };
-  }, [adapter, resolve, youtubeId, now, lyricsAttempt]);
+  }, [adapter, resolve, store, sleep, youtubeId, now, lyricsAttempt]);
 
   function retryPlayer() {
     setAdapter(null);
     setPlayerError(null);
+    setPlayerStarted(false);
     setPhase({ kind: 'loading' });
     setPlayerAttempt((n) => n + 1);
   }
@@ -247,18 +334,22 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
   }
 
   function content(): ReactNode {
+    if (playerError === 'other') {
+      // A timeout or a script that did not load: a new player may well work.
+      return (
+        <Notice expression="errou" message={t('jogar.playerFailed')}>
+          <button type="button" onClick={retryPlayer} className={primaryAction}>
+            {t('jogar.retry')}
+          </button>
+          <PasteAnother className={secondaryAction} />
+        </Notice>
+      );
+    }
     if (playerError) {
-      // not_embeddable and not_found will not change; anything else (a timeout, a script that did not
-      // load) may work with a new player.
-      const canRetry = playerError === 'other';
+      // not_embeddable and not_found will not change.
       return (
         <Notice expression="errou" message={t('jogar.videoUnavailable')}>
-          {canRetry && (
-            <button type="button" onClick={retryPlayer} className={primaryAction}>
-              {t('jogar.retry')}
-            </button>
-          )}
-          <PasteAnother className={canRetry ? secondaryAction : primaryAction} />
+          <PasteAnother className={primaryAction} />
         </Notice>
       );
     }
@@ -295,12 +386,13 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
 
       case 'calibration': {
         const { adapter: player, video, lines } = phase;
+        const written = linesAsWritten(video, lines);
         return (
           <CalibrationSheet
             youtubeId={youtubeId}
             adapter={player}
-            // The lines carry the saved offset; the vote is measured from the lyrics as written.
-            firstLine={{ text: lines[0].text, startMs: lines[0].startMs - video.offsetMs }}
+            playerStarted={playerStarted}
+            firstLine={written[0]}
             audioSearchUrl={officialAudioSearchUrl(video)}
             saveOffsetVote={saveOffsetVote}
             onSaved={(medianMs) =>
@@ -308,7 +400,7 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
                 kind: 'picker',
                 adapter: player,
                 video: { ...video, offsetMs: medianMs },
-                lines: applyOffset(lines, medianMs - video.offsetMs),
+                lines: applyOffset(written, medianMs),
               })
             }
             onSkip={() => setPhase({ kind: 'picker', adapter: player, video, lines })}
@@ -321,6 +413,7 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
         return (
           <ModePicker
             video={video}
+            onCalibrate={() => setPhase({ kind: 'calibration', adapter: player, video, lines })}
             onPlay={(mode, difficulty) =>
               setPhase({
                 kind: 'game',

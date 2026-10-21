@@ -1,14 +1,13 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { StrictMode } from 'react';
-import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { selectBlanks } from '@/lib/game/blanks';
 import { selectTileLines } from '@/lib/game/tiles';
-import { applyOffset } from '@/lib/lyrics/lrc';
-import type { SongResolution, VideoRecord } from '@/lib/lyrics/resolveSong';
+import { applyOffset, parseLrc } from '@/lib/lyrics/lrc';
+import type { SongResolution, SongStore, VideoRecord } from '@/lib/lyrics/resolveSong';
 import type { PlayerAdapter } from '@/lib/player/adapter';
 import { FakePlayerAdapter } from '@/lib/player/fakeAdapter';
 import { PlayerLoadError } from '@/lib/player/youtubeAdapter';
-import type { LyricLine } from '@/lib/types';
 import { GameScreen } from './GameScreen';
 import { SongScreen, type SongScreenDeps } from './SongScreen';
 
@@ -19,15 +18,20 @@ vi.mock('./GameScreen', () => ({
 
 const ID = 'dQw4w9WgXcQ';
 const DURATION_MS = 213000;
+const LYRICS_DURATION_S = 200;
 
-const LINES: LyricLine[] = [
-  { index: 0, startMs: 300, endMs: 3300, text: "Please don't let me down" },
-  { index: 1, startMs: 3300, endMs: 6300, text: 'I gave you everything I had' },
-  { index: 2, startMs: 6300, endMs: 9300, text: 'And every street looks the same to me' },
-  { index: 3, startMs: 9300, endMs: 12300, text: 'Hold on to your heart tonight' },
-  { index: 4, startMs: 12300, endMs: 15300, text: "We're gonna dance until the morning" },
-  { index: 5, startMs: 15300, endMs: 18300, text: 'Tell me what you want from me' },
-];
+const LRC = [
+  "[00:00.30]Please don't let me down",
+  '[00:03.30]I gave you everything I had',
+  '[00:06.30]And every street looks the same to me',
+  '[00:09.30]Hold on to your heart tonight',
+  "[00:12.30]We're gonna dance until the morning",
+  '[00:15.30]Tell me what you want from me',
+  '[00:18.30]',
+].join('\n');
+
+/** The lines as the lyrics have them: 3 s each, the first one at 300 ms. */
+const LINES = parseLrc(LRC, LYRICS_DURATION_S * 1000);
 
 const VIDEO: VideoRecord = {
   youtubeId: ID,
@@ -38,18 +42,24 @@ const VIDEO: VideoRecord = {
   status: 'ok',
   lyricsSource: 'lrclib',
   lyricsRef: '777',
-  lyricsLrc: '[00:00.30]Please don’t let me down',
-  lyricsDurationS: 200,
+  lyricsLrc: LRC,
+  lyricsDurationS: LYRICS_DURATION_S,
   offsetMs: 0,
 };
 
 const READY: SongResolution = { status: 'ready', video: VIDEO, lines: LINES, needsCalibration: false };
 const NEEDS_CALIBRATION: SongResolution = { ...READY, needsCalibration: true };
 
+/** What resolveSong gives for a video whose players already settled on an offset. */
+function calibrated(offsetMs: number, needsCalibration: boolean): SongResolution {
+  return { status: 'ready', video: { ...VIDEO, offsetMs }, lines: applyOffset(LINES, offsetMs), needsCalibration };
+}
+
 const AUDIO_SEARCH = `https://www.youtube.com/results?search_query=${encodeURIComponent('The Beatles Let It Be official audio')}`;
 
 const SLOW = 'O banco de letras tá lento. Tenta de novo?';
 const CANNOT_EMBED = 'Esse clipe não toca fora do YouTube.';
+const PLAYER_FAILED = 'Não deu pra carregar o clipe. Tenta de novo?';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -66,14 +76,23 @@ let fake: FakePlayerAdapter;
 interface MockDeps {
   createAdapter: Mock<SongScreenDeps['createAdapter']>;
   resolve: Mock<SongScreenDeps['resolve']>;
+  store: { getVideo: Mock<SongStore['getVideo']>; upsertVideo: Mock<SongStore['upsertVideo']> };
   saveOffsetVote: Mock<SongScreenDeps['saveOffsetVote']>;
+  sleep: Mock<NonNullable<SongScreenDeps['sleep']>>;
+  now?: () => number;
 }
 
 function makeDeps(over: Partial<MockDeps> = {}): MockDeps {
   return {
     createAdapter: vi.fn<SongScreenDeps['createAdapter']>().mockResolvedValue(fake),
     resolve: vi.fn<SongScreenDeps['resolve']>().mockResolvedValue(READY),
+    store: {
+      getVideo: vi.fn<SongStore['getVideo']>().mockResolvedValue(null),
+      upsertVideo: vi.fn<SongStore['upsertVideo']>().mockResolvedValue(undefined),
+    },
     saveOffsetVote: vi.fn<SongScreenDeps['saveOffsetVote']>().mockResolvedValue(0),
+    // The duration wait does not sleep for real in tests.
+    sleep: vi.fn<NonNullable<SongScreenDeps['sleep']>>().mockResolvedValue(undefined),
     ...over,
   };
 }
@@ -91,15 +110,27 @@ function pick(mode: string, difficulty?: string) {
   fireEvent.click(screen.getByRole('button', { name: 'Jogar' }));
 }
 
+/** The player presses play on the clip, then taps "Começou!" at `atMs` and saves. */
+function calibrateAt(atMs: number) {
+  act(() => fake.emitState('playing'));
+  fake.seekTo(atMs);
+  fireEvent.click(screen.getByRole('button', { name: 'Começou!' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+}
+
 beforeEach(() => {
   fake = new FakePlayerAdapter(DURATION_MS);
   vi.mocked(GameScreen).mockClear();
 });
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe('SongScreen: loading', () => {
   it('shows DJ Bop looking for the lyrics while the player and the lyrics load', async () => {
     const lyrics = deferred<SongResolution>();
-    const deps = makeDeps({ resolve: vi.fn().mockReturnValue(lyrics.promise) });
+    const deps = makeDeps({ resolve: vi.fn<SongScreenDeps['resolve']>().mockReturnValue(lyrics.promise) });
     render(<SongScreen youtubeId={ID} deps={deps} />);
 
     expect(screen.getByRole('img', { name: 'DJ Bop' })).toBeInTheDocument();
@@ -120,7 +151,8 @@ describe('SongScreen: loading', () => {
     expect(el).not.toBe(box);
     expect(box.contains(el)).toBe(true);
 
-    await waitFor(() => expect(deps.resolve).toHaveBeenCalledExactlyOnceWith(ID, 213));
+    await waitFor(() => expect(deps.resolve).toHaveBeenCalledExactlyOnceWith(ID, 213, deps.store));
+    expect(deps.sleep).not.toHaveBeenCalled();
   });
 
   it('keeps the same player box from loading to the game', async () => {
@@ -139,6 +171,58 @@ describe('SongScreen: loading', () => {
   });
 });
 
+describe('SongScreen: the video duration (ruling R42)', () => {
+  it('waits for the player to know the duration, checking every 100 ms', async () => {
+    vi.spyOn(fake, 'getDurationMs').mockReturnValueOnce(0).mockReturnValueOnce(0).mockReturnValue(DURATION_MS);
+    const deps = makeDeps();
+    render(<SongScreen youtubeId={ID} deps={deps} />);
+
+    await waitFor(() => expect(deps.resolve).toHaveBeenCalledExactlyOnceWith(ID, 213, deps.store));
+    expect(deps.sleep).toHaveBeenCalledTimes(2);
+    expect(deps.sleep).toHaveBeenCalledWith(100);
+  });
+
+  it('gives up after 3 s and resolves with 0 s through a store that never saves', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(fake, 'getDurationMs').mockReturnValue(0);
+    const saved = { ...VIDEO, durationS: 0 };
+    const deps = makeDeps();
+    deps.store.getVideo.mockResolvedValue(VIDEO);
+    deps.resolve.mockImplementation(async (_id, _durationS, store) => {
+      expect(await store.getVideo(ID)).toBe(VIDEO);
+      await store.upsertVideo(saved);
+      return NEEDS_CALIBRATION;
+    });
+    render(<SongScreen youtubeId={ID} deps={deps} />);
+
+    // No calibration for a duration nobody knows: straight to the modes.
+    expect(await screen.findByRole('button', { name: 'Jogar' })).toBeInTheDocument();
+    expect(deps.sleep).toHaveBeenCalledTimes(30);
+    expect(deps.resolve).toHaveBeenCalledOnce();
+    const [id, durationS, store] = deps.resolve.mock.calls[0];
+    expect([id, durationS]).toEqual([ID, 0]);
+    expect(store).not.toBe(deps.store);
+    expect(deps.store.getVideo).toHaveBeenCalledExactlyOnceWith(ID);
+    expect(deps.store.upsertVideo).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Começou!' })).not.toBeInTheDocument();
+  });
+
+  it('stops waiting when the screen closes', async () => {
+    vi.spyOn(fake, 'getDurationMs').mockReturnValue(0);
+    const nap = deferred<void>();
+    const deps = makeDeps({ sleep: vi.fn<NonNullable<SongScreenDeps['sleep']>>().mockReturnValue(nap.promise) });
+    const { unmount } = render(<SongScreen youtubeId={ID} deps={deps} />);
+    await waitFor(() => expect(deps.sleep).toHaveBeenCalledOnce());
+
+    unmount();
+    await act(async () => nap.resolve());
+
+    expect(deps.sleep).toHaveBeenCalledOnce();
+    expect(deps.resolve).not.toHaveBeenCalled();
+  });
+});
+
 describe('SongScreen: lyrics service slow or down (Review Focus 1)', () => {
   it('says the lyrics service is slow and asks again on "Tentar de novo"', async () => {
     const deps = makeDeps({
@@ -153,7 +237,7 @@ describe('SongScreen: lyrics service slow or down (Review Focus 1)', () => {
 
     expect(await screen.findByRole('button', { name: 'Jogar' })).toBeInTheDocument();
     expect(deps.resolve).toHaveBeenCalledTimes(2);
-    expect(deps.resolve).toHaveBeenLastCalledWith(ID, 213);
+    expect(deps.resolve).toHaveBeenLastCalledWith(ID, 213, deps.store);
     expect(deps.createAdapter).toHaveBeenCalledOnce();
   });
 
@@ -171,7 +255,6 @@ describe('SongScreen: lyrics service slow or down (Review Focus 1)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Tentar de novo' }));
 
     expect(await screen.findByRole('button', { name: 'Jogar' })).toBeInTheDocument();
-    warn.mockRestore();
   });
 });
 
@@ -189,6 +272,21 @@ describe('SongScreen: a clip that does not play outside YouTube (Review Focus 2)
     expect(screen.queryByRole('button', { name: 'Tentar de novo' })).not.toBeInTheDocument();
   });
 
+  it('says so when the error is replayed inside onError, and asks for no lyrics', async () => {
+    // The real adapter replays an error it already had to a new listener before onError returns.
+    vi.spyOn(fake, 'onError').mockImplementation((cb) => {
+      cb('not_embeddable');
+      return () => {};
+    });
+    const deps = makeDeps();
+    render(<SongScreen youtubeId={ID} deps={deps} />);
+
+    expect(await screen.findByText(CANNOT_EMBED)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Colar outro link' })).toBeInTheDocument();
+    expect(deps.resolve).not.toHaveBeenCalled();
+    expect(screen.queryByText('Procurando a letra...')).not.toBeInTheDocument();
+  });
+
   it('says so in the middle of the game too', async () => {
     render(<SongScreen youtubeId={ID} deps={makeDeps()} />);
     await screen.findByRole('button', { name: 'Jogar' });
@@ -203,7 +301,9 @@ describe('SongScreen: a clip that does not play outside YouTube (Review Focus 2)
   it.each(['not_embeddable', 'not_found'] as const)(
     'says so when the player cannot start (%s), without asking for the lyrics',
     async (reason) => {
-      const deps = makeDeps({ createAdapter: vi.fn().mockRejectedValue(new PlayerLoadError(reason)) });
+      const deps = makeDeps({
+        createAdapter: vi.fn<SongScreenDeps['createAdapter']>().mockRejectedValue(new PlayerLoadError(reason)),
+      });
       render(<SongScreen youtubeId={ID} deps={deps} />);
 
       expect(await screen.findByText(CANNOT_EMBED)).toBeInTheDocument();
@@ -213,7 +313,7 @@ describe('SongScreen: a clip that does not play outside YouTube (Review Focus 2)
     },
   );
 
-  it('offers a new player when the player failed for another reason', async () => {
+  it('says the clip did not load and offers a new player when it failed for another reason', async () => {
     const deps = makeDeps({
       createAdapter: vi.fn<SongScreenDeps['createAdapter']>()
         .mockRejectedValueOnce(new PlayerLoadError('other'))
@@ -221,7 +321,8 @@ describe('SongScreen: a clip that does not play outside YouTube (Review Focus 2)
     });
     render(<SongScreen youtubeId={ID} deps={deps} />);
 
-    expect(await screen.findByText(CANNOT_EMBED)).toBeInTheDocument();
+    expect(await screen.findByText(PLAYER_FAILED)).toBeInTheDocument();
+    expect(screen.queryByText(CANNOT_EMBED)).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Colar outro link' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Tentar de novo' }));
 
@@ -234,10 +335,10 @@ describe('SongScreen: a clip that does not play outside YouTube (Review Focus 2)
   });
 
   it('treats a player that failed with something other than a PlayerLoadError as "other"', async () => {
-    const deps = makeDeps({ createAdapter: vi.fn().mockRejectedValue(new Error('boom')) });
+    const deps = makeDeps({ createAdapter: vi.fn<SongScreenDeps['createAdapter']>().mockRejectedValue(new Error('boom')) });
     render(<SongScreen youtubeId={ID} deps={deps} />);
 
-    expect(await screen.findByText(CANNOT_EMBED)).toBeInTheDocument();
+    expect(await screen.findByText(PLAYER_FAILED)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Tentar de novo' })).toBeInTheDocument();
   });
 
@@ -251,6 +352,7 @@ describe('SongScreen: a clip that does not play outside YouTube (Review Focus 2)
     await screen.findByRole('button', { name: 'Jogar' });
 
     act(() => fake.emitError('other'));
+    expect(screen.getByText(PLAYER_FAILED)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Tentar de novo' }));
 
     expect(await screen.findByRole('button', { name: 'Jogar' })).toBeInTheDocument();
@@ -260,7 +362,8 @@ describe('SongScreen: a clip that does not play outside YouTube (Review Focus 2)
   });
 
   it('says so when YouTube no longer knows the video', async () => {
-    render(<SongScreen youtubeId={ID} deps={makeDeps({ resolve: vi.fn().mockResolvedValue({ status: 'video_unavailable' }) })} />);
+    const deps = makeDeps({ resolve: vi.fn<SongScreenDeps['resolve']>().mockResolvedValue({ status: 'video_unavailable' }) });
+    render(<SongScreen youtubeId={ID} deps={deps} />);
 
     expect(await screen.findByText(CANNOT_EMBED)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Colar outro link' })).toHaveAttribute('href', '/');
@@ -269,9 +372,10 @@ describe('SongScreen: a clip that does not play outside YouTube (Review Focus 2)
 
 describe('SongScreen: no lyrics', () => {
   it('says there are no lyrics yet and offers to search for the official audio in a new tab', async () => {
-    render(
-      <SongScreen youtubeId={ID} deps={makeDeps({ resolve: vi.fn().mockResolvedValue({ status: 'no_lyrics', video: { ...VIDEO, status: 'no_lyrics' } }) })} />,
-    );
+    const deps = makeDeps({
+      resolve: vi.fn<SongScreenDeps['resolve']>().mockResolvedValue({ status: 'no_lyrics', video: { ...VIDEO, status: 'no_lyrics' } }),
+    });
+    render(<SongScreen youtubeId={ID} deps={deps} />);
 
     expect(await screen.findByText('Ainda não temos a letra dessa.')).toBeInTheDocument();
     const link = screen.getByRole('link', { name: 'Procurar a versão áudio oficial' });
@@ -282,7 +386,8 @@ describe('SongScreen: no lyrics', () => {
   });
 
   it('treats lyrics without a single line as no lyrics', async () => {
-    render(<SongScreen youtubeId={ID} deps={makeDeps({ resolve: vi.fn().mockResolvedValue({ ...READY, lines: [] }) })} />);
+    const deps = makeDeps({ resolve: vi.fn<SongScreenDeps['resolve']>().mockResolvedValue({ ...READY, lines: [] }) });
+    render(<SongScreen youtubeId={ID} deps={deps} />);
 
     expect(await screen.findByText('Ainda não temos a letra dessa.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Jogar' })).not.toBeInTheDocument();
@@ -290,8 +395,8 @@ describe('SongScreen: no lyrics', () => {
 });
 
 describe('SongScreen: calibration', () => {
-  it('asks for a calibration when the video is much longer than the lyrics, with the official audio link', async () => {
-    render(<SongScreen youtubeId={ID} deps={makeDeps({ resolve: vi.fn().mockResolvedValue(NEEDS_CALIBRATION) })} />);
+  it('asks for it by itself when the video is much longer than the lyrics and has no offset yet', async () => {
+    render(<SongScreen youtubeId={ID} deps={makeDeps({ resolve: vi.fn<SongScreenDeps['resolve']>().mockResolvedValue(NEEDS_CALIBRATION) })} />);
 
     expect(await screen.findByRole('button', { name: 'Começou!' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Jogar' })).not.toBeInTheDocument();
@@ -300,17 +405,58 @@ describe('SongScreen: calibration', () => {
     expect(link).toHaveAttribute('target', '_blank');
   });
 
+  it('goes straight to the modes when the players already settled on an offset (ruling R43)', async () => {
+    render(<SongScreen youtubeId={ID} deps={makeDeps({ resolve: vi.fn<SongScreenDeps['resolve']>().mockResolvedValue(calibrated(25500, true)) })} />);
+
+    expect(await screen.findByRole('button', { name: 'Jogar' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Começou!' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ajustar o tempo' })).toBeInTheDocument();
+  });
+
+  it('opens on demand from the modes with "Ajustar o tempo", and comes back to them', async () => {
+    const deps = makeDeps({ saveOffsetVote: vi.fn<SongScreenDeps['saveOffsetVote']>().mockResolvedValue(25600) });
+    render(<SongScreen youtubeId={ID} deps={deps} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Ajustar o tempo' }));
+    calibrateAt(26000);
+
+    expect(deps.saveOffsetVote).toHaveBeenCalledExactlyOnceWith(ID, 25700);
+    await screen.findByRole('button', { name: 'Jogar' });
+    pick('Escolha');
+    expect(gameProps().lines).toEqual(applyOffset(LINES, 25600));
+  });
+
+  it('keeps Começou! off until the clip has played', async () => {
+    render(<SongScreen youtubeId={ID} deps={makeDeps({ resolve: vi.fn<SongScreenDeps['resolve']>().mockResolvedValue(NEEDS_CALIBRATION) })} />);
+
+    const start = await screen.findByRole('button', { name: 'Começou!' });
+    expect(start).toBeDisabled();
+
+    act(() => fake.emitState('playing'));
+
+    expect(start).toBeEnabled();
+  });
+
+  it('remembers that the clip played before the sheet opened', async () => {
+    render(<SongScreen youtubeId={ID} deps={makeDeps()} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+
+    act(() => fake.emitState('playing'));
+    act(() => fake.emitState('paused'));
+    fireEvent.click(screen.getByRole('button', { name: 'Ajustar o tempo' }));
+
+    expect(screen.getByRole('button', { name: 'Começou!' })).toBeEnabled();
+  });
+
   it('saves the vote, moves the lines to the new median and goes on to the mode picker', async () => {
     const deps = makeDeps({
-      resolve: vi.fn().mockResolvedValue(NEEDS_CALIBRATION),
-      saveOffsetVote: vi.fn().mockResolvedValue(25500),
+      resolve: vi.fn<SongScreenDeps['resolve']>().mockResolvedValue(NEEDS_CALIBRATION),
+      saveOffsetVote: vi.fn<SongScreenDeps['saveOffsetVote']>().mockResolvedValue(25500),
     });
     render(<SongScreen youtubeId={ID} deps={deps} />);
     await screen.findByRole('button', { name: 'Começou!' });
 
-    fake.seekTo(26000);
-    fireEvent.click(screen.getByRole('button', { name: 'Começou!' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+    calibrateAt(26000);
 
     expect(deps.saveOffsetVote).toHaveBeenCalledExactlyOnceWith(ID, 25700);
     await screen.findByRole('button', { name: 'Jogar' });
@@ -319,19 +465,17 @@ describe('SongScreen: calibration', () => {
     expect(gameProps().video.offsetMs).toBe(25500);
   });
 
-  it('measures from the lyrics as written when an offset was already applied', async () => {
-    const shifted = applyOffset(LINES, 1000);
+  it('measures from the lyrics as written, even when a negative offset clamped the first line to 0', async () => {
     const deps = makeDeps({
-      resolve: vi.fn().mockResolvedValue({ ...NEEDS_CALIBRATION, video: { ...VIDEO, offsetMs: 1000 }, lines: shifted }),
-      saveOffsetVote: vi.fn().mockResolvedValue(25700),
+      resolve: vi.fn<SongScreenDeps['resolve']>().mockResolvedValue(calibrated(-1000, true)),
+      saveOffsetVote: vi.fn<SongScreenDeps['saveOffsetVote']>().mockResolvedValue(25700),
     });
     render(<SongScreen youtubeId={ID} deps={deps} />);
-    await screen.findByRole('button', { name: 'Começou!' });
+    fireEvent.click(await screen.findByRole('button', { name: 'Ajustar o tempo' }));
 
-    fake.seekTo(26000);
-    fireEvent.click(screen.getByRole('button', { name: 'Começou!' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+    calibrateAt(26000);
 
+    // 26000 − 300 (the first line as written), not 26000 − (0 − (−1000)).
     expect(deps.saveOffsetVote).toHaveBeenCalledExactlyOnceWith(ID, 25700);
     await screen.findByRole('button', { name: 'Jogar' });
     pick('Escolha');
@@ -339,7 +483,7 @@ describe('SongScreen: calibration', () => {
   });
 
   it('goes on with the lines as they are when the player skips it', async () => {
-    const deps = makeDeps({ resolve: vi.fn().mockResolvedValue(NEEDS_CALIBRATION) });
+    const deps = makeDeps({ resolve: vi.fn<SongScreenDeps['resolve']>().mockResolvedValue(NEEDS_CALIBRATION) });
     render(<SongScreen youtubeId={ID} deps={deps} />);
 
     fireEvent.click(await screen.findByRole('button', { name: 'Pular' }));
@@ -413,7 +557,7 @@ describe('SongScreen: mode picker', () => {
   it('passes on how long the screen took to get the song ready', async () => {
     let clock = 1000;
     const lyrics = deferred<SongResolution>();
-    const deps = { ...makeDeps({ resolve: vi.fn().mockReturnValue(lyrics.promise) }), now: () => clock };
+    const deps = makeDeps({ resolve: vi.fn<SongScreenDeps['resolve']>().mockReturnValue(lyrics.promise), now: () => clock });
     render(<SongScreen youtubeId={ID} deps={deps} />);
     await waitFor(() => expect(deps.resolve).toHaveBeenCalled());
 
@@ -443,7 +587,7 @@ describe('SongScreen: the player lifetime', () => {
   it('destroys a player that gets ready after the screen closed, and asks for no lyrics', async () => {
     const player = deferred<PlayerAdapter>();
     const destroy = vi.spyOn(fake, 'destroy');
-    const deps = makeDeps({ createAdapter: vi.fn().mockReturnValue(player.promise) });
+    const deps = makeDeps({ createAdapter: vi.fn<SongScreenDeps['createAdapter']>().mockReturnValue(player.promise) });
     const { unmount } = render(<SongScreen youtubeId={ID} deps={deps} />);
 
     unmount();
@@ -490,22 +634,30 @@ describe('SongScreen: the player lifetime', () => {
     expect(gameProps().adapter).toBe(second);
   });
 
-  it('stops listening to the player errors when it closes', async () => {
+  it('stops listening to the player when it closes', async () => {
     const unsubscribed = vi.fn();
-    const subscribe = fake.onError.bind(fake);
+    const subscribeErrors = fake.onError.bind(fake);
+    const subscribeStates = fake.onState.bind(fake);
     vi.spyOn(fake, 'onError').mockImplementation((cb) => {
-      const off = subscribe(cb);
+      const off = subscribeErrors(cb);
       return () => {
-        unsubscribed();
+        unsubscribed('error');
+        off();
+      };
+    });
+    vi.spyOn(fake, 'onState').mockImplementation((cb) => {
+      const off = subscribeStates(cb);
+      return () => {
+        unsubscribed('state');
         off();
       };
     });
     const { unmount } = render(<SongScreen youtubeId={ID} deps={makeDeps()} />);
     await screen.findByRole('button', { name: 'Jogar' });
-    expect(fake.onError).toHaveBeenCalledOnce();
 
     unmount();
 
-    expect(unsubscribed).toHaveBeenCalledOnce();
+    expect(unsubscribed).toHaveBeenCalledWith('error');
+    expect(unsubscribed).toHaveBeenCalledWith('state');
   });
 });

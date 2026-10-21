@@ -10,6 +10,8 @@ const NUDGE_MS = 500;
 interface CalibrationSheetProps {
   youtubeId: string;
   adapter: PlayerAdapter;
+  /** True once the clip has played. Before that the player time means nothing, so "Começou!" stays off. */
+  playerStarted: boolean;
   /** The first lyric line, with where it starts in the lyrics as written (before any offset). */
   firstLine: { text: string; startMs: number };
   /** YouTube search for the official audio, whose timing usually matches the lyrics. */
@@ -27,7 +29,7 @@ function formatOffset(ms: number): string {
 }
 
 const primary =
-  'min-h-13 w-full rounded-button bg-lime px-4 text-button font-bold text-bg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime';
+  'min-h-13 w-full rounded-button bg-lime px-4 text-button font-bold text-bg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime disabled:bg-elevated disabled:text-faint';
 const secondary =
   'min-h-11 rounded-button bg-elevated px-4 text-button font-semibold text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime disabled:text-faint';
 
@@ -38,6 +40,7 @@ const secondary =
 export function CalibrationSheet({
   youtubeId,
   adapter,
+  playerStarted,
   firstLine,
   audioSearchUrl,
   saveOffsetVote,
@@ -63,7 +66,8 @@ export function CalibrationSheet({
     let medianMs: number;
     try {
       medianMs = await saveOffsetVote(youtubeId, offsetMs);
-    } catch {
+    } catch (error) {
+      console.warn('Could not save the offset vote.', error);
       setFailed(true);
       setSaving(false);
       return;
@@ -78,7 +82,7 @@ export function CalibrationSheet({
       <p className="text-body text-muted">{t('calibrar.hint')}</p>
       <p className="font-heading text-verse font-bold">“{firstLine.text}”</p>
 
-      <button type="button" onClick={markStart} className={primary}>
+      <button type="button" onClick={markStart} disabled={!playerStarted} className={primary}>
         {t('calibrar.start')}
       </button>
 

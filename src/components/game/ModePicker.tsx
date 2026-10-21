@@ -13,13 +13,15 @@ const DIFFICULTIES: readonly Difficulty[] = ['facil', 'medio', 'dificil'];
 interface ModePickerProps {
   video: VideoRecord;
   onPlay: (mode: Mode, difficulty: Difficulty) => void;
+  /** Opens the calibration, for a player who finds the lyrics off the beat. */
+  onCalibrate: () => void;
 }
 
 /**
  * "Como você quer jogar?": the four modes as cards, the difficulty as pills, and "Jogar"
  * (design/canvas/Main.dc.html in the Limão colors). Karaokê has no blanks, so it asks for no difficulty.
  */
-export function ModePicker({ video, onPlay }: ModePickerProps) {
+export function ModePicker({ video, onPlay, onCalibrate }: ModePickerProps) {
   const [mode, setMode] = useState<Mode>('escolha');
   const [difficulty, setDifficulty] = useState<Difficulty>('facil');
   const id = useId();
@@ -45,6 +47,13 @@ export function ModePicker({ video, onPlay }: ModePickerProps) {
           {t('modo.change')}
         </Link>
       </div>
+      <button
+        type="button"
+        onClick={onCalibrate}
+        className="-mt-1 min-h-11 self-start rounded-full border-[1.5px] border-border px-4 text-body font-semibold text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime"
+      >
+        {t('modo.calibrate')}
+      </button>
 
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-3 font-heading text-verse font-bold">{t('modo.question')}</legend>

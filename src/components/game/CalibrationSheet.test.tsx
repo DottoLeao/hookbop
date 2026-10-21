@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FakePlayerAdapter } from '@/lib/player/fakeAdapter';
 import { CalibrationSheet } from './CalibrationSheet';
 
@@ -7,28 +7,42 @@ const ID = 'dQw4w9WgXcQ';
 const FIRST_LINE = { text: "Please don't let me down", startMs: 300 };
 const AUDIO_SEARCH = `https://www.youtube.com/results?search_query=${encodeURIComponent('The Beatles Let It Be official audio')}`;
 
-function setup(saveOffsetVote = vi.fn<(id: string, offsetMs: number) => Promise<number>>().mockResolvedValue(25700)) {
+type Save = (id: string, offsetMs: number) => Promise<number>;
+
+function setup({
+  saveOffsetVote = vi.fn<Save>().mockResolvedValue(25700),
+  playerStarted = true,
+}: { saveOffsetVote?: Save; playerStarted?: boolean } = {}) {
   const adapter = new FakePlayerAdapter(213000);
   adapter.seekTo(26000);
   const onSaved = vi.fn();
   const onSkip = vi.fn();
-  render(
-    <CalibrationSheet
-      youtubeId={ID}
-      adapter={adapter}
-      firstLine={FIRST_LINE}
-      audioSearchUrl={AUDIO_SEARCH}
-      saveOffsetVote={saveOffsetVote}
-      onSaved={onSaved}
-      onSkip={onSkip}
-    />,
-  );
-  return { adapter, saveOffsetVote, onSaved, onSkip };
+  const props = {
+    youtubeId: ID,
+    adapter,
+    firstLine: FIRST_LINE,
+    audioSearchUrl: AUDIO_SEARCH,
+    saveOffsetVote,
+    onSaved,
+    onSkip,
+  };
+  const { rerender } = render(<CalibrationSheet {...props} playerStarted={playerStarted} />);
+  return {
+    adapter,
+    saveOffsetVote,
+    onSaved,
+    onSkip,
+    start: () => rerender(<CalibrationSheet {...props} playerStarted />),
+  };
 }
 
 function tap(name: string) {
   fireEvent.click(screen.getByRole('button', { name }));
 }
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('CalibrationSheet', () => {
   it('shows the first line to listen for', () => {
@@ -38,8 +52,18 @@ describe('CalibrationSheet', () => {
     expect(screen.getByRole('button', { name: 'Começou!' })).toBeEnabled();
   });
 
+  it('keeps Começou! off until the player has played, so a paused clip cannot be voted', () => {
+    const { start } = setup({ playerStarted: false });
+
+    expect(screen.getByRole('button', { name: 'Começou!' })).toBeDisabled();
+
+    start();
+
+    expect(screen.getByRole('button', { name: 'Começou!' })).toBeEnabled();
+  });
+
   it('saves the player time minus the first line start, then hands over the new median', async () => {
-    const { saveOffsetVote, onSaved } = setup(vi.fn().mockResolvedValue(25000));
+    const { saveOffsetVote, onSaved } = setup({ saveOffsetVote: vi.fn<Save>().mockResolvedValue(25000) });
 
     tap('Começou!');
     tap('Salvar');
@@ -111,17 +135,18 @@ describe('CalibrationSheet', () => {
     expect(saveOffsetVote).toHaveBeenCalledOnce();
   });
 
-  it('says so when saving fails, and lets the player try again', async () => {
-    const saveOffsetVote = vi.fn<(id: string, offsetMs: number) => Promise<number>>()
-      .mockRejectedValueOnce(new Error('offline'))
-      .mockResolvedValueOnce(25700);
-    const { onSaved } = setup(saveOffsetVote);
+  it('says so when saving fails, logs why, and lets the player try again', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const failure = new Error('offline');
+    const saveOffsetVote = vi.fn<Save>().mockRejectedValueOnce(failure).mockResolvedValueOnce(25700);
+    const { onSaved } = setup({ saveOffsetVote });
 
     tap('Começou!');
     tap('Salvar');
 
     expect(await screen.findByText('Não rolou salvar. Tenta de novo?')).toBeInTheDocument();
     expect(onSaved).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.any(String), failure);
 
     tap('Salvar');
 
