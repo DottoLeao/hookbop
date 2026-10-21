@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+/* Hookbop brand tokens (spec §11). Each --color-* name becomes a utility:
+   bg-bg, bg-card, text-muted, border-border, bg-lime, text-error, and so on.
+   Text on lime is always bg (#0E0E10). */
+@theme {
+  /* Base */
+  --color-bg: #0E0E10;
+  --color-card: #1C1C21;
+  --color-elevated: #26262C;
+  --color-border: #3A3A42;
+
+  /* Text */
+  --color-text: #FFFFFF;
+  --color-muted: #A9A9B2;
+  --color-faint: #6E6E78;
+
+  /* Accent and game moments */
+  --color-lime: #C8FF2E;
+  --color-lime-light: #E2FF8A;
+  --color-lime-dark: #A6D91A;
+  --color-error: #FF5C5C;
+  --color-warn: #FFB020;
+  --color-rare: #B794FF;
+
+  /* Corner radii: rounded-blank, rounded-button, rounded-answer, rounded-card.
+     The pill is the built-in rounded-full. */
+  --radius-blank: 8px;
+  --radius-button: 12px;
+  --radius-answer: 14px;
+  --radius-card: 20px;
+
+  /* Type scale (design/canvas/Tipografia.dc.html): text-title, text-verse,
+     text-button, text-lyric, text-body, text-label. */
+  --text-title: 28px;
+  --text-verse: 22px;
+  --text-button: 16px;
+  --text-lyric: 15px;
+  --text-body: 14px;
+  --text-label: 12px;
+}
+
+/* The font variables are set at runtime by next/font in layout.tsx,
+   so these must be inline references. */
+@theme inline {
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-heading: var(--font-space-grotesk), system-ui, sans-serif;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+}
