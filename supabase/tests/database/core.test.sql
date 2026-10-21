@@ -9,7 +9,7 @@
 
 begin;
 
-select plan(74);
+select plan(76);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (superuser)
@@ -95,6 +95,22 @@ reset role;
 -- redeem_invite
 -- ---------------------------------------------------------------------------
 
+-- redeem_invite serializes every redemption with a transaction-level advisory
+-- lock on one fixed key (7241022001 in the migration). pg_locks shows a bigint
+-- key as two halves: classid = high 32 bits, objid = low 32 bits, objsubid = 1.
+-- Concurrency cannot be exercised inside one transaction, so this guards the
+-- lock itself: deleting the pg_advisory_xact_lock line makes the second
+-- assertion fail. If the key in the migration changes, change it here too.
+select ok(
+  not exists (
+    select 1 from pg_locks
+    where locktype = 'advisory' and pid = pg_backend_pid()
+      and classid = (7241022001 >> 32)::oid
+      and objid = (7241022001 & 4294967295)::oid
+      and objsubid = 1
+  ),
+  'no redemption lock is held before redeem_invite runs');
+
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"a0000000-0000-0000-0000-000000000002","email":"ana@example.com"}';
 
@@ -102,6 +118,16 @@ select is(public.redeem_invite('CODE-A', '  Ana  '), 'ok',
   'redeem_invite returns ok for a new code');
 
 reset role;
+
+select ok(
+  exists (
+    select 1 from pg_locks
+    where locktype = 'advisory' and pid = pg_backend_pid() and granted
+      and classid = (7241022001 >> 32)::oid
+      and objid = (7241022001 & 4294967295)::oid
+      and objsubid = 1
+  ),
+  'redeem_invite holds the advisory lock that serializes redemptions');
 
 select is((select display_name from public.profiles where id = 'a0000000-0000-0000-0000-000000000002'), 'Ana',
   'redeem_invite creates the profile with the trimmed display name');

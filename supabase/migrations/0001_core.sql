@@ -132,6 +132,12 @@ $$;
 
 -- Creates (or repairs) the owner profile when the signed-in e-mail is the
 -- owner_email setting. Returns whether the caller is the owner.
+--
+-- SECURITY: the e-mail claim of the JWT is trusted here only because signing in
+-- requires a confirmed mailbox (magic link, or Google's verified e-mail). If
+-- unconfirmed sign-ups were allowed, anyone could register the owner's address
+-- and become owner. So "Confirm email" (enable_confirmations in
+-- supabase/config.toml) must stay on, locally and in every hosted project.
 create function public.ensure_owner()
 returns boolean
 language plpgsql
