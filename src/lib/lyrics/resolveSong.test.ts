@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resolveSong, type SongStore, type VideoMeta, type VideoRecord } from './resolveSong';
 import type { LyricsLookup, LyricsQuery, LyricsResult, LyricsSource } from './source';
 
@@ -307,7 +307,63 @@ describe('resolveSong, a video with no lyrics on record', () => {
   });
 });
 
+describe('resolveSong, a video with lyrics and stale metadata, when the refresh fails', () => {
+  const stored = okVideo({ ytFetchedAt: ago(31 * DAY_MS) });
+
+  /** console.warn, kept quiet and watched. */
+  const quietWarn = () => vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('plays the saved record when the metadata call fails, and only logs the failure', async () => {
+    const warn = quietWarn();
+    const { resolve, meta, find, upsertVideo } = arrange({ stored });
+    meta.mockRejectedValueOnce(new Error('oembed down'));
+
+    expect(await resolve(201)).toEqual({ status: 'ready', video: stored, lines: LINES, needsCalibration: true });
+    expect(upsertVideo).not.toHaveBeenCalled();
+    expect(find).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledOnce();
+  });
+
+  it('plays the saved record when saving the refreshed metadata fails, and only logs the failure', async () => {
+    const warn = quietWarn();
+    const { resolve, upsertVideo } = arrange({ stored });
+    upsertVideo.mockRejectedValueOnce(new Error('network down'));
+
+    expect(await resolve(201)).toEqual({ status: 'ready', video: stored, lines: LINES, needsCalibration: true });
+    expect(upsertVideo).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledOnce();
+  });
+
+  it('still cannot be played when YouTube says the video is gone, which is no failure', async () => {
+    const warn = quietWarn();
+    const { resolve } = arrange({ stored, meta: null });
+
+    expect(await resolve()).toEqual({ status: 'video_unavailable' });
+    expect(warn).not.toHaveBeenCalled();
+  });
+});
+
 describe('resolveSong, failures', () => {
+  it('lets a metadata failure through for a new video', async () => {
+    const { resolve, meta, find } = arrange();
+    meta.mockRejectedValueOnce(new Error('oembed down'));
+
+    await expect(resolve()).rejects.toThrow('oembed down');
+    expect(find).not.toHaveBeenCalled();
+  });
+
+  it('lets a metadata failure through for a video with no lyrics on record, which has nothing to fall back on', async () => {
+    const { resolve, meta, find } = arrange({ stored: noLyricsVideo({ ytFetchedAt: ago(31 * DAY_MS) }) });
+    meta.mockRejectedValueOnce(new Error('oembed down'));
+
+    await expect(resolve()).rejects.toThrow('oembed down');
+    expect(find).not.toHaveBeenCalled();
+  });
+
   it('lets a store failure through instead of showing a song it could not look up', async () => {
     const world = arrange();
     const failing: SongStore = {
@@ -323,7 +379,7 @@ describe('resolveSong, failures', () => {
     expect(world.meta).not.toHaveBeenCalled();
   });
 
-  it('lets a failure to save through, so the song is not shown as remembered when it is not', async () => {
+  it('lets a failure to save through for a new video, so it is not shown as remembered when it is not', async () => {
     const world = arrange();
     world.upsertVideo.mockRejectedValueOnce(new Error('network down'));
 

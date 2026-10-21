@@ -77,7 +77,8 @@ describe('GET /api/yt/meta', () => {
     expect(response.headers.get('Cache-Control')).toBeNull();
   });
 
-  it.each([401, 404])('answers 404 when oEmbed says %i, which is how it reports a missing or private video', async (status) => {
+  // The URL sent to oEmbed is always well formed, so its 400 ("Bad Request") can only mean the id is not a real video.
+  it.each([400, 401, 404])('answers 404 when oEmbed says %i, which is how it reports a missing, private or unknown video', async (status) => {
     oembedAnswers(async () => new Response(null, { status }));
 
     const response = await get(`?id=${ID}`);
@@ -86,7 +87,7 @@ describe('GET /api/yt/meta', () => {
     expect(response.headers.get('Cache-Control')).toBeNull();
   });
 
-  it.each([400, 403, 429, 500, 503])('answers 502 when oEmbed says %i', async (status) => {
+  it.each([403, 429, 500, 503])('answers 502 when oEmbed says %i', async (status) => {
     oembedAnswers(async () => new Response(null, { status }));
 
     expect((await get(`?id=${ID}`)).status).toBe(502);

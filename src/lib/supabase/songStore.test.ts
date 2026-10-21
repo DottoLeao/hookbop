@@ -119,7 +119,9 @@ describe('createSupabaseSongStore.upsertVideo', () => {
   });
 
   function clientSaving(error: { message: string } | null = null) {
-    const upsert = vi.fn(async () => ({ error }));
+    const upsert = vi.fn<(row: Record<string, unknown>, options: unknown) => Promise<{ error: typeof error }>>(
+      async () => ({ error }),
+    );
     const from = vi.fn(() => ({ upsert }));
     return { client: { from } as unknown as Client, from, upsert };
   }
@@ -156,11 +158,19 @@ describe('createSupabaseSongStore.upsertVideo', () => {
         lyrics_ref: '777',
         lyrics_lrc: '[00:10.00]First line',
         lyrics_duration_s: 175,
-        offset_ms: 1500,
         updated_at: WRITTEN_AT.toISOString(),
       },
       { onConflict: 'youtube_id' },
     );
+  });
+
+  it('never writes offset_ms, which only set_offset_vote changes, so a refresh cannot undo a newer vote', async () => {
+    const { client, upsert } = clientSaving();
+
+    await createSupabaseSongStore(client).upsertVideo({ ...video, offsetMs: 1500 });
+
+    expect(upsert).toHaveBeenCalledOnce();
+    expect(Object.keys(upsert.mock.calls[0][0])).not.toContain('offset_ms');
   });
 
   it('rounds the durations, which the database keeps as whole seconds', async () => {
@@ -195,7 +205,6 @@ describe('createSupabaseSongStore.upsertVideo', () => {
         lyrics_ref: null,
         lyrics_lrc: null,
         lyrics_duration_s: null,
-        offset_ms: 0,
       }),
       expect.anything(),
     );

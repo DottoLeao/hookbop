@@ -58,12 +58,45 @@ function ready(video: PlayableVideo, videoDurationS: number): SongResolution {
 }
 
 /**
+ * A video with lyrics whose metadata went stale: the metadata is fetched again and saved, and the
+ * lyrics and the offset stay. This is best effort. The lyrics in hand are good, so when the metadata
+ * call or the save fails the saved record is played as it is and the failure is only logged; the next
+ * visit tries again. A video YouTube no longer knows is not a failure: it cannot be played.
+ */
+async function refreshStale(
+  known: PlayableVideo,
+  videoDurationS: number,
+  meta: (id: string) => Promise<VideoMeta | null>,
+  store: SongStore,
+  now: Date,
+): Promise<SongResolution> {
+  try {
+    const fetched = await meta(known.youtubeId);
+    if (!fetched) return { status: 'video_unavailable' };
+
+    const video: PlayableVideo = {
+      ...known,
+      title: fetched.title,
+      channel: fetched.channel,
+      durationS: videoDurationS,
+      ytFetchedAt: now.toISOString(),
+    };
+    await store.upsertVideo(video);
+    return ready(video, videoDurationS);
+  } catch (error) {
+    console.warn('Could not refresh the video details, using the saved ones.', error);
+    return ready(known, videoDurationS);
+  }
+}
+
+/**
  * Finds what the song screen needs for a video: the app's memory first, then YouTube's
  * metadata and the lyrics service for what the memory lacks.
  *
  * - A remembered video whose metadata is at most 30 days old is used as it is: nothing is asked.
  * - Older metadata is fetched again and saved. A video with lyrics keeps them, and the offset
- *   the players settled on. A video with no lyrics gets one more lookup, since they may exist now.
+ *   the players settled on; if that refresh fails, the saved record is played anyway (see
+ *   `refreshStale`). A video with no lyrics gets one more lookup, since they may exist now.
  * - A new video gets its metadata, then its lyrics, and is saved with whatever the lookup said:
  *   `ok` with the lyrics, or `no_lyrics`.
  * - `video_unavailable` means YouTube no longer knows the video. `lyrics_unavailable` means the
@@ -71,7 +104,8 @@ function ready(video: PlayableVideo, videoDurationS: number): SongResolution {
  *
  * The lines come with the saved offset already applied. `needsCalibration` compares the length
  * of the video being played with the length of the lyrics.
- * A failure of the store or of the metadata call is not caught: it rejects.
+ * Apart from that best-effort refresh, a failure of the store or of the metadata call is not
+ * caught: it rejects.
  */
 export async function resolveSong(
   youtubeId: string,
@@ -94,6 +128,8 @@ export async function resolveSong(
     return isPlayable(known) ? ready(known, videoDurationS) : { status: 'no_lyrics', video: known };
   }
 
+  if (known && isPlayable(known)) return refreshStale(known, videoDurationS, meta, store, now);
+
   const fetched = await meta(youtubeId);
   if (!fetched) return { status: 'video_unavailable' };
 
@@ -104,12 +140,6 @@ export async function resolveSong(
     durationS: videoDurationS,
     ytFetchedAt: now.toISOString(),
   };
-
-  if (known && isPlayable(known)) {
-    const video: PlayableVideo = { ...known, ...refreshed };
-    await store.upsertVideo(video);
-    return ready(video, videoDurationS);
-  }
 
   const { artist, track } = cleanTitle(fetched.title, fetched.channel);
   const lookup = await lyrics.find({ artist, track, durationS: videoDurationS });

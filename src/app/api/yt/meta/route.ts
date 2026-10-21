@@ -12,7 +12,7 @@ const failure = (error: string, status: number) => Response.json({ error }, { st
  * is not allowed to ask it. Only members reach this route: the proxy turns everyone else away.
  *
  * `?id=` is the video id (a video link works too). Answers `{ title, channel }`, which the browser may keep
- * for a day; 400 for an id that is not a video; 404 when oEmbed says 401 or 404, which is how it
+ * for a day; 400 for an id that is not a video id; 404 when oEmbed says 400, 401 or 404, which is how it
  * reports a video that is private, removed or does not exist; 502 for any other failure,
  * including no answer in 5 s.
  */
@@ -28,7 +28,10 @@ export async function GET(request: NextRequest) {
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
     const response = await fetch(oembed, { signal: controller.signal });
-    if (response.status === 401 || response.status === 404) return failure('not_found', 404);
+    // The URL above is always well formed, so oEmbed's 400 can only mean the id is not a real video.
+    if (response.status === 400 || response.status === 401 || response.status === 404) {
+      return failure('not_found', 404);
+    }
     if (!response.ok) return failure('upstream_failed', 502);
 
     const body: unknown = await response.json();

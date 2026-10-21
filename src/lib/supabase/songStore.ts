@@ -37,6 +37,7 @@ function toRecord(row: VideoRow): VideoRecord | null {
  * The `videos` table as a song store. Every member may read, add and update videos, so any
  * member's client works; the song screen passes the browser client. The record's camelCase
  * names become the table's snake_case columns here and nowhere else.
+ * `upsertVideo` never writes the offset: it belongs to `set_offset_vote`, so `offsetMs` is read but not saved.
  */
 export function createSupabaseSongStore(client: Client): SongStore {
   return {
@@ -60,7 +61,8 @@ export function createSupabaseSongStore(client: Client): SongStore {
           lyrics_ref: v.lyricsRef ?? null,
           lyrics_lrc: v.lyricsLrc ?? null,
           lyrics_duration_s: v.lyricsDurationS === undefined ? null : Math.round(v.lyricsDurationS),
-          offset_ms: v.offsetMs,
+          // offset_ms is left out on purpose: only set_offset_vote writes it, so saving a video can never
+          // overwrite a newer vote. A new row gets the column default, 0.
           // Nothing else keeps this column current when a row is updated.
           updated_at: new Date().toISOString(),
         },
