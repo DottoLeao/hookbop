@@ -13,7 +13,10 @@ const LINES: LyricLine[] = [
 const LET: Blank = { id: '0:2', lineIndex: 0, tokenIndex: 2, answer: 'let' };
 const DOWN: Blank = { id: '0:4', lineIndex: 0, tokenIndex: 4, answer: 'down' };
 const NEED: Blank = { id: '1:3', lineIndex: 1, tokenIndex: 3, answer: 'need' };
+const STAY: Blank = { id: '2:1', lineIndex: 2, tokenIndex: 1, answer: 'stay' };
+const TONIGHT: Blank = { id: '2:4', lineIndex: 2, tokenIndex: 4, answer: 'tonight' };
 const WHOLE_LINE: Blank = { id: '0:-1', lineIndex: 0, tokenIndex: -1, answer: "Please don't let me down" };
+const WHOLE_LAST_LINE: Blank = { id: '2:-1', lineIndex: 2, tokenIndex: -1, answer: 'So stay with me tonight' };
 
 interface Setup {
   mode: Mode;
@@ -41,7 +44,7 @@ const answer = (blankId: string, correct: boolean, atMs: number): GameEvent => (
   correct,
   atMs,
 });
-const tile = (word: string, atMs = 3900): GameEvent => ({ type: 'TILE', blankId: WHOLE_LINE.id, word, atMs });
+const tile = (word: string, atMs = 3900, blankId = WHOLE_LINE.id): GameEvent => ({ type: 'TILE', blankId, word, atMs });
 const hint = (blankId: string): GameEvent => ({ type: 'HINT', blankId });
 const player = (state: PlayerState): GameEvent => ({ type: 'PLAYER_STATE', state });
 const REPEAT: GameEvent = { type: 'REPEAT_LINE' };
@@ -66,6 +69,7 @@ describe('initGame', () => {
       phase: 'playing',
       waitingBlankId: null,
       lastTickMs: 0,
+      playerState: 'playing',
       playerPlaying: true,
       autoRepeat: false,
       score: createScore(2),
@@ -144,7 +148,8 @@ describe('gameReducer: the brief scenarios', () => {
   });
 
   it('7. the song ending ends the game, and summaryOf gives the right percentage', () => {
-    const s = run(game({ blanks: [LET, NEED] }), answer('0:2', true, 3000), player('ended'));
+    // Nothing is left pending, so the end does not wait (R39).
+    const s = run(game({ blanks: [LET, NEED] }), answer('0:2', true, 3000), answer('1:3', false, 5000), player('ended'));
     expect(s.phase).toBe('ended');
     expect(summaryOf(s)).toEqual({ totalBlanks: 2, firstTryCorrect: 1, pct: 50, maxCombo: 1, xp: 12 });
   });
@@ -235,6 +240,17 @@ describe('pausing at the end of a line (R3)', () => {
     expect(second.phase).toBe('playing');
   });
 
+  it('a miss without auto-repeat on a two-blank line moves the wait to the other blank, and that one plays', () => {
+    const missed = run(game({ blanks: [LET, DOWN], autoRepeat: false }), tick(3850), answer('0:2', false, 3900));
+    expect(missed.commands).toEqual([]);
+    expect(missed.phase).toBe('waiting');
+    expect(missed.waitingBlankId).toBe('0:4');
+
+    const done = run(missed, answer('0:4', true, 3950));
+    expect(done.commands).toEqual([{ type: 'play' }]);
+    expect(done.phase).toBe('playing');
+  });
+
   it('keeps waiting when a blank of another line is answered', () => {
     const s = run(game({ blanks: [LET, NEED], autoRepeat: false }), tick(3850), answer('1:3', true, 3900));
     expect(s.commands).toEqual([]);
@@ -282,10 +298,91 @@ describe('seeking (R4)', () => {
     expect(run(back, tick(1500), tick(2500), tick(3500), tick(3850)).commands).toEqual([{ type: 'pause' }]);
   });
 
-  it('a skipped blank stays skipped after seeking back, so its line plays through', () => {
-    const s = run(game(), tick(1000), tick(9000), tick(500), tick(1500), tick(2500), tick(3500), tick(3850));
+  it('a jump while the clip buffers is a seek too', () => {
+    const s = run(game({ blanks: [LET, NEED] }), tick(1000), player('playing'), player('buffering'), tick(9000));
+    expect(s.status).toEqual({ '0:2': 'skipped', '1:3': 'skipped' });
+    expect(s.commands).toEqual([]);
+
+    const resumed = run(s, player('playing'), tick(9100));
+    expect(resumed.commands).toEqual([]);
+    expect(resumed.phase).toBe('playing');
+  });
+});
+
+describe('waiting again for a skipped blank or a miss (R37)', () => {
+  it('a skipped blank whose line plays through after seeking back waits again, and its answer is a first try', () => {
+    const waiting = run(game(), tick(1000), tick(9000), tick(500), tick(1500), tick(2500), tick(3500), tick(3850));
+    expect(waiting.status['0:2']).toBe('skipped');
+    expect(waiting.commands).toEqual([{ type: 'pause' }]);
+    expect(waiting.waitingBlankId).toBe('0:2');
+
+    const answered = run(waiting, answer('0:2', true, 3900));
+    expect(lastRecord(answered)?.kind).toBe('first');
+    expect(answered.commands).toEqual([{ type: 'play' }]);
+    expect(answered.phase).toBe('playing');
+  });
+
+  it('a skipped blank does not wait again on a seek that lands past its pause point', () => {
+    const s = run(game(), tick(1000), tick(9000), tick(500), tick(1000), tick(3900));
     expect(s.status['0:2']).toBe('skipped');
     expect(s.commands).toEqual([]);
+  });
+
+  it('a skipped blank whose pause point the clip already passed does not wait again', () => {
+    const s = run(game(), tick(1000), tick(9000), tick(3860), tick(3960));
+    expect(s.commands).toEqual([]);
+  });
+
+  it('a miss with auto-repeat waits again at the end of the replay; the right answer is a retry and plays', () => {
+    const replayed = run(
+      game(),
+      tick(3850),
+      answer('0:2', false, 3900),
+      tick(0),
+      tick(1000),
+      tick(2000),
+      tick(3000),
+      tick(3850),
+    );
+    expect(replayed.commands).toEqual([{ type: 'pause' }]);
+    expect(replayed.phase).toBe('waiting');
+    expect(replayed.waitingBlankId).toBe('0:2');
+
+    const fixed = run(replayed, answer('0:2', true, 3900));
+    expect(lastRecord(fixed)?.kind).toBe('retry');
+    expect(fixed.commands).toEqual([{ type: 'play' }]);
+    expect(fixed.phase).toBe('playing');
+  });
+
+  it('a miss without auto-repeat never waits again, even when its line is replayed', () => {
+    const s = run(
+      game({ autoRepeat: false }),
+      tick(3850),
+      answer('0:2', false, 3900),
+      REPEAT,
+      tick(0),
+      tick(1000),
+      tick(2000),
+      tick(3000),
+      tick(3850),
+    );
+    expect(s.status['0:2']).toBe('wrong');
+    expect(s.commands).toEqual([]);
+    expect(s.phase).toBe('playing');
+  });
+
+  it.each<[string, GameEvent[]]>([
+    ['a miss', [tick(3850), answer('0:2', false, 3900), tick(0), tick(1000), tick(2000), tick(3000), tick(3850)]],
+    ['a skipped blank', [tick(1000), tick(9000), tick(500), tick(1500), tick(2500), tick(3500), tick(3850)]],
+  ])('started from the player controls while waiting again for %s, plays on without pausing', (_, toRewait) => {
+    const rewaiting = run(game(), ...toRewait);
+    expect(rewaiting.phase).toBe('waiting');
+
+    const resumed = run(rewaiting, player('paused'), player('playing'));
+    expect(resumed.phase).toBe('playing');
+    expect(resumed.commands).toEqual([]);
+    // A pause on any of these ticks would leave the phase at waiting.
+    expect(run(resumed, tick(3950), tick(4050), tick(4150)).phase).toBe('playing');
   });
 });
 
@@ -322,12 +419,6 @@ describe('wrong answers', () => {
     expect(s.commands).toEqual([{ type: 'seek', ms: 4000 }, { type: 'play' }]);
     expect(s.phase).toBe('playing');
     expect(s.waitingBlankId).toBeNull();
-  });
-
-  it('after the auto-repeat, the line plays through: a wrong blank is no longer pending', () => {
-    const s = run(game(), tick(3850), answer('0:2', false, 3900), tick(0), tick(1000), tick(2000), tick(3000), tick(3850));
-    expect(s.commands).toEqual([]);
-    expect(s.phase).toBe('playing');
   });
 
   it('without auto-repeat, only play; the blank stays wrong and can still be answered', () => {
@@ -451,7 +542,17 @@ describe('player state', () => {
     ['buffering', false],
     ['unstarted', false],
   ])('%s sets playerPlaying to %s', (state, playing) => {
-    expect(run(game(), player(state)).playerPlaying).toBe(playing);
+    const s = run(game(), player(state));
+    expect(s.playerState).toBe(state);
+    expect(s.playerPlaying).toBe(playing);
+  });
+
+  it('a late playing right after the game pause is not the player resuming', () => {
+    const s = run(game(), tick(3850), player('playing'));
+    expect(s.phase).toBe('waiting');
+    expect(s.waitingBlankId).toBe('0:2');
+    expect(s.status['0:2']).toBe('pending');
+    expect(s.commands).toEqual([]);
   });
 
   it('started from the player controls during a wait, skips the waited line and plays on', () => {
@@ -473,8 +574,10 @@ describe('player state', () => {
     expect(run(resumed, tick(3000), tick(3850)).commands).toEqual([{ type: 'pause' }]);
   });
 
-  it('ended ends the game, and every later event changes nothing', () => {
-    const ended = run(montar({ blanks: [WHOLE_LINE] }), tick(3850), player('ended'));
+  it('ended with nothing pending ends the game, and every later event changes nothing', () => {
+    // The line was skipped, not pending, so it stays open but the end does not wait for it.
+    const ended = run(montar(), tick(1000), tick(9000), player('ended'));
+    expect(ended.status['0:-1']).toBe('skipped');
     expect(ended.phase).toBe('ended');
     expect(ended.playerPlaying).toBe(false);
 
@@ -492,6 +595,86 @@ describe('player state', () => {
       expect(s).not.toBe(ended);
       expect(s).toEqual(ended);
     }
+  });
+});
+
+describe('the clip ending with a blank still to answer (R39)', () => {
+  /** The last line is playing and has not reached its pause point when the clip runs out. */
+  const nearTheEnd = [tick(10000), tick(11000), tick(11800)];
+
+  it('waits for the first pending blank instead of ending, with no command', () => {
+    const s = run(game({ blanks: [LET, STAY] }), answer('0:2', true, 3000), ...nearTheEnd, player('ended'));
+    expect(s.phase).toBe('waiting');
+    expect(s.waitingBlankId).toBe('2:1');
+    expect(s.commands).toEqual([]);
+  });
+
+  it('answering it ends the game without playing', () => {
+    const s = run(game({ blanks: [STAY] }), ...nearTheEnd, player('ended'), answer('2:1', true, 11900));
+    expect(lastRecord(s)).toEqual({ blankId: '2:1', kind: 'first', correct: true, beforeLineEnd: true });
+    expect(s.phase).toBe('ended');
+    expect(s.waitingBlankId).toBeNull();
+    expect(s.commands).toEqual([]);
+    expect(summaryOf(s).pct).toBe(100);
+  });
+
+  it('a miss without auto-repeat ends it too', () => {
+    const start = game({ blanks: [STAY], autoRepeat: false });
+    const s = run(start, ...nearTheEnd, player('ended'), answer('2:1', false, 11900));
+    expect(s.phase).toBe('ended');
+    expect(s.commands).toEqual([]);
+  });
+
+  it('waits for the other pending blanks of that line first', () => {
+    const first = run(game({ blanks: [STAY, TONIGHT] }), ...nearTheEnd, player('ended'), answer('2:1', true, 11900));
+    expect(first.phase).toBe('waiting');
+    expect(first.waitingBlankId).toBe('2:4');
+    expect(first.commands).toEqual([]);
+
+    expect(run(first, answer('2:4', true, 11950)).phase).toBe('ended');
+  });
+
+  it('a hint that finishes the montar line ends it', () => {
+    const lastTiles = ['So', 'stay', 'with', 'me'].map((word) => tile(word, 11900, WHOLE_LAST_LINE.id));
+    const s = run(montar({ blanks: [WHOLE_LAST_LINE] }), ...nearTheEnd, player('ended'), ...lastTiles, hint('2:-1'));
+    expect(s.status['2:-1']).toBe('correct');
+    expect(lastRecord(s)?.kind).toBe('helped');
+    expect(s.phase).toBe('ended');
+    expect(s.commands).toEqual([]);
+  });
+
+  it('REPEAT_LINE seeks and plays as usual, and the replayed line then waits and plays like any other', () => {
+    const repeated = run(game({ blanks: [STAY] }), ...nearTheEnd, player('ended'), REPEAT);
+    expect(repeated.commands).toEqual([{ type: 'seek', ms: 8000 }, { type: 'play' }]);
+    expect(repeated.phase).toBe('playing');
+
+    const waiting = run(repeated, player('playing'), tick(8000), tick(9000), tick(10000), tick(11000), tick(11850));
+    expect(waiting.commands).toEqual([{ type: 'pause' }]);
+    expect(run(waiting, answer('2:1', true, 11900)).commands).toEqual([{ type: 'play' }]);
+  });
+
+  it('ending during a wait keeps the wait, even for a miss waited for again, and its answer ends the game', () => {
+    const rewaiting = run(
+      game({ blanks: [STAY] }),
+      ...nearTheEnd,
+      tick(11850),
+      answer('2:1', false, 11900),
+      tick(8000),
+      tick(9000),
+      tick(10000),
+      tick(11000),
+      tick(11850),
+    );
+    expect(rewaiting.waitingBlankId).toBe('2:1');
+
+    const ended = run(rewaiting, player('ended'));
+    expect(ended.phase).toBe('waiting');
+    expect(ended.waitingBlankId).toBe('2:1');
+
+    const answered = run(ended, answer('2:1', true, 11900));
+    expect(lastRecord(answered)?.kind).toBe('retry');
+    expect(answered.phase).toBe('ended');
+    expect(answered.commands).toEqual([]);
   });
 });
 
