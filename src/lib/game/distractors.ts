@@ -1,6 +1,8 @@
 import { doubleMetaphone } from 'double-metaphone';
+import homophoneGroups from './data/homophones.json';
 import { damerau } from './editDistance';
 import { seededRng, shuffled } from './rng';
+import { foldWord } from './text';
 import { distractorPool } from './words';
 
 /** A wrong option may be at most this many letters longer or shorter than the answer. */
@@ -27,9 +29,18 @@ function sound(word: string): string {
   return code;
 }
 
-/** Lowercase, with the typographic apostrophes made plain. */
-function fold(word: string): string {
-  return word.toLowerCase().replace(/[’‘ʼ]/g, "'");
+/**
+ * For each word, the other words that sound exactly like it (night, knight). A word that is in two groups has the
+ * words of both, but the groups are not chained: "red" and "reed" are not homophones because both are "read".
+ */
+const HOMOPHONES = new Map<string, Set<string>>();
+for (const group of homophoneGroups) {
+  const words = group.map(foldWord);
+  for (const word of words) {
+    const same = HOMOPHONES.get(word) ?? new Set<string>();
+    for (const other of words) if (other !== word) same.add(other);
+    HOMOPHONES.set(word, same);
+  }
 }
 
 /**
@@ -78,8 +89,9 @@ function closestFirst(
 /**
  * Two wrong options for a "choose the word" question, real English words that sound or look like the answer.
  *
- * A candidate comes from the list of common words and is not the answer, not a word of the line, and not the
- * answer with s, 's, ed or ing. It is at most 2 letters longer or shorter than the answer.
+ * A candidate comes from the list of common words (without the offensive ones) and is not the answer, not a word of
+ * the line, not the answer with s, 's, ed or ing, and not a homophone of the answer (night and knight can not be
+ * told apart by ear). It is at most 2 letters longer or shorter than the answer.
  * The order of preference is:
  *   1. words that sound like the answer (same primary Double Metaphone code), the fewest edits first;
  *   2. then the other words that are 1 to 3 edits away, the fewest edits first.
@@ -90,10 +102,11 @@ function closestFirst(
  */
 export function makeDistractors(answer: string, lineTokens: string[], seed: string): [string, string] {
   const rng = seededRng(seed);
-  const target = fold(answer);
+  const target = foldWord(answer);
   const targetSound = sound(target);
-  const inLine = new Set(lineTokens.map(fold));
-  const related = inflections(target);
+  const inLine = new Set(lineTokens.map(foldWord));
+  // Words that cannot be told apart from the answer, by ear or in meaning: its forms and the words that sound like it.
+  const related = new Set([...inflections(target), ...(HOMOPHONES.get(target) ?? [])]);
   const pool = distractorPool().filter((word) => word !== target && !inLine.has(word) && !related.has(word));
 
   // Splitting by sound first saves the edit count of the many words that sound nothing like the answer.

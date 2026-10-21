@@ -30,10 +30,42 @@ describe('normalizeTyped', () => {
     expect(normalizeTyped('get ')).toBe('get');
   });
 
+  it('turns every apostrophe-like mark a keyboard makes into the plain one', () => {
+    expect(normalizeTyped('donʼt')).toBe("don't");
+    expect(normalizeTyped('don´t')).toBe("don't");
+    expect(normalizeTyped('don`t')).toBe("don't");
+  });
+
+  it('removes zero-width characters and direction marks wherever they are', () => {
+    for (const mark of ['​', '‌', '‍', '⁠', '﻿', '‎', '‏']) {
+      expect(normalizeTyped(`get${mark}`)).toBe('get');
+      expect(normalizeTyped(`${mark}get`)).toBe('get');
+      expect(normalizeTyped(`g${mark}et`)).toBe('get');
+      expect(normalizeTyped(`get. ${mark}`)).toBe('get');
+    }
+  });
+
+  it('puts accented letters in their composed form', () => {
+    expect(normalizeTyped('café')).toBe('café');
+    expect(normalizeTyped('cafe​́')).toBe('café'); // an invisible character between them
+    expect(normalizeTyped('CAFÉ')).toBe('café'); // a capital with its accent apart
+    expect(normalizeTyped('Café')).toBe('café');
+  });
+
+  it('removes an ellipsis from the end, as a character or as three full stops', () => {
+    expect(normalizeTyped('get…')).toBe('get');
+    expect(normalizeTyped('get...')).toBe('get');
+    expect(normalizeTyped('get … ')).toBe('get');
+    expect(normalizeTyped('get.…')).toBe('get');
+    expect(normalizeTyped('…get')).toBe('…get');
+  });
+
   it('turns an empty or blank text into an empty text', () => {
     expect(normalizeTyped('')).toBe('');
     expect(normalizeTyped('  ')).toBe('');
     expect(normalizeTyped(' . ')).toBe('');
+    expect(normalizeTyped('​')).toBe('');
+    expect(normalizeTyped('…')).toBe('');
   });
 });
 
@@ -43,6 +75,18 @@ describe('matchTyped', () => {
     expect(matchTyped('Get ', 'get').result).toBe('exact');
     expect(matchTyped('don’t', "don't").result).toBe('exact');
     expect(matchTyped('get.', 'get').result).toBe('exact');
+  });
+
+  it('takes what a phone keyboard adds or changes as exact', () => {
+    expect(matchTyped('donʼt', "don't").result).toBe('exact');
+    expect(matchTyped('don´t', "don't").result).toBe('exact');
+    expect(matchTyped('don`t', "don't").result).toBe('exact');
+    expect(matchTyped('get…', 'get').result).toBe('exact');
+    expect(matchTyped('get...', 'get').result).toBe('exact');
+    expect(matchTyped('get​', 'get').result).toBe('exact');
+    expect(matchTyped('‎get‏', 'get').result).toBe('exact');
+    expect(matchTyped('﻿get', 'get').result).toBe('exact');
+    expect(matchTyped('café', 'café').result).toBe('exact');
   });
 
   it('gives no corrected letters for an exact answer or a wrong one', () => {
@@ -98,10 +142,40 @@ describe('matchTyped', () => {
     expect(matchTyped('late', 'lake').result).toBe('wrong');
   });
 
-  it('marks a missing apostrophe as wrong when what is left is another real word', () => {
-    expect(matchTyped('were', "we're").result).toBe('wrong');
-    expect(matchTyped('its', "it's").result).toBe('wrong');
-    expect(matchTyped('cause', "'cause").result).toBe('wrong');
+  it('corrects a dropped apostrophe even when what is left is another real word', () => {
+    expect(matchTyped('cause', "'cause")).toEqual({ result: 'corrected', correctedIndices: [0] });
+    expect(matchTyped('were', "we're")).toEqual({ result: 'corrected', correctedIndices: [2] });
+    expect(matchTyped('its', "it's")).toEqual({ result: 'corrected', correctedIndices: [2] });
+    expect(matchTyped('em', "'em")).toEqual({ result: 'corrected', correctedIndices: [0] });
+    expect(matchTyped('cant', "can't")).toEqual({ result: 'corrected', correctedIndices: [3] });
+    expect(matchTyped('ill', "i'll")).toEqual({ result: 'corrected', correctedIndices: [1] });
+  });
+
+  it('corrects a dropped apostrophe in a short answer, whatever its length', () => {
+    expect(matchTyped('im', "I'm")).toEqual({ result: 'corrected', correctedIndices: [1] });
+    expect(matchTyped('id', "I'd")).toEqual({ result: 'corrected', correctedIndices: [1] });
+    expect(matchTyped('em', "'em").result).toBe('corrected');
+  });
+
+  it('corrects every apostrophe dropped from an answer that has several', () => {
+    expect(matchTyped('rocknroll', "rock'n'roll")).toEqual({ result: 'corrected', correctedIndices: [4, 6] });
+    expect(matchTyped('yall', "y'all")).toEqual({ result: 'corrected', correctedIndices: [1] });
+  });
+
+  it('marks the dropped apostrophe whatever the case, the marks and the stray characters of the keyboard', () => {
+    expect(matchTyped('WERE', "We’re")).toEqual({ result: 'corrected', correctedIndices: [2] });
+    expect(matchTyped(' cause. ', '‘cause')).toEqual({ result: 'corrected', correctedIndices: [0] });
+    expect(matchTyped('its​', "it's")).toEqual({ result: 'corrected', correctedIndices: [2] });
+  });
+
+  it('does not take the apostrophe rule for an answer without an apostrophe, or other letters left out', () => {
+    expect(matchTyped('got', 'get').result).toBe('wrong'); // a real word that is not the answer
+    expect(matchTyped('wre', "we're").result).toBe('wrong'); // the apostrophe and a letter are missing
+    expect(matchTyped("we'r", "we're").result).toBe('corrected'); // one letter missing: the ordinary rule
+  });
+
+  it('corrects one dropped apostrophe when the answer has two, with the ordinary rules', () => {
+    expect(matchTyped("rock'nroll", "rock'n'roll")).toEqual({ result: 'corrected', correctedIndices: [6] });
   });
 
   it('counts the words in the contraction list as real words too', () => {
@@ -127,7 +201,8 @@ describe('matchTyped', () => {
 
   it('counts the letters of the answer, not its apostrophes', () => {
     expect(matchTyped("i'm", "I'm").result).toBe('exact');
-    expect(matchTyped('im', "I'm").result).toBe('wrong');
+    expect(matchTyped("i'n", "I'm").result).toBe('wrong'); // a wrong letter in an answer of 2 letters
+    expect(matchTyped("in", "I'm").result).toBe('wrong'); // a wrong letter and no apostrophe
   });
 
   it('starts to fix the answers that have 3 letters', () => {

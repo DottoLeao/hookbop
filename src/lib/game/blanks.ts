@@ -3,6 +3,7 @@ import contractionList from './data/contractions.json';
 import phrasalVerbList from './data/phrasal-verbs.json';
 import stopwordList from './data/stopwords.json';
 import { seededRng, shuffled } from './rng';
+import { foldApostrophes } from './text';
 
 /** A line shorter or longer than this (in ms) is too quick or too long to answer, so it never gets a blank. */
 const MIN_LINE_MS = 1200;
@@ -37,10 +38,11 @@ const WORD = /'?[\p{L}\p{N}]+(?:'[\p{L}\p{N}]+)*/gu;
 
 /**
  * The words of a text, in the original case, without punctuation.
- * Apostrophes inside a word and at its start are kept ("don't", "'cause", "I'm"); the typographic ones count as plain.
+ * Apostrophes inside a word and at its start are kept ("don't", "'cause", "I'm"); every apostrophe-like mark
+ * (’ ‘ ʼ ´ `) counts as a plain one.
  */
 export function tokenize(text: string): string[] {
-  return text.replace(/[’ʼ]/g, "'").match(WORD) ?? [];
+  return foldApostrophes(text).match(WORD) ?? [];
 }
 
 /** True when the line is long enough to hear and short enough to answer. */

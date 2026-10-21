@@ -1,5 +1,7 @@
 import { doubleMetaphone } from 'double-metaphone';
 import { describe, expect, it } from 'vitest';
+import blocklist from './data/blocklist.json';
+import homophones from './data/homophones.json';
 import { inflections, makeDistractors } from './distractors';
 import { damerau } from './editDistance';
 import { isRealWord } from './words';
@@ -204,4 +206,114 @@ describe('makeDistractors', () => {
     makeDistractors('let', line, 's1');
     expect(line).toEqual(['please', 'let', 'me']);
   });
+});
+
+describe('makeDistractors and the blocklist', () => {
+  const blocked = new Set<string>(blocklist);
+
+  // These answers are one or two edits from blocked words: hill and hello from "hell", where from "whore",
+  // six from "sex", such from "suck", return from "retard", use from "ass".
+  it.each(['where', 'hello', 'six', 'such', 'return', 'hill', 'use'])(
+    'never offers a blocked word for "%s", across 100 seeds',
+    (answer) => {
+      for (let i = 0; i < 100; i++) {
+        for (const w of makeDistractors(answer, [], `blocked-${i}`)) expect(blocked.has(w.toLowerCase())).toBe(false);
+      }
+    },
+    SLOW,
+  );
+
+  it('never offers a blocked word when the answer is in capitals', () => {
+    for (const seed of SEEDS) {
+      for (const w of makeDistractors('HILL', [], seed)) expect(blocked.has(w.toLowerCase())).toBe(false);
+    }
+  }, SLOW);
+
+  it('never offers a blocked word from the same-length fallback', () => {
+    // "prostitute" is the only blocked word of 10 letters in the pool; the fallback draws among 10-letter words.
+    for (let i = 0; i < 60; i++) {
+      for (const w of makeDistractors('zzzzzzzzzz', [], `fallback-${i}`)) expect(blocked.has(w)).toBe(false);
+    }
+  }, SLOW);
+});
+
+describe('makeDistractors and homophones', () => {
+  const groups: string[][] = homophones;
+
+  it('has groups of at least two different lowercase words', () => {
+    expect(groups.length).toBeGreaterThanOrEqual(60);
+    for (const group of groups) {
+      expect(group.length).toBeGreaterThanOrEqual(2);
+      expect(new Set(group).size).toBe(group.length);
+      for (const word of group) expect(word).toMatch(/^[a-z']+$/);
+    }
+  });
+
+  it('has the common groups', () => {
+    const has = (...words: string[]) => groups.some((group) => words.every((word) => group.includes(word)));
+    expect(has('night', 'knight')).toBe(true);
+    expect(has('know', 'no')).toBe(true);
+    expect(has('to', 'too', 'two')).toBe(true);
+    expect(has('there', 'their', "they're")).toBe(true);
+    expect(has('right', 'write')).toBe(true);
+    expect(has('hear', 'here')).toBe(true);
+    expect(has('see', 'sea')).toBe(true);
+    expect(has('one', 'won')).toBe(true);
+    expect(has('for', 'four')).toBe(true);
+    expect(has('by', 'buy', 'bye')).toBe(true);
+    expect(has('meet', 'meat')).toBe(true);
+    expect(has('peace', 'piece')).toBe(true);
+    expect(has('weak', 'week')).toBe(true);
+  });
+
+  const COMMON = [
+    ['night', 'knight'],
+    ['know', 'no'],
+    ['to', 'too', 'two'],
+    ['there', 'their', "they're"],
+    ['right', 'write'],
+    ['hear', 'here'],
+    ['see', 'sea'],
+    ['one', 'won'],
+    ['for', 'four'],
+    ['by', 'buy', 'bye'],
+    ['meet', 'meat'],
+    ['peace', 'piece'],
+    ['weak', 'week'],
+  ];
+
+  it.each(COMMON)('never offers a word that sounds the same as the answer: %s', (...group) => {
+    for (const answer of group) {
+      const same = group.filter((word) => word !== answer);
+      for (const seed of SEEDS) {
+        const d = makeDistractors(answer, [], seed);
+        for (const w of d) expect(same).not.toContain(w);
+      }
+    }
+  }, SLOW);
+
+  it('leaves the homophone out even when it would be the first pick', () => {
+    // "knight" is one edit from "night" and sounds exactly like it, so without the rule it is always chosen.
+    expect(damerau('knight', 'night')).toBe(1);
+    expect(sound('knight')).toBe(sound('night'));
+    for (const seed of SEEDS) expect(makeDistractors('night', [], seed)).not.toContain('knight');
+  }, SLOW);
+
+  it('ignores capitals and curly apostrophes in the answer', () => {
+    for (const seed of SEEDS) {
+      const d = makeDistractors('They’re', [], seed);
+      expect(d.map((w) => w.toLowerCase())).not.toContain('there');
+      expect(d.map((w) => w.toLowerCase())).not.toContain('their');
+    }
+  }, SLOW);
+
+  it('does not chain the groups: "red" is not "reed" just because both are "read"', () => {
+    const groupsWithRead = groups.filter((group) => group.includes('read'));
+    expect(groupsWithRead.length).toBeGreaterThanOrEqual(2);
+    for (const seed of SEEDS) expect(makeDistractors('read', [], seed)).not.toContain('red');
+    for (const seed of SEEDS) expect(makeDistractors('read', [], seed)).not.toContain('reed');
+    const offeredForRed = new Set(SEEDS.flatMap((seed) => makeDistractors('red', [], seed)));
+    expect(offeredForRed.has('read')).toBe(false);
+    expect(offeredForRed.has('reed')).toBe(true);
+  }, SLOW);
 });

@@ -122,6 +122,14 @@ describe('tokenize', () => {
     expect(tokenize('don’t stop, ’cause I’m here')).toEqual(["don't", 'stop', "'cause", "I'm", 'here']);
   });
 
+  it('treats every apostrophe-like mark of a lyrics site or a keyboard as a plain one', () => {
+    expect(tokenize('donʼt')).toEqual(["don't"]); // modifier letter apostrophe
+    expect(tokenize('don´t')).toEqual(["don't"]); // acute accent
+    expect(tokenize('don`t')).toEqual(["don't"]); // backtick
+    expect(tokenize('‘cause I‘m here')).toEqual(["'cause", "I'm", 'here']); // left single quotation mark
+    expect(tokenize('`Cause ´tis')).toEqual(["'Cause", "'tis"]);
+  });
+
   it('drops an apostrophe at the end of a word', () => {
     expect(tokenize("leavin' on a jet")).toEqual(['leavin', 'on', 'a', 'jet']);
   });

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import blocklist from './data/blocklist.json';
 import { distractorPool, isRealWord } from './words';
 
 describe('isRealWord', () => {
@@ -22,9 +23,20 @@ describe('isRealWord', () => {
     expect(isRealWord('Y’ALL')).toBe(true);
   });
 
+  it('treats the other apostrophe-like marks of a keyboard as the apostrophe', () => {
+    expect(isRealWord('‘cause')).toBe(true);
+    expect(isRealWord('´cause')).toBe(true);
+    expect(isRealWord('`cause')).toBe(true);
+    expect(isRealWord('ʼcause')).toBe(true);
+  });
+
   it('knows the less common words up to level 50', () => {
     expect(isRealWord('abash')).toBe(true); // level 40
     expect(isRealWord('abalone')).toBe(true); // level 50
+  });
+
+  it('still knows the words the blocklist keeps out of the pool, so a typo of them is not mistaken for a word', () => {
+    for (const word of ['hell', 'damn', 'crap', 'sex', 'retard', 'suck']) expect(isRealWord(word)).toBe(true);
   });
 
   it('does not know typos, words from the rarer levels, or an empty text', () => {
@@ -67,5 +79,56 @@ describe('distractorPool', () => {
 
   it('only holds words that isRealWord knows', () => {
     expect(distractorPool().every((word) => isRealWord(word))).toBe(true);
+  });
+});
+
+describe('the blocklist', () => {
+  it('is a list of unique lowercase words in alphabetical order', () => {
+    expect(blocklist.length).toBeGreaterThan(300);
+    expect(blocklist.every((word) => /^[a-z]+$/.test(word))).toBe(true);
+    expect(new Set(blocklist).size).toBe(blocklist.length);
+    expect([...blocklist].sort()).toEqual(blocklist);
+  });
+
+  it('keeps every blocked word out of the pool', () => {
+    const pool = new Set(distractorPool());
+    expect(blocklist.filter((word) => pool.has(word))).toEqual([]);
+  });
+
+  it('really removes words from the pool', () => {
+    const pool = new Set(distractorPool());
+    const mustGo = ['hell', 'damn', 'crap', 'ass', 'piss', 'sex', 'whore', 'faggot', 'retard'];
+    for (const word of [...mustGo, 'rape', 'raped', 'suicide', 'slave', 'slavery']) {
+      expect(blocklist).toContain(word);
+      expect(pool.has(word)).toBe(false);
+    }
+  });
+
+  it('covers slurs, sexual and anatomical words, profanity (also the mild kind) and their inflections', () => {
+    const expected = [
+      // slurs
+      'chink', 'chinks', 'faggot', 'faggots', 'queer', 'retarded', 'retards', 'cripple', 'moron', 'midget',
+      'nigger',
+      // sexual and anatomical
+      'sexy', 'sexual', 'porn', 'pornography', 'penis', 'vagina', 'breast', 'nipple', 'tits', 'butt', 'testicles',
+      'orgasm', 'masturbation',
+      // profanity
+      'fuck', 'fucking', 'shit', 'shitty', 'bitch', 'bitches', 'cunt', 'dick', 'cock', 'pussy', 'whore', 'slut',
+      'bastard', 'asshole', 'bullshit', 'hell', 'damn', 'damned', 'crap', 'ass', 'asses', 'piss', 'pissed', 'suck', 'sucks',
+      // rape, suicide, slavery
+      'rape', 'raped', 'rapes', 'raping', 'rapist', 'suicide', 'suicidal', 'slave', 'slaves', 'slavery', 'enslaved',
+    ];
+    expect(expected.filter((word) => !blocklist.includes(word))).toEqual([]);
+  });
+
+  it('leaves out the words that are common in lyrics and not offensive', () => {
+    const pool = new Set(distractorPool());
+    const allowed = [
+      'kill', 'killed', 'killing', 'dead', 'death', 'die', 'fight', 'murder', 'gun', 'war', 'blood', 'drunk',
+      'where', 'hello', 'hill', 'six', 'such', 'return', 'use', 'pass', 'class', 'glass', 'shell', 'title', 'analysis',
+      'grape', 'scrape', 'rapid', 'assess', 'bass', 'mass', 'cocktail', 'peacock', 'sucker', 'screw', 'gay', 'lesbian',
+    ];
+    expect(allowed.filter((word) => blocklist.includes(word))).toEqual([]);
+    expect(allowed.filter((word) => !pool.has(word))).toEqual([]);
   });
 });
