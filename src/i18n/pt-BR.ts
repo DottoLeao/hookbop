@@ -12,4 +12,16 @@ export const ptBR = {
   'dj.endLow': 'Quase! Solta o replay que você pega.',
 
   'home.pastePlaceholder': 'Cole o link do YouTube',
+
+  'entrar.google': 'Entrar com Google',
+  'entrar.email': 'Receber link por e-mail',
+  'entrar.emailLabel': 'Seu e-mail',
+  'entrar.sent': 'Link enviado! Confere seu e-mail.',
+  'entrar.error': 'Não rolou. Tenta de novo?',
+  // Uma mensagem por motivo de /entrar?estado=. 'sem-convite' e 'used' dizem o mesmo.
+  'entrar.estado.sem-convite': 'Pede um convite pra quem te mandou.',
+  'entrar.estado.used': 'Pede um convite pra quem te mandou.',
+  'entrar.estado.full': 'A galera tá cheia por enquanto.',
+  'entrar.estado.removed': 'Seu acesso foi pausado.',
+  'entrar.estado.not_found': 'Esse convite não existe.',
 } as const;
