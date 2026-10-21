@@ -1,4 +1,13 @@
 import { defineConfig, devices } from '@playwright/test';
+import { join } from 'node:path';
+
+// Next.js reads .env.local for the dev server below; Playwright does not, and the tests that
+// seed data need SUPABASE_SERVICE_ROLE_KEY. Variables already set (CI) are left alone.
+try {
+  process.loadEnvFile(join(import.meta.dirname, '.env.local'));
+} catch {
+  // No .env.local: nothing to load.
+}
 
 const PORT = 3000;
 const BASE_URL = `http://localhost:${PORT}`;

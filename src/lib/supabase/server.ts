@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { connection } from 'next/server';
 import { supabaseEnv } from '@/lib/env';
 import type { Database } from './database.types';
 
@@ -8,6 +9,12 @@ import type { Database } from './database.types';
  * Create one per request; never keep it in a module-level variable.
  */
 export async function createServerSupabase() {
+  // Whatever is done with this client first checks the session token against the clock
+  // (Date.now()), and Next.js does not allow that while it prepares a page ahead of time
+  // (the dev server logs "Date.now() while prerendering"). Waiting for a real request keeps
+  // the session work out of the part of the page that is built before any request.
+  await connection();
+
   const { url, anonKey } = supabaseEnv();
   const cookieStore = await cookies();
 

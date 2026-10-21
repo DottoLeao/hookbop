@@ -1,0 +1,116 @@
+import { createClient } from '@supabase/supabase-js';
+import { randomUUID } from 'node:crypto';
+import { test as base } from '@playwright/test';
+import type { Database } from '../../src/lib/supabase/database.types';
+
+// Test setup talks to the local Supabase with the service role key, which bypasses the access
+// rules, so tests can create members and invites the app itself would not hand out. The key
+// comes from .env.local (playwright.config.ts loads it) and never reaches a browser.
+function serviceClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    throw new Error('NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env.local to seed test data.');
+  }
+  return createClient<Database>(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+}
+
+export interface SeededMember {
+  id: string;
+  email: string;
+  name: string;
+}
+
+/** Same alphabet as the app's invite codes. Random, so parallel tests never share a code. */
+const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+export function randomInviteCode(): string {
+  return Array.from({ length: 10 }, () => CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)]).join('');
+}
+
+/** Short, unique and harmless in a display name, for telling this run's rows from any other. */
+export function uniqueSuffix(): string {
+  return randomUUID().slice(0, 8);
+}
+
+/**
+ * Creates test data and removes all of it afterwards, even when the test fails.
+ * Use it through the `seed` fixture below.
+ */
+export class Seed {
+  readonly db = serviceClient();
+  private readonly userIds = new Set<string>();
+  private readonly emails = new Set<string>();
+  private readonly codes = new Set<string>();
+
+  /** A confirmed account with a profile: someone who is already in the app. */
+  async member({ name, owner = false }: { name: string; owner?: boolean }): Promise<SeededMember> {
+    const email = `e2e-${randomUUID()}@example.com`;
+    const { data, error } = await this.db.auth.admin.createUser({
+      email,
+      email_confirm: true,
+      user_metadata: { full_name: name },
+    });
+    if (error) throw error;
+    this.userIds.add(data.user.id);
+
+    const profile = await this.db.from('profiles').insert({ id: data.user.id, display_name: name, is_owner: owner });
+    if (profile.error) throw profile.error;
+
+    return { id: data.user.id, email, name };
+  }
+
+  /** An invite made by `createdBy`, open unless `usedBy` is given. */
+  async invite({ createdBy, usedBy }: { createdBy: string; usedBy?: string }): Promise<string> {
+    const code = randomInviteCode();
+    this.codes.add(code);
+    const { error } = await this.db.from('invites').insert({
+      code,
+      created_by: createdBy,
+      ...(usedBy ? { used_by: usedBy, used_at: new Date().toISOString() } : {}),
+    });
+    if (error) throw error;
+    return code;
+  }
+
+  /** An address a test signs in with through the app, so the account does not exist yet. */
+  newcomerEmail(): string {
+    const email = `e2e-${randomUUID()}@example.com`;
+    this.emails.add(email);
+    return email;
+  }
+
+  /** Remember invite codes the app made, so they go too. */
+  track(code: string) {
+    this.codes.add(code);
+  }
+
+  async cleanup() {
+    const { data, error } = await this.db.auth.admin.listUsers({ perPage: 1000 });
+    if (error) throw error;
+    for (const user of data.users) {
+      if (user.email && this.emails.has(user.email)) this.userIds.add(user.id);
+    }
+    const ids = [...this.userIds];
+
+    // Order matters: invites and profiles point at users, and nothing cascades.
+    if (ids.length > 0) {
+      await this.db.from('invites').delete().in('created_by', ids);
+      await this.db.from('invites').delete().in('used_by', ids);
+    }
+    if (this.codes.size > 0) await this.db.from('invites').delete().in('code', [...this.codes]);
+    if (ids.length > 0) await this.db.from('profiles').delete().in('id', ids);
+    for (const id of ids) await this.db.auth.admin.deleteUser(id);
+  }
+}
+
+export const test = base.extend<{ seed: Seed }>({
+  // (Playwright's second argument is named `run`, not `use`, so the React hooks lint rule leaves it alone.)
+  seed: async ({}, run) => {
+    const seed = new Seed();
+    try {
+      await run(seed);
+    } finally {
+      await seed.cleanup();
+    }
+  },
+});
