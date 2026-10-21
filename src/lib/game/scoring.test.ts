@@ -70,9 +70,11 @@ describe('recordAnswer', () => {
     expect(hits(4).xp).toBe(40);
   });
 
-  it('tops the multiplier out at 3', () => {
-    const s = recordAnswer(hits(20), answer('20:0', 'first', true), 'escolha');
-    expect(s.xp - hits(20).xp).toBe(30);
+  it('caps a hit at 30 XP: the 25th hit would be at 3.5 without the cap', () => {
+    const before = hits(24);
+    const after = recordAnswer(before, answer('24:0', 'first', true), 'escolha');
+    expect(after.combo).toBe(25);
+    expect(after.xp - before.xp).toBe(30);
   });
 
   it('keeps maxCombo at the highest streak after a miss', () => {
@@ -172,5 +174,17 @@ describe('summarize', () => {
 describe('repeatMultiplier', () => {
   it('pays less each time the same song is played again within 7 days', () => {
     expect([0, 1, 2, 3, 9].map(repeatMultiplier)).toEqual([1, 0.5, 0.25, 0.1, 0.1]);
+  });
+
+  it('counts a missing or negative number of plays as no replay', () => {
+    expect([Number.NaN, -1, -0.5, -Infinity].map(repeatMultiplier)).toEqual([1, 1, 1, 1]);
+  });
+
+  it('rounds a fractional number of plays down', () => {
+    expect([0.9, 1.9, 2.5, 3.2].map(repeatMultiplier)).toEqual([1, 0.5, 0.25, 0.1]);
+  });
+
+  it('keeps an enormous number of plays at the floor of 0.1', () => {
+    expect(repeatMultiplier(Infinity)).toBe(0.1);
   });
 });

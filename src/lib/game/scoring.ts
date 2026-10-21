@@ -73,8 +73,13 @@ export function summarize(s: ScoreState): PlaySummary {
 /** XP shrinks each time the same song is played again: 1, then 0.5, 0.25 and, from the third replay on, 0.1. */
 const REPEAT_MULTIPLIERS = [1, 0.5, 0.25, 0.1];
 
-/** The factor for a song the player already played `playsSameSongLast7Days` times in the last 7 days. */
+/**
+ * The factor for a song the player already played `playsSameSongLast7Days` times in the last 7 days. A fraction
+ * counts as the whole number below it, and a missing (NaN) or negative count counts as no replay, so the result is
+ * always one of the four factors.
+ */
 export function repeatMultiplier(playsSameSongLast7Days: number): number {
   const plays = Math.floor(playsSameSongLast7Days);
-  return REPEAT_MULTIPLIERS[Math.min(REPEAT_MULTIPLIERS.length - 1, Math.max(0, plays))];
+  // `plays > 0` is false for NaN, so NaN lands on the first factor along with the negatives.
+  return REPEAT_MULTIPLIERS[plays > 0 ? Math.min(REPEAT_MULTIPLIERS.length - 1, plays) : 0];
 }
