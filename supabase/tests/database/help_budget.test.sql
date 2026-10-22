@@ -6,7 +6,7 @@
 
 begin;
 
-select plan(25);
+select plan(35);
 
 -- Members by number: c0..01 to c0..06. help_requests has no foreign key, so no profile is needed.
 
@@ -88,6 +88,61 @@ select isnt(public.reserve_help_request('c0000000-0000-0000-0000-000000000001', 
   'and frees its slot');
 select lives_ok($$select public.release_help_request(-1)$$,
   'releasing a row that is not there does nothing');
+
+-- ---------------------------------------------------------------------------
+-- The lock per member
+-- ---------------------------------------------------------------------------
+
+-- reserve_help_request takes a transaction-level advisory lock on hashtext(user_id), so two reservations of the same
+-- member queue up and cannot both take the last slot. Concurrency cannot be exercised inside one transaction, so this
+-- guards the lock itself, with the pg_locks pattern of core.test.sql: a bigint key shows as classid = its high 32 bits
+-- and objid = its low 32 bits, with objsubid = 1. hashtext gives an int that can be negative, so both halves are
+-- masked to 32 bits. The lock lasts until the end of the transaction, so the member is one with no reservation yet.
+create temp table member_lock as
+  select hashtext('c0000000-0000-0000-0000-000000000007')::bigint as k;
+
+select ok(
+  not exists (
+    select 1 from pg_locks, member_lock
+    where locktype = 'advisory' and pid = pg_backend_pid()
+      and classid = ((k >> 32) & 4294967295)::oid
+      and objid = (k & 4294967295)::oid
+      and objsubid = 1
+  ),
+  'no lock is held for a member before their first reservation');
+select isnt(public.reserve_help_request('c0000000-0000-0000-0000-000000000007', 'explain', 1), null,
+  'their first reservation gets a row');
+select ok(
+  exists (
+    select 1 from pg_locks, member_lock
+    where locktype = 'advisory' and pid = pg_backend_pid() and granted
+      and classid = ((k >> 32) & 4294967295)::oid
+      and objid = (k & 4294967295)::oid
+      and objsubid = 1
+  ),
+  'reserve_help_request holds the advisory lock of that member');
+
+-- ---------------------------------------------------------------------------
+-- Who may call them: the privileges themselves
+-- ---------------------------------------------------------------------------
+
+-- These tell a missing revoke on the functions apart from the missing grant on the table, which the 42501 tests
+-- below cannot.
+select function_privs_are('public', 'reserve_help_request', array['uuid', 'text', 'integer'], 'service_role', array['EXECUTE'],
+  'the service key may reserve a request');
+select function_privs_are('public', 'release_help_request', array['bigint'], 'service_role', array['EXECUTE'],
+  'the service key may release a request');
+select function_privs_are('public', 'reserve_help_request', array['uuid', 'text', 'integer'], 'authenticated', array[]::text[],
+  'a signed-in session may not reserve a request');
+select function_privs_are('public', 'release_help_request', array['bigint'], 'authenticated', array[]::text[],
+  'a signed-in session may not release a request');
+select function_privs_are('public', 'reserve_help_request', array['uuid', 'text', 'integer'], 'anon', array[]::text[],
+  'anon may not reserve a request');
+select function_privs_are('public', 'release_help_request', array['bigint'], 'anon', array[]::text[],
+  'anon may not release a request');
+select ok(not has_function_privilege('public', 'public.reserve_help_request(uuid, text, integer)', 'execute')
+      and not has_function_privilege('public', 'public.release_help_request(bigint)', 'execute'),
+  'the PUBLIC role may call neither');
 
 -- ---------------------------------------------------------------------------
 -- Only the service key may call them
