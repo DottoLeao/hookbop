@@ -21,12 +21,13 @@ insert into public.app_config (key, value) values
 on conflict (key) do update set value = excluded.value;
 
 -- owner = a0..01, ana = a0..02, bia = a0..03, cris = a0..04 (removed), eve = a0..09 (never a member)
-insert into auth.users (id, email) values
-  ('a0000000-0000-0000-0000-000000000001', 'owner@example.com'),
-  ('a0000000-0000-0000-0000-000000000002', 'ana@example.com'),
-  ('a0000000-0000-0000-0000-000000000003', 'bia@example.com'),
-  ('a0000000-0000-0000-0000-000000000004', 'cris@example.com'),
-  ('a0000000-0000-0000-0000-000000000009', 'eve@example.com');
+-- Every address is confirmed, as signing in requires (ensure_owner checks it since 0004).
+insert into auth.users (id, email, email_confirmed_at) values
+  ('a0000000-0000-0000-0000-000000000001', 'owner@example.com', now()),
+  ('a0000000-0000-0000-0000-000000000002', 'ana@example.com', now()),
+  ('a0000000-0000-0000-0000-000000000003', 'bia@example.com', now()),
+  ('a0000000-0000-0000-0000-000000000004', 'cris@example.com', now()),
+  ('a0000000-0000-0000-0000-000000000009', 'eve@example.com', now());
 
 -- ---------------------------------------------------------------------------
 -- ensure_owner and is_member
