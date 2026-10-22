@@ -29,7 +29,7 @@ let reducedMotion = false;
 
 let props: Props;
 let fetchTranslation: ReturnType<typeof vi.fn<(lineIndex: number) => Promise<string>>>;
-let onExplain: ReturnType<typeof vi.fn<(target: string) => void>>;
+let onExplain: ReturnType<typeof vi.fn<(target: string, lineIndex: number) => void>>;
 let view: ReturnType<typeof render>;
 
 /** The view on the song, at `timeMs`. Each line's translation is "Tradução <index>" unless `over` says otherwise. */
@@ -328,12 +328,12 @@ describe('KaraokeView', () => {
   });
 
   describe('tapping a word', () => {
-    it('asks to explain the word, for a word of the current line', () => {
+    it('asks to explain the word, for a word of the current line, with the index of that line', () => {
       renderKaraoke(15000);
 
       fireEvent.click(within(rows()[3]).getByRole('button', { name: 'worry' }));
 
-      expect(onExplain).toHaveBeenCalledExactlyOnceWith('worry');
+      expect(onExplain).toHaveBeenCalledExactlyOnceWith('worry', 3);
     });
 
     it('gives a word with an apostrophe whole', () => {
@@ -341,7 +341,7 @@ describe('KaraokeView', () => {
 
       fireEvent.click(within(rows()[3]).getByRole('button', { name: "I'm" }));
 
-      expect(onExplain).toHaveBeenCalledExactlyOnceWith("I'm");
+      expect(onExplain).toHaveBeenCalledExactlyOnceWith("I'm", 3);
     });
 
     it('makes every word of the current line a button, in order, and leaves out the punctuation', () => {
@@ -623,6 +623,49 @@ describe('KaraokeView: following the song', () => {
     update({ visible: true });
     expect(scrollTo).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ behavior: 'auto' }));
     expect(currentLines()).toEqual([rows()[4]]);
+  });
+
+  it('centers the line again at once when the translation of the current line comes in, since it makes the line taller', async () => {
+    let resolveCurrent!: (text: string) => void;
+    renderKaraoke(15000, {
+      fetchTranslation: vi.fn((lineIndex: number) =>
+        lineIndex === 3 ? new Promise<string>((done) => (resolveCurrent = done)) : new Promise<string>(() => {}),
+      ),
+    });
+    scrollTo.mockClear();
+
+    await act(async () => resolveCurrent('Tradução 3'));
+
+    expect(scrollTo).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ behavior: 'auto' }));
+  });
+
+  it('centers the line again at once when the translation of the next line comes in', async () => {
+    let resolveNext!: (text: string) => void;
+    renderKaraoke(15000, {
+      fetchTranslation: vi.fn((lineIndex: number) =>
+        lineIndex === 4 ? new Promise<string>((done) => (resolveNext = done)) : new Promise<string>(() => {}),
+      ),
+    });
+    scrollTo.mockClear();
+
+    await act(async () => resolveNext('Tradução 4'));
+
+    expect(scrollTo).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ behavior: 'auto' }));
+  });
+
+  it('does not move the list for a translation that comes in while the translations are hidden', async () => {
+    let resolveCurrent!: (text: string) => void;
+    renderKaraoke(15000, {
+      fetchTranslation: vi.fn((lineIndex: number) =>
+        lineIndex === 3 ? new Promise<string>((done) => (resolveCurrent = done)) : new Promise<string>(() => {}),
+      ),
+    });
+    update({ showTranslations: false });
+    scrollTo.mockClear();
+
+    await act(async () => resolveCurrent('Tradução 3'));
+
+    expect(scrollTo).not.toHaveBeenCalled();
   });
 
   it('can be reached with the keyboard, to scroll the lyrics', () => {

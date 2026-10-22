@@ -14,7 +14,7 @@ type Props = Parameters<typeof MontarArea>[0];
 
 function areaProps(over: Partial<Props> = {}) {
   const onTile = vi.fn<(word: string) => void>();
-  const onExplain = vi.fn<(target: string) => void>();
+  const onExplain = vi.fn<(target: string, lineIndex: number) => void>();
   const props: Props = { blank: BLANK, tokens: TOKENS, placed: [], youtubeId: ID, onTile, onExplain, ...over };
   return { props, onTile, onExplain };
 }
@@ -261,16 +261,54 @@ describe('MontarArea', () => {
     expect(picture()).toEqual(before);
   });
 
-  it('"Não entendi a ordem" asks for an explanation with no word', () => {
-    const { onExplain } = renderArea();
+  it('"Não entendi a ordem" asks for an explanation of the whole line, with no word and the index of the line', () => {
+    const { onExplain } = renderArea({ answered: true, blank: { ...BLANK, lineIndex: 4 } });
 
     fireEvent.click(screen.getByRole('button', { name: 'Não entendi a ordem' }));
 
-    expect(onExplain).toHaveBeenCalledExactlyOnceWith('');
+    expect(onExplain).toHaveBeenCalledExactlyOnceWith('', 4);
+  });
+
+  it('keeps "Não entendi a ordem" away until the line has an answer, as it would give the order away (ruling R65)', () => {
+    const { rerender, props } = renderArea({ placed: ['Please'] });
+    expect(screen.queryByRole('button', { name: 'Não entendi a ordem' })).not.toBeInTheDocument();
+
+    // A miss is an answer: the first try is spent, so explaining the order gives nothing away.
+    rerender(<MontarArea {...props} placed={[]} answered />);
+    expect(screen.getByRole('button', { name: 'Não entendi a ordem' })).toBeInTheDocument();
+
+    rerender(<MontarArea {...props} placed={TOKENS} solved answered />);
+    expect(screen.getByRole('button', { name: 'Não entendi a ordem' })).toBeInTheDocument();
+  });
+
+  describe('a line that is right', () => {
+    it('lets every word of the row be tapped, to explain it with the index of the line', () => {
+      const { onExplain } = renderArea({ placed: TOKENS, solved: true, answered: true, blank: { ...BLANK, lineIndex: 4 } });
+
+      const words = within(row()).getAllByRole('button');
+      expect(words.map((word) => word.textContent)).toEqual(TOKENS);
+      fireEvent.click(words[2]);
+
+      expect(onExplain).toHaveBeenCalledExactlyOnceWith('back', 4);
+    });
+
+    it('keeps the row’s words lime chips of the same size, each reaching 44 px with its touch area', () => {
+      renderArea({ placed: TOKENS, solved: true, answered: true });
+
+      for (const word of within(row()).getAllByRole('button')) {
+        expect(word).toHaveClass('h-10', 'bg-lime', 'text-bg', 'before:-inset-y-0.5');
+      }
+    });
+
+    it('gives no word of the row to tap while the line is still being built', () => {
+      renderArea({ placed: ['Please', 'come'] });
+
+      expect(within(row()).queryAllByRole('button')).toHaveLength(0);
+    });
   });
 
   it('keeps every tile and "Não entendi a ordem" at least 44 px tall, and every tile 44 px wide', () => {
-    renderArea({ placed: ['Please'] });
+    renderArea({ placed: ['Please'], answered: true });
 
     for (const button of screen.getAllByRole('button')) expect(button).toHaveClass('min-h-11');
     for (const button of tiles()) expect(button).toHaveClass('min-w-11');

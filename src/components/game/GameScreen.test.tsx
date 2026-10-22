@@ -5,6 +5,9 @@ import { makeDistractors } from '@/lib/game/distractors';
 import { seededRng, shuffled } from '@/lib/game/rng';
 import { playHit, playMiss } from '@/lib/game/sfx';
 import { makeTiles, tileSeed } from '@/lib/game/tiles';
+import { HelpError } from '@/lib/help/helpError';
+import type { HelpRequest } from '@/lib/help/helpService';
+import type { HelpRequester } from '@/lib/help/useLineHelp';
 import type { VideoRecord } from '@/lib/lyrics/resolveSong';
 import { FakePlayerAdapter } from '@/lib/player/fakeAdapter';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from '@/lib/settings';
@@ -79,6 +82,9 @@ const VIDEO: VideoRecord = {
 
 let fake: FakePlayerAdapter;
 
+/** The help service of every test that does not set one: it is down, so no test ever reaches the network. */
+const helpIsDown: HelpRequester = () => Promise.reject(new HelpError(503));
+
 /**
  * The game screen on the fake player. It starts the clip from the top, and the clock it reads in the 300 ms after
  * that seek does not count (ruling R44), so the helper lets those go by.
@@ -95,6 +101,7 @@ function renderGame(over: Partial<GameScreenProps> = {}) {
       video={VIDEO}
       timeToReadyMs={1200}
       onEnd={onEnd}
+      requestHelp={helpIsDown}
       {...over}
     />,
   );
@@ -145,6 +152,7 @@ async function renderFreshGame(over: Partial<GameScreenProps> = {}) {
       video={VIDEO}
       timeToReadyMs={1200}
       onEnd={vi.fn()}
+      requestHelp={helpIsDown}
       {...over}
     />,
   );
@@ -632,6 +640,8 @@ describe('GameScreen: Monte o verso', () => {
     renderBuild({ blanks: [WHOLE_0, WHOLE_1] });
     placeWords(BUILD_WORDS);
     playTo(4500);
+    // A miss, so the line has an answer and "Não entendi a ordem" is there (ruling R65).
+    fireEvent.click(tile('me'));
 
     expect(
       inOrder(
@@ -1226,17 +1236,312 @@ describe('GameScreen: lyrics', () => {
   });
 });
 
+/**
+ * A help service that answers every ask at once: "Tradução <line>" for a translation, "Explicação de <target>" for an
+ * explanation ("Explicação de tudo" for the whole line).
+ */
+function helpService() {
+  return vi.fn<HelpRequester>(async (r: HelpRequest) =>
+    r.kind === 'translate' ? `Tradução ${r.lineIndex}` : `Explicação de ${r.target || 'tudo'}`,
+  );
+}
+
+/** Lets the answers of the help service come in. */
+async function settleHelp() {
+  await act(async () => {});
+}
+
+function helpSheet() {
+  return screen.getByRole('dialog', { name: 'Explicação do DJ Bop' });
+}
+
+/** A player whose pause is not reported back at once, as YouTube's may not be: the game still sees it playing. */
+class SlowToReportPlayer extends FakePlayerAdapter {
+  override pause(): void {
+    this.calls.push('pause');
+  }
+}
+
+describe('GameScreen: help with a line', () => {
+  /** The typing lines, in Escolha, with "get" blanked. */
+  function renderHelped(over: Partial<GameScreenProps> = {}) {
+    const requestHelp = helpService();
+    const onEnd = renderGame({ lines: TYPING_LINES, blanks: [GET], requestHelp, ...over });
+    return { requestHelp, onEnd };
+  }
+
+  /** The word of the line in play, as a button. */
+  function word(name: string) {
+    return within(screen.getByTestId('line-current')).getByRole('button', { name });
+  }
+
+  describe('"Não entendi" and a tapped word', () => {
+    it('opens DJ Bop’s explanation of the blank word in place of the game, asking for it with its line', async () => {
+      const { requestHelp } = renderHelped();
+      fireEvent.click(option('late'));
+
+      fireEvent.click(screen.getByRole('button', { name: 'Não entendi' }));
+      await settleHelp();
+
+      expect(within(helpSheet()).getByRole('heading', { name: 'get' })).toBeInTheDocument();
+      expect(within(helpSheet()).getByText('Explicação de get')).toHaveAttribute('lang', 'pt-BR');
+      expect(within(helpSheet()).getByRole('img', { name: 'DJ Bop' })).toBeInTheDocument();
+      expect(requestHelp).toHaveBeenCalledExactlyOnceWith({
+        youtubeId: ID,
+        lyricsRef: '777',
+        lineIndex: 0,
+        lineText: TYPING_LINES[0].text,
+        kind: 'explain',
+        target: 'get',
+      });
+      // It stands in for the game area, which is only hidden.
+      expect(screen.getByTestId('line-current')).not.toBeVisible();
+      expect(screen.queryByRole('group', { name: 'Escolha a palavra que falta' })).not.toBeInTheDocument();
+    });
+
+    it('explains a word of the line in play that was tapped', async () => {
+      const { requestHelp } = renderHelped();
+
+      fireEvent.click(word('mind'));
+      await settleHelp();
+
+      expect(within(helpSheet()).getByText('Explicação de mind')).toBeInTheDocument();
+      expect(requestHelp).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ lineIndex: 0, target: 'mind' }));
+    });
+
+    it('"Valeu" closes it, shows the game again and gives the focus back to what opened it', async () => {
+      renderHelped();
+      fireEvent.click(option('late'));
+      const pill = screen.getByRole('button', { name: 'Não entendi' });
+      pill.focus();
+      fireEvent.click(pill);
+      await settleHelp();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Valeu' }));
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(screen.getByTestId('line-current')).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Não entendi' })).toHaveFocus();
+    });
+
+    it('asks only once for the same help, however often the sheet is opened', async () => {
+      const { requestHelp } = renderHelped();
+
+      for (let i = 0; i < 2; i++) {
+        fireEvent.click(word('mind'));
+        await settleHelp();
+        fireEvent.click(screen.getByRole('button', { name: 'Valeu' }));
+      }
+
+      expect(requestHelp).toHaveBeenCalledOnce();
+    });
+
+    it('gives a calm line in place of the explanation when the member asked too much, and never a status', async () => {
+      renderHelped({ requestHelp: vi.fn<HelpRequester>(() => Promise.reject(new HelpError(429))) });
+
+      fireEvent.click(word('mind'));
+      await settleHelp();
+
+      expect(within(helpSheet()).getByRole('status')).toHaveTextContent('Pausa rapidinha! Volta daqui a pouco?');
+      expect(helpSheet()).not.toHaveTextContent(/429/);
+    });
+  });
+
+  describe('the clip while the sheet is open (ruling R70)', () => {
+    it('pauses a clip that plays, and plays it again on "Valeu"', async () => {
+      renderHelped();
+      playTo(1000);
+      const before = fake.calls.length;
+
+      fireEvent.click(word('mind'));
+      await settleHelp();
+      expect(fake.calls.slice(before)).toEqual(['pause']);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Valeu' }));
+      expect(fake.calls.slice(before)).toEqual(['pause', 'play']);
+    });
+
+    it('leaves a clip the game paused for an answer alone, and still paused after "Valeu"', async () => {
+      renderHelped();
+      playTo(3850);
+      expect(fake.calls.at(-1)).toBe('pause');
+      const before = fake.calls.length;
+
+      fireEvent.click(word('mind'));
+      await settleHelp();
+      fireEvent.click(screen.getByRole('button', { name: 'Valeu' }));
+
+      expect(fake.calls.slice(before)).toEqual([]);
+      // The game still waits for the answer, which plays the clip on.
+      fireEvent.click(option('get'));
+      expect(fake.calls.slice(before)).toEqual(['play']);
+    });
+
+    it('does not play on after "Valeu" when the game began to wait for an answer while the sheet was open', async () => {
+      fake = new SlowToReportPlayer(DURATION_MS);
+      renderHelped();
+      playTo(1000);
+
+      fireEvent.click(word('mind'));
+      await settleHelp();
+      // YouTube had not said it paused, so the clock went on to the end of the line, and the game paused it there.
+      playTo(3850);
+      const before = fake.calls.length;
+      fireEvent.click(screen.getByRole('button', { name: 'Valeu' }));
+
+      expect(fake.calls.slice(before)).toEqual([]);
+    });
+
+    it('does not start a clip the player had paused', async () => {
+      renderHelped();
+      playTo(1000);
+      act(() => fake.emitState('paused'));
+      const before = fake.calls.length;
+
+      fireEvent.click(word('mind'));
+      await settleHelp();
+      fireEvent.click(screen.getByRole('button', { name: 'Valeu' }));
+
+      expect(fake.calls.slice(before)).toEqual([]);
+    });
+  });
+
+  describe('"Traduzir verso" (ruling R64)', () => {
+    it('shows the translation under the line in play, even with "Mostrar tradução sempre" off', async () => {
+      const { requestHelp } = renderHelped();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
+      expect(screen.getByRole('status')).toHaveTextContent('Traduzindo...');
+      await settleHelp();
+
+      expect(screen.getByTestId('translation')).toHaveTextContent('Tradução 0');
+      expect(screen.queryByRole('button', { name: 'Traduzir verso' })).not.toBeInTheDocument();
+      expect(requestHelp).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ lineIndex: 0, kind: 'translate', target: '' }),
+      );
+    });
+
+    it('asks for no translation by itself while "Mostrar tradução sempre" is off', async () => {
+      const { requestHelp } = renderHelped({ blanks: [] });
+
+      playTo(5000);
+      await settleHelp();
+
+      expect(requestHelp).not.toHaveBeenCalled();
+    });
+
+    it('gives a calm line when the translation cannot be had, and asks again on a tap', async () => {
+      const requestHelp = vi
+        .fn<HelpRequester>()
+        .mockRejectedValueOnce(new HelpError(503))
+        .mockResolvedValueOnce('Tradução 0');
+      renderHelped({ requestHelp });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
+      await settleHelp();
+      expect(screen.getByRole('status')).toHaveTextContent('Não rolou agora. Tenta de novo?');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
+      await settleHelp();
+
+      expect(screen.getByTestId('translation')).toHaveTextContent('Tradução 0');
+      expect(requestHelp).toHaveBeenCalledTimes(2);
+    });
+
+    describe('with "Mostrar tradução sempre" on', () => {
+      beforeEach(() => {
+        saveSettings(localStorage, { ...DEFAULT_SETTINGS, alwaysShowTranslation: true });
+      });
+
+      it('translates each line as it comes into play, without a tap, and each line once', async () => {
+        const { requestHelp } = renderHelped({ blanks: [] });
+        await settleHelp();
+        expect(screen.getByTestId('translation')).toHaveTextContent('Tradução 0');
+
+        playTo(4500);
+        await settleHelp();
+        expect(screen.getByTestId('translation')).toHaveTextContent('Tradução 1');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Repetir verso' }));
+        act(() => vi.advanceTimersByTime(400));
+        playTo(4500);
+        await settleHelp();
+
+        expect(requestHelp.mock.calls.map(([r]) => r.lineIndex)).toEqual([0, 1]);
+      });
+
+      it('shows nothing, and no error, when a translation it asked for by itself cannot be had', async () => {
+        renderHelped({ blanks: [], requestHelp: vi.fn<HelpRequester>(() => Promise.reject(new HelpError(503))) });
+        await settleHelp();
+
+        expect(screen.queryByTestId('translation')).not.toBeInTheDocument();
+        expect(screen.queryByRole('status')).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Traduzir verso' })).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Monte o verso', () => {
+    function renderHelpedBuild(over: Partial<GameScreenProps> = {}) {
+      const requestHelp = helpService();
+      renderBuild({ requestHelp, ...over });
+      return requestHelp;
+    }
+
+    it('shows "Não entendi a ordem" only once the line has an answer (ruling R65)', () => {
+      renderHelpedBuild();
+      expect(screen.queryByRole('button', { name: 'Não entendi a ordem' })).not.toBeInTheDocument();
+
+      fireEvent.click(tile('tonight'));
+
+      expect(screen.getByRole('button', { name: 'Não entendi a ordem' })).toBeInTheDocument();
+    });
+
+    it('"Não entendi a ordem" explains the whole line, with no word', async () => {
+      const requestHelp = renderHelpedBuild();
+      fireEvent.click(tile('tonight'));
+
+      fireEvent.click(screen.getByRole('button', { name: 'Não entendi a ordem' }));
+      await settleHelp();
+
+      expect(within(helpSheet()).getByRole('heading', { name: 'O verso inteiro' })).toBeInTheDocument();
+      expect(within(helpSheet()).getByText('Explicação de tudo')).toBeInTheDocument();
+      expect(requestHelp).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ lineIndex: 0, kind: 'explain', target: '' }));
+    });
+
+    it('lets the words of a line that is right be tapped in its row, to explain them', async () => {
+      const requestHelp = renderHelpedBuild();
+      placeWords(BUILD_WORDS);
+
+      fireEvent.click(within(screen.getByTestId('montar-row')).getByRole('button', { name: 'home' }));
+      await settleHelp();
+
+      expect(within(helpSheet()).getByText('Explicação de home')).toBeInTheDocument();
+      expect(requestHelp).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ lineIndex: 0, target: 'home' }));
+    });
+
+    it('translates the line in play, which is still hidden: a translation scores nothing (ruling R60)', async () => {
+      const requestHelp = renderHelpedBuild();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
+      await settleHelp();
+
+      expect(screen.getByTestId('translation')).toHaveTextContent('Tradução 0');
+      expect(requestHelp).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ lineIndex: 0, kind: 'translate' }));
+    });
+  });
+});
+
 describe('LyricPanel', () => {
   function renderPanel(over: Partial<Parameters<typeof LyricPanel>[0]> = {}) {
-    const onTranslate = vi.fn();
-    const onExplain = vi.fn<(target: string) => void>();
+    const onTranslate = vi.fn<(lineIndex: number) => void>();
+    const onExplain = vi.fn<(target: string, lineIndex: number) => void>();
     render(
       <LyricPanel
         lines={LINES}
         current={0}
         blanks={[LET]}
         status={{ [LET.id]: 'pending' }}
-        showTranslation={false}
         onTranslate={onTranslate}
         onExplain={onExplain}
         {...over}
@@ -1250,42 +1555,69 @@ describe('LyricPanel', () => {
 
     fireEvent.click(within(screen.getByTestId('line-current')).getByRole('button', { name: 'down' }));
 
-    expect(onExplain).toHaveBeenCalledExactlyOnceWith('down');
+    expect(onExplain).toHaveBeenCalledExactlyOnceWith('down', 0);
     expect(within(screen.getByTestId('line-current')).queryByRole('button', { name: 'let' })).not.toBeInTheDocument();
     expect(within(screen.getByTestId('line-next')).queryAllByRole('button')).toHaveLength(0);
   });
 
-  it('"Traduzir verso" asks for the translation', () => {
+  it('"Traduzir verso" asks for the translation of the line it is under', () => {
     const { onTranslate } = renderPanel();
 
     fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
 
-    expect(onTranslate).toHaveBeenCalledOnce();
+    expect(onTranslate).toHaveBeenCalledExactlyOnceWith(0);
   });
 
-  it('shows the translation in place of "Traduzir verso" when it is always shown and there is one', () => {
-    renderPanel({ showTranslation: true, translation: 'Por favor, não me decepcione' });
+  it('reports the index of the line it drew, for a word, "Não entendi" and "Traduzir verso"', () => {
+    const { onExplain, onTranslate } = renderPanel({
+      lines: TYPING_LINES,
+      current: 1,
+      blanks: [RADIO],
+      status: { [RADIO.id]: 'wrong' },
+    });
 
-    expect(screen.getByTestId('translation')).toHaveTextContent('Por favor, não me decepcione');
+    fireEvent.click(within(screen.getByTestId('line-current')).getByRole('button', { name: 'plays' }));
+    expect(onExplain).toHaveBeenLastCalledWith('plays', 1);
+    fireEvent.click(screen.getByRole('button', { name: 'Não entendi' }));
+    expect(onExplain).toHaveBeenLastCalledWith('radio', 1);
+    fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
+    expect(onTranslate).toHaveBeenCalledExactlyOnceWith(1);
+  });
+
+  it('shows the translation under the line, in Portuguese, in place of "Traduzir verso"', () => {
+    renderPanel({ translation: { status: 'done', text: 'Tradução do verso' } });
+
+    expect(screen.getByTestId('translation')).toHaveTextContent('Tradução do verso');
+    expect(screen.getByTestId('translation')).toHaveAttribute('lang', 'pt-BR');
     expect(screen.queryByRole('button', { name: 'Traduzir verso' })).not.toBeInTheDocument();
   });
 
-  it('keeps the translation hidden while it is not always shown', () => {
-    renderPanel({ showTranslation: false, translation: 'Por favor, não me decepcione' });
+  it('says the translation is on its way in place of "Traduzir verso"', () => {
+    renderPanel({ translation: { status: 'loading' } });
 
-    expect(screen.queryByText('Por favor, não me decepcione')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Traduzir verso' })).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Traduzindo...');
+    expect(screen.queryByRole('button', { name: 'Traduzir verso' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('translation')).not.toBeInTheDocument();
+  });
+
+  it('gives a calm line when the translation cannot be had, and keeps "Traduzir verso" to ask again', () => {
+    const { onTranslate } = renderPanel({ translation: { status: 'error', message: 'Não rolou agora. Tenta de novo?' } });
+
+    expect(screen.getByRole('status')).toHaveTextContent('Não rolou agora. Tenta de novo?');
+    expect(screen.queryByTestId('translation')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
+    expect(onTranslate).toHaveBeenCalledExactlyOnceWith(0);
   });
 
   it('after an answer, "Não entendi" explains the blank word, and a right blank can be tapped too', () => {
     const { onExplain } = renderPanel({ status: { [LET.id]: 'correct' } });
 
     fireEvent.click(screen.getByRole('button', { name: 'Não entendi' }));
-    expect(onExplain).toHaveBeenLastCalledWith('let');
+    expect(onExplain).toHaveBeenLastCalledWith('let', 0);
 
     fireEvent.click(within(screen.getByTestId('line-current')).getByRole('button', { name: 'let, acertou' }));
     expect(onExplain).toHaveBeenCalledTimes(2);
-    expect(onExplain).toHaveBeenLastCalledWith('let');
+    expect(onExplain).toHaveBeenLastCalledWith('let', 0);
   });
 
   it('shows a blank the typing mode corrected with its fixed letters marked, and says so to screen readers', () => {
@@ -1300,7 +1632,7 @@ describe('LyricPanel', () => {
     expect(fixedLettersIn(word)).toEqual(['e', 't']);
     // It is still the word to explain.
     fireEvent.click(word);
-    expect(onExplain).toHaveBeenCalledExactlyOnceWith('let');
+    expect(onExplain).toHaveBeenCalledExactlyOnceWith('let', 0);
   });
 
   it('shows every right blank with a check and its result for screen readers, with no letters marked unless fixed', () => {
@@ -1314,7 +1646,7 @@ describe('LyricPanel', () => {
     // The result is the accessible name, not text on screen.
     expect(document.body.textContent).not.toMatch(/acertou|errou/i);
     fireEvent.click(word);
-    expect(onExplain).toHaveBeenCalledExactlyOnceWith('let');
+    expect(onExplain).toHaveBeenCalledExactlyOnceWith('let', 0);
   });
 
   it('draws two right words on one line the same way, whether one of them was fixed or not (ruling R55)', () => {
@@ -1378,7 +1710,6 @@ describe('LyricPanel', () => {
               {...WHOLE_LINES}
               current={0}
               status={{ [WHOLE_0.id]: state, [WHOLE_1.id]: 'pending' }}
-              showTranslation={false}
               onTranslate={vi.fn()}
               onExplain={vi.fn()}
             />,
@@ -1416,7 +1747,9 @@ describe('LyricPanel', () => {
         expect(around).not.toHaveClass('w-full');
       });
 
-      it('shows the line once its blank is right, each word a right one with a check, and a word can be explained', () => {
+      // In the game, a right puzzle line in play is drawn by the answer area, whose row has the check and the words to
+      // tap (see MontarArea). The panel draws such a line as an ordinary one, whose words can be tapped.
+      it('shows the line once its blank is right, as plain words that can be explained', () => {
         const { onExplain } = renderPanel({
           ...WHOLE_LINES,
           status: { [WHOLE_0.id]: 'correct', [WHOLE_1.id]: 'pending' },
@@ -1425,21 +1758,15 @@ describe('LyricPanel', () => {
         const current = screen.getByTestId('line-current');
         expect(current).toHaveTextContent('Please come back home tonight');
         const words = within(current).getAllByRole('button');
-        expect(words.map((word) => word.getAttribute('aria-label'))).toEqual([
-          'Please, acertou',
-          'come, acertou',
-          'back, acertou',
-          'home, acertou',
-          'tonight, acertou',
-        ]);
+        expect(words.map((word) => word.textContent)).toEqual(['Please', 'come', 'back', 'home', 'tonight']);
         for (const word of words) {
-          expect(word).toHaveClass('bg-lime', 'text-bg', 'min-h-11');
-          expect(word.querySelector('[data-icon="check"]')).not.toBeNull();
+          expect(word).toHaveClass('min-h-11');
+          expect(word).not.toHaveClass('bg-lime');
+          expect(word.querySelector('[data-icon]')).toBeNull();
         }
-        expect(document.body.textContent).not.toMatch(/acertou|errou/i);
         expect(current).not.toHaveTextContent('verso escondido');
         fireEvent.click(words[1]);
-        expect(onExplain).toHaveBeenCalledExactlyOnceWith('come');
+        expect(onExplain).toHaveBeenCalledExactlyOnceWith('come', 0);
       });
 
       it('shows a right line around the line in play as plain text, with no check', () => {
@@ -1494,7 +1821,6 @@ describe('LyricPanel', () => {
           <LyricPanel
             {...props}
             status={{ [WHOLE_0.id]: 'correct', [WHOLE_1.id]: 'pending' }}
-            showTranslation={false}
             onTranslate={vi.fn()}
             onExplain={vi.fn()}
           />,
@@ -1505,7 +1831,6 @@ describe('LyricPanel', () => {
           <LyricPanel
             {...props}
             status={{ [WHOLE_0.id]: 'correct', [WHOLE_1.id]: 'correct' }}
-            showTranslation={false}
             onTranslate={vi.fn()}
             onExplain={vi.fn()}
           />,
@@ -1520,8 +1845,7 @@ describe('LyricPanel', () => {
           current: 1,
           status: { [WHOLE_0.id]: 'correct', [WHOLE_1.id]: 'pending' },
           inPlayId: WHOLE_1.id,
-          showTranslation: true,
-          translation: 'Deixe a luz da varanda acesa',
+          translation: { status: 'done', text: 'Deixe a luz da varanda acesa' },
         });
 
         expect(screen.getByTestId('translation')).toHaveTextContent('Deixe a luz da varanda acesa');
@@ -1746,21 +2070,61 @@ describe('GameScreen: Karaokê', () => {
     expect(fake.calls.at(-1)).toBe('rate:1');
   });
 
-  it('shows nothing under the lines, and no error, while there is no translation service (ruling R56)', async () => {
+  it('shows the translations of the current line and the next one, from the help service', async () => {
+    const requestHelp = helpService();
+    renderKaraoke({ requestHelp });
+    await settleHelp();
+
+    expect(karaokeRows()[0].querySelector('[lang="pt-BR"]')).toHaveTextContent('Tradução 0');
+    expect(karaokeRows()[1].querySelector('[lang="pt-BR"]')).toHaveTextContent('Tradução 1');
+    expect(karaokeRows()[2].querySelector('[lang="pt-BR"]')).toBeNull();
+    expect(requestHelp.mock.calls.map(([r]) => [r.lineIndex, r.kind])).toEqual([
+      [0, 'translate'],
+      [1, 'translate'],
+    ]);
+  });
+
+  it('shows nothing under the lines, and no error, when the translations cannot be had', async () => {
     renderKaraoke();
-    await act(async () => {});
+    await settleHelp();
 
     expect(screen.getByRole('list', { name: 'Letra' }).querySelector('[lang="pt-BR"]')).toBeNull();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(visibleText()).not.toMatch(/erro|falha|não deu|tenta/i);
   });
 
-  it('lets a word of the current line be tapped, and no help opens yet', () => {
-    renderKaraoke();
+  it('explains a tapped word of the current line in place of the lyrics, and brings them back on "Valeu"', async () => {
+    const requestHelp = helpService();
+    renderKaraoke({ requestHelp });
+    const river = within(currentRow()!).getByRole('button', { name: 'river' });
+    river.focus();
+
+    fireEvent.click(river);
+    await settleHelp();
+
+    expect(within(helpSheet()).getByText('Explicação de river')).toBeInTheDocument();
+    expect(requestHelp).toHaveBeenCalledWith(expect.objectContaining({ lineIndex: 0, kind: 'explain', target: 'river' }));
+    expect(screen.queryByRole('list', { name: 'Letra' })).not.toBeInTheDocument();
+    scrollTo.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Valeu' }));
+
+    expect(screen.getByRole('list', { name: 'Letra' })).toBeVisible();
+    expect(within(currentRow()!).getByRole('button', { name: 'river' })).toHaveFocus();
+    // The list was hidden and lost its scroll, so the current line is centered again.
+    expect(scrollTo).toHaveBeenCalled();
+  });
+
+  it('pauses the song while a word is explained, and plays it again on "Valeu"', async () => {
+    renderKaraoke({ requestHelp: helpService() });
+    playTo(1000);
+    const before = fake.calls.length;
 
     fireEvent.click(within(currentRow()!).getByRole('button', { name: 'river' }));
+    await settleHelp();
+    fireEvent.click(screen.getByRole('button', { name: 'Valeu' }));
 
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(fake.calls.slice(before)).toEqual(['pause', 'play']);
   });
 
   it('centers the current line again after the settings sheet, which hides the list and loses its scroll', () => {

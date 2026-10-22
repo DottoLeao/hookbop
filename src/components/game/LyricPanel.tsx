@@ -28,15 +28,25 @@ interface LyricPanelProps {
    * design/canvas/Digitacao.dc.html.
    */
   corrected?: Record<string, number[]>;
-  /** Show the line's translation under it, when there is one, in place of "Traduzir verso". */
-  showTranslation: boolean;
-  /** The translation of the line in play, once something has fetched it. */
-  translation?: string;
-  /** "Traduzir verso". */
-  onTranslate: () => void;
-  /** "Não entendi", or a tap on a word of the line in play: the word or expression to explain. */
-  onExplain: (target: string) => void;
+  /**
+   * The translation of the line in play, as far as it got: on its way, there, or not to be had (with what DJ Bop says
+   * about it). Shown whenever there is one, whatever "Mostrar tradução sempre" says: that setting only decides whether
+   * the game screen asks for it by itself (ruling R64).
+   */
+  translation?: TranslationView;
+  /** "Traduzir verso", with the index of the line it is under. */
+  onTranslate: (lineIndex: number) => void;
+  /**
+   * "Não entendi", or a tap on a word of the line in play: the word or expression to explain, and the index of the line
+   * that was drawn, which the clock may have moved past by the time of the tap.
+   */
+  onExplain: (target: string, lineIndex: number) => void;
 }
+
+export type TranslationView =
+  | { status: 'loading' }
+  | { status: 'done'; text: string }
+  | { status: 'error'; message: string };
 
 /**
  * The `tokenIndex` of a blank for the whole line (Monte o verso, `selectTileLines`): the line is the puzzle, so no
@@ -83,8 +93,9 @@ interface LineTextProps {
 
 /**
  * A line with its open blanks hidden, so no line on screen gives an answer away. A line that is a puzzle (a blank for
- * the whole line) is hidden altogether until the puzzle is right (ruling R52): then its words show, each one a right
- * one, as the blanks of the other modes do (ruling R55).
+ * the whole line) is hidden altogether until the puzzle is right (ruling R52), and then drawn as an ordinary line. In
+ * the game a right puzzle line in play is never drawn here but in the answer area's row, which has its check and its
+ * words to tap (ruling R59), so the panel only ever draws such a line before or after the line in play.
  */
 function LineText({ text, blanks, status, onExplain, inPlayId, corrected }: LineTextProps) {
   const wholeLine = blanks.find((b) => b.tokenIndex === WHOLE_LINE);
@@ -93,7 +104,7 @@ function LineText({ text, blanks, status, onExplain, inPlayId, corrected }: Line
   }
   return pieces(text).map((piece, i) => {
     if (!('word' in piece)) return <Fragment key={i}>{piece.text}</Fragment>;
-    const blank = wholeLine ?? blanks.find((b) => b.tokenIndex === piece.index);
+    const blank = blanks.find((b) => b.tokenIndex === piece.index);
     if (blank && status[blank.id] !== 'correct') {
       return <Slot key={i} inPlay={blank.id === inPlayId} small={!onExplain} />;
     }
@@ -142,8 +153,9 @@ function Pill({ onClick, children }: { onClick: () => void; children: string }) 
 
 /**
  * The lyrics around the clip: the line before in muted text, the line in play in Space Grotesk with its blank, and
- * the line after in muted text. Under the line in play: its translation when it is always shown, "Traduzir verso"
- * when it is not, and "Não entendi" once a blank of the line has an answer.
+ * the line after in muted text. Under the line in play: its translation once there is one, and "Traduzir verso" until
+ * then ("Traduzindo..." while it is on its way, and DJ Bop's calm line next to the pill when it cannot be had), and
+ * "Não entendi" once a blank of the line has an answer.
  *
  * A line that is a puzzle (Monte o verso) is never drawn as text until it is right (ruling R52), and while it is in
  * play the answer area holds it (ruling R59): the panel then draws neither that line nor the line after it, only the
@@ -157,7 +169,6 @@ export function LyricPanel({
   status,
   inPlayId,
   corrected,
-  showTranslation,
   translation,
   onTranslate,
   onExplain,
@@ -171,7 +182,13 @@ export function LyricPanel({
   const inArea = own.some((blank) => blank.id === inPlayId && blank.tokenIndex === WHOLE_LINE);
   const answerable = own.filter((blank) => blank.tokenIndex !== WHOLE_LINE);
   const answered = answerable.filter((blank) => status[blank.id] === 'correct' || status[blank.id] === 'wrong').at(-1);
-  const shownTranslation = showTranslation && translation ? translation : null;
+  const shownTranslation = translation?.status === 'done' ? translation.text : null;
+  // "Traduzir verso" until the translation is there, except while it is on its way. After a failure it asks again.
+  const canTranslate = !shownTranslation && translation?.status !== 'loading';
+  const translationNote =
+    translation?.status === 'loading' ? t('ajuda.translating') : translation?.status === 'error' ? translation.message : null;
+  // The word the player tapped belongs to the line drawn now, whatever line the clock reaches before the tap lands.
+  const explain = (target: string) => onExplain(target, current);
 
   return (
     <div className="flex flex-col gap-2.5">
@@ -186,21 +203,26 @@ export function LyricPanel({
             text={line.text}
             blanks={own}
             status={status}
-            onExplain={onExplain}
+            onExplain={explain}
             inPlayId={inPlayId}
             corrected={corrected}
           />
         </p>
       )}
       {shownTranslation && (
-        <p data-testid="translation" className="text-lyric text-muted">
+        <p data-testid="translation" lang="pt-BR" className="text-lyric text-muted">
           {shownTranslation}
         </p>
       )}
-      {(!shownTranslation || answered) && (
+      {translationNote && (
+        <p role="status" className="text-body text-muted">
+          {translationNote}
+        </p>
+      )}
+      {(canTranslate || answered) && (
         <div className="flex flex-wrap gap-2">
-          {!shownTranslation && <Pill onClick={onTranslate}>{t('jogo.translate')}</Pill>}
-          {answered && <Pill onClick={() => onExplain(answered.answer)}>{t('jogo.explain')}</Pill>}
+          {canTranslate && <Pill onClick={() => onTranslate(current)}>{t('jogo.translate')}</Pill>}
+          {answered && <Pill onClick={() => explain(answered.answer)}>{t('jogo.explain')}</Pill>}
         </div>
       )}
       {next && !inArea && (

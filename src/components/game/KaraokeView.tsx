@@ -16,8 +16,8 @@ interface KaraokeViewProps {
    * that line, no error, and does not ask for it again.
    */
   fetchTranslation: (lineIndex: number) => Promise<string>;
-  /** A tap on a word of the current line: the word to explain. */
-  onExplain: (target: string) => void;
+  /** A tap on a word of the current line: the word to explain, and the index of the line it was drawn on. */
+  onExplain: (target: string, lineIndex: number) => void;
   /**
    * Show the translations under the lines. While they are hidden none is fetched. A switch of the screen, not a
    * setting: the game screen starts it shown every time.
@@ -57,7 +57,8 @@ function prefersReducedMotion(): boolean {
  * The list scrolls inside its own box, which is the only thing that moves: the current line is centered with
  * `scrollTo` on the list. `scrollIntoView` would also scroll the page to center the line in the window, and push the
  * player off the screen. The list sweeps only when the song moves on to the next line; every other time it is put back
- * in place at once.
+ * in place at once, including when the translation of the current or the next line comes in, as that changes the
+ * heights around the line.
  *
  * The words of the current line are the only buttons, so when the song moves on, the one that had the keyboard focus
  * goes away and the focus would fall to the page. The view then puts it on the first word of the new line, or on the
@@ -104,8 +105,13 @@ export function KaraokeView({
     target?.focus({ preventScroll: true });
   }, [current]);
 
+  // The translations on screen around the current line: when one comes in, the lines there get taller.
+  const currentTranslation = showTranslations ? translations[current] : undefined;
+  const nextTranslation = showTranslations ? translations[current + 1] : undefined;
+
   // The current line is centered in the list when it changes. Also when the translations are hidden or shown, as every
-  // line then changes its height, and when the list is shown again after being hidden, as that loses its scroll.
+  // line then changes its height, when the translation of the current or next line comes in, and when the list is
+  // shown again after being hidden, as that loses its scroll.
   useEffect(() => {
     const before = centered.current;
     centered.current = { line: current, visible };
@@ -119,7 +125,7 @@ export function KaraokeView({
       top: list.scrollTop + aboveLine - roomAround / 2,
       behavior: songMovedOn && !prefersReducedMotion() ? 'smooth' : 'auto',
     });
-  }, [current, showTranslations, visible]);
+  }, [current, showTranslations, visible, currentTranslation, nextTranslation]);
 
   return (
     <ol
@@ -159,7 +165,7 @@ export function KaraokeView({
                       <button
                         key={k}
                         type="button"
-                        onClick={() => onExplain(piece.word)}
+                        onClick={() => onExplain(piece.word, i)}
                         className={`${tappableShape} px-0.5 hover:underline focus-visible:outline-bg`}
                       >
                         {piece.text}

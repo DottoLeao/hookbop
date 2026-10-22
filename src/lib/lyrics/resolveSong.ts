@@ -1,6 +1,7 @@
 import type { LyricLine } from '@/lib/types';
 import { cleanTitle } from './cleanTitle';
-import { applyOffset, parseLrc } from './lrc';
+import { linesOfVideo } from './linesOfVideo';
+import { applyOffset } from './lrc';
 import { needsCalibration } from './offset';
 import type { LyricsSource } from './source';
 
@@ -52,7 +53,7 @@ function ready(video: PlayableVideo, videoDurationS: number): SongResolution {
   return {
     status: 'ready',
     video,
-    lines: applyOffset(parseLrc(video.lyricsLrc, video.lyricsDurationS * 1000), video.offsetMs),
+    lines: applyOffset(linesOfVideo(video), video.offsetMs),
     needsCalibration: needsCalibration(videoDurationS, video.lyricsDurationS),
   };
 }

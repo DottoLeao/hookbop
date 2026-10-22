@@ -21,10 +21,18 @@ interface MontarAreaProps {
   youtubeId: string;
   /** The line is already right: the row shows its check, and nothing can be placed. */
   solved?: boolean;
+  /**
+   * The line has an answer, a miss or the right one. Until then "Não entendi a ordem" stays away: explaining the order
+   * before the first try would hand over the answer while that try still counts (ruling R65).
+   */
+  answered?: boolean;
   /** A tile was tapped. The game decides what it is: the next word joins the row, any other one is a miss. */
   onTile: (word: string) => void;
-  /** "Não entendi a ordem". The word to explain is '' since it is the order of the whole line that is not clear. */
-  onExplain: (target: string) => void;
+  /**
+   * "Não entendi a ordem", with '' as the word since it is the order of the whole line that is not clear, or a tap on a
+   * word of the row once the line is right. Always with the index of this line.
+   */
+  onExplain: (target: string, lineIndex: number) => void;
 }
 
 /**
@@ -48,6 +56,13 @@ function usedTiles(tiles: readonly string[], placed: readonly string[]): Set<num
 /** A word in the row: at least as wide as an empty slot (56 px), so a slot never takes more room than its word. */
 const chip = 'inline-flex h-10 min-w-14 items-center justify-center rounded-blank px-3.5 text-button font-bold';
 
+/**
+ * A word of a right row, which can be tapped to have it explained. It keeps the 40 px of a chip, so the row does not
+ * grow when the line is solved, and its touch area reaches 44 px through 2 px above and below it, inside the 8 px
+ * between two rows.
+ */
+const wordChip = `${chip} relative bg-lime text-bg before:absolute before:inset-x-0 before:-inset-y-0.5 ${focusRing}`;
+
 /** A tile is at least 44 px tall and wide (a one-letter word such as "I"), and wraps onto the next row. */
 const tileLook = `relative inline-flex min-h-11 min-w-11 items-center justify-center rounded-button text-button [overflow-wrap:anywhere] ${focusRing}`;
 
@@ -55,14 +70,24 @@ const tileLook = `relative inline-flex min-h-11 min-w-11 items-center justify-ce
  * "Monte o verso": the shuffled words of a whole line to tap in order (design/canvas/MonteVerso.dc.html, Limão
  * colors). The words placed so far sit in a row of lime chips followed by empty slots; their tiles stay in the pool,
  * dashed and faint. A wrong tile turns red with ✕ until the next tap (or a hint), and the row starts over (the game
- * clears it itself). When the line is right the row turns lime with ✓.
+ * clears it itself). When the line is right the row turns lime with ✓, and its words can be tapped to have them
+ * explained: while the line is in play, this row is the only place it is drawn (ruling R59).
  *
  * A tile that cannot be tapped (placed, or any tile once the line is right) is `aria-disabled`, never `disabled`: a
  * disabled button drops the focus the tap gave it, and the player would lose their place on every right tap. The tap
  * is ignored in `pick`. The result is said only to screen readers (a status line that is `sr-only`) and in accessible
  * names ("tonight, errou"), never as text on screen.
  */
-export function MontarArea({ blank, tokens, placed, youtubeId, solved = false, onTile, onExplain }: MontarAreaProps) {
+export function MontarArea({
+  blank,
+  tokens,
+  placed,
+  youtubeId,
+  solved = false,
+  answered = false,
+  onTile,
+  onExplain,
+}: MontarAreaProps) {
   const tiles = useMemo(
     () => makeTiles(tokens, tileSeed(youtubeId, blank.lineIndex)),
     [tokens, youtubeId, blank.lineIndex],
@@ -105,11 +130,19 @@ export function MontarArea({ blank, tokens, placed, youtubeId, solved = false, o
           <span className="h-10 w-4" />
         </div>
         <ol aria-live="polite" className="col-start-1 row-start-1 flex flex-wrap content-start gap-2">
-          {placed.map((word, position) => (
-            <li key={position} className={`${chip} bg-lime text-bg`}>
-              {word}
-            </li>
-          ))}
+          {placed.map((word, position) =>
+            solved ? (
+              <li key={position} className="flex">
+                <button type="button" onClick={() => onExplain(word, blank.lineIndex)} className={wordChip}>
+                  {word}
+                </button>
+              </li>
+            ) : (
+              <li key={position} className={`${chip} bg-lime text-bg`}>
+                {word}
+              </li>
+            ),
+          )}
           {Array.from({ length: tokens.length - placed.length }, (_, position) => (
             <li
               key={`slot-${position}`}
@@ -158,13 +191,15 @@ export function MontarArea({ blank, tokens, placed, youtubeId, solved = false, o
         })}
       </div>
 
-      <button
-        type="button"
-        onClick={() => onExplain('')}
-        className={`min-h-11 rounded-button border-[1.5px] border-border px-3.5 text-body font-semibold text-text ${focusRing}`}
-      >
-        {t('montar.explain')}
-      </button>
+      {(answered || solved) && (
+        <button
+          type="button"
+          onClick={() => onExplain('', blank.lineIndex)}
+          className={`min-h-11 rounded-button border-[1.5px] border-border px-3.5 text-body font-semibold text-text ${focusRing}`}
+        >
+          {t('montar.explain')}
+        </button>
+      )}
       <span role="status" className="sr-only">
         {status}
       </span>

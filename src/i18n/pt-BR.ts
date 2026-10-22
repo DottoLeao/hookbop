@@ -84,6 +84,18 @@ export const ptBR = {
   'karaoke.hideTranslation': 'Esconder tradução',
   'karaoke.showTranslation': 'Mostrar tradução',
 
+  // Ajuda do DJ Bop: "Não entendi" abre a explicação, "Traduzir verso" mostra a tradução embaixo do verso.
+  // Quando a ajuda não vem, ele fala com calma, sem número de erro e sem culpar ninguém.
+  'ajuda.dialog': 'Explicação do DJ Bop',
+  'ajuda.wholeLine': 'O verso inteiro',
+  'ajuda.loading': 'Peraí, deixa eu ver...',
+  'ajuda.translating': 'Traduzindo...',
+  'ajuda.later': 'Pausa rapidinha! Volta daqui a pouco?',
+  'ajuda.retryable': 'Não rolou agora. Tenta de novo?',
+  'ajuda.unavailable': 'Essa agora não deu. Fica pra próxima?',
+  'ajuda.retry': 'Tentar de novo',
+  'ajuda.close': 'Valeu',
+
   // Modo Escolha. "acertou" e "errou" só aparecem no nome acessível do botão, nunca na tela.
   'escolha.question': 'Escolha a palavra que falta',
   'escolha.hit': '{palavra}, acertou',

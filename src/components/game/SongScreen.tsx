@@ -7,7 +7,8 @@ import { t } from '@/i18n/t';
 import { selectBlanks } from '@/lib/game/blanks';
 import { selectTileLines } from '@/lib/game/tiles';
 import { cleanTitle } from '@/lib/lyrics/cleanTitle';
-import { applyOffset, parseLrc } from '@/lib/lyrics/lrc';
+import { linesOfVideo } from '@/lib/lyrics/linesOfVideo';
+import { applyOffset } from '@/lib/lyrics/lrc';
 import { createLrclibSource } from '@/lib/lyrics/lrclib';
 import { resolveSong, type SongResolution, type SongStore, type VideoRecord } from '@/lib/lyrics/resolveSong';
 import type { PlayerAdapter, PlayerError } from '@/lib/player/adapter';
@@ -143,15 +144,15 @@ function phaseFor(resolution: SongResolution, adapter: PlayerAdapter): Phase {
 }
 
 /**
- * The lines as the lyrics have them, before any offset, parsed the way resolveSong parses them. Votes are
- * measured against these, and a new median is applied to these, because `applyOffset` stops at 0 and so
- * the shifted lines cannot always be shifted back.
+ * The lines as the lyrics have them, before any offset, read the way resolveSong and the help route read them
+ * (`linesOfVideo`). Votes are measured against these, and a new median is applied to these, because `applyOffset`
+ * stops at 0 and so the shifted lines cannot always be shifted back.
  */
 function linesAsWritten(video: VideoRecord, lines: LyricLine[]): LyricLine[] {
   const { lyricsLrc, lyricsDurationS } = video;
   // A ready video always holds its lyrics; this fallback only keeps the types honest.
   if (lyricsLrc === undefined || lyricsDurationS === undefined) return applyOffset(lines, -video.offsetMs);
-  return parseLrc(lyricsLrc, lyricsDurationS * 1000);
+  return linesOfVideo({ lyricsLrc, lyricsDurationS });
 }
 
 /** The blanks of a game: whole lines in Monte o verso, none in Karaokê, words in the other two. */
