@@ -42,7 +42,7 @@ export function makeTiles(tokens: string[], seed: string): string[] {
 
 /**
  * True when `word` is the word that comes after the `placedCount` words already placed, capitals ignored
- * ("Baby baby baby oh" takes any "baby" first). False when every word is already placed.
+ * ("Lantern lantern lantern oh" takes any "lantern" first). False when every word is already placed.
  */
 export function isNextTileCorrect(tokens: string[], placedCount: number, word: string): boolean {
   return tokens[placedCount]?.toLowerCase() === word.toLowerCase();

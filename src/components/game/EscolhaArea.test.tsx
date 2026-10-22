@@ -114,7 +114,7 @@ describe('EscolhaArea', () => {
 
 describe('escolhaOptions', () => {
   const ID = 'dQw4w9WgXcQ';
-  const LINE: LyricLine = { index: 0, startMs: 0, endMs: 4000, text: "Please don't let me down" };
+  const LINE: LyricLine = { index: 0, startMs: 0, endMs: 4000, text: "Grandpa won't let me drive" };
 
   it('is the answer and its two distractors, shuffled with the seed blank id + video id', () => {
     const seed = `${BLANK.id}${ID}`;

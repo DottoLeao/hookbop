@@ -4,8 +4,8 @@ import { FakePlayerAdapter } from '@/lib/player/fakeAdapter';
 import { CalibrationSheet } from './CalibrationSheet';
 
 const ID = 'dQw4w9WgXcQ';
-const FIRST_LINE = { text: "Please don't let me down", startMs: 300 };
-const AUDIO_SEARCH = `https://www.youtube.com/results?search_query=${encodeURIComponent('The Beatles Let It Be official audio')}`;
+const FIRST_LINE = { text: "Grandpa won't let me drive", startMs: 300 };
+const AUDIO_SEARCH = `https://www.youtube.com/results?search_query=${encodeURIComponent('The Paper Lanterns Neon Harbor official audio')}`;
 
 type Save = (id: string, offsetMs: number) => Promise<number>;
 
@@ -48,7 +48,7 @@ describe('CalibrationSheet', () => {
   it('shows the first line to listen for', () => {
     setup();
 
-    expect(screen.getByText(/Please don't let me down/)).toBeInTheDocument();
+    expect(screen.getByText(/Grandpa won't let me drive/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Começou!' })).toBeEnabled();
   });
 

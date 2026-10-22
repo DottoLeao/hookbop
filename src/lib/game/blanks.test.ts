@@ -114,7 +114,7 @@ describe('tokenize', () => {
   });
 
   it("keeps apostrophes inside a word and at the start of it, in the original case", () => {
-    expect(tokenize("Please, don't let me down!")).toEqual(['Please', "don't", 'let', 'me', 'down']);
+    expect(tokenize("Grandpa, won't let me drive!")).toEqual(['Grandpa', "won't", 'let', 'me', 'drive']);
     expect(tokenize("'Cause I'm Y'all's rock'n'roll")).toEqual(["'Cause", "I'm", "Y'all's", "rock'n'roll"]);
   });
 
@@ -131,11 +131,11 @@ describe('tokenize', () => {
   });
 
   it('drops an apostrophe at the end of a word', () => {
-    expect(tokenize("leavin' on a jet")).toEqual(['leavin', 'on', 'a', 'jet']);
+    expect(tokenize("singin' to the moon")).toEqual(['singin', 'to', 'the', 'moon']);
   });
 
   it('keeps numbers and accented letters', () => {
-    expect(tokenize('99 problemas, coração')).toEqual(['99', 'problemas', 'coração']);
+    expect(tokenize('12 lanternas, coração')).toEqual(['12', 'lanternas', 'coração']);
   });
 
   it('is empty when there are no words', () => {
@@ -191,7 +191,7 @@ describe('selectBlanks', () => {
 
   describe('which word of the line', () => {
     it('prefers the verb of a phrasal verb whose particle comes later in the line', () => {
-      const lines = [line(0, "Please don't let me down again")];
+      const lines = [line(0, "Tonight we'll let the ladder down slowly")];
       for (const seed of SEEDS) {
         expect(selectBlanks(lines, 'dificil', seed)).toEqual([
           { id: '0:2', lineIndex: 0, tokenIndex: 2, answer: 'let' },
@@ -228,12 +228,12 @@ describe('selectBlanks', () => {
     });
 
     it('never picks an ad-lib or a stopword, only the content words', () => {
-      const lines = [line(0, 'Oh yeah I love the way you move')];
+      const lines = [line(0, 'Oh yeah I paint the sky you drew')];
       const banned = new Set(['oh', 'yeah', 'i', 'the', 'you']);
       for (const seed of SEEDS) {
         for (const blank of selectBlanks(lines, 'dificil', seed)) {
           expect(banned.has(blank.answer.toLowerCase())).toBe(false);
-          expect(['love', 'way', 'move']).toContain(blank.answer);
+          expect(['paint', 'sky', 'drew']).toContain(blank.answer);
         }
       }
     });
@@ -324,10 +324,10 @@ describe('selectBlanks', () => {
 
     it("is ignored when looking for a phrasal verb too, so a quoted 'let ... down still wins", () => {
       for (const seed of SEEDS) {
-        expect(selectBlanks([line(0, "Please 'let me down' again")], 'dificil', seed).map((b) => b.answer)).toEqual([
+        expect(selectBlanks([line(0, "Tonight we'll 'let the ladder down' slowly")], 'dificil', seed).map((b) => b.answer)).toEqual([
           "'let",
         ]);
-        expect(selectBlanks([line(0, "Please let me 'down again")], 'dificil', seed).map((b) => b.answer)).toEqual([
+        expect(selectBlanks([line(0, "Tonight we'll let the ladder 'down slowly")], 'dificil', seed).map((b) => b.answer)).toEqual([
           'let',
         ]);
       }
@@ -348,14 +348,14 @@ describe('selectBlanks', () => {
 
   describe('lines in capitals', () => {
     it('gives an ALL CAPS line a blank, because capitals say nothing about names there', () => {
-      const lines = [line(0, 'I LOVE THE WAY YOU MOVE')];
+      const lines = [line(0, 'I PAINT THE SKY YOU DREW')];
       const answers = new Set<string>();
       for (const seed of SEEDS) {
         const picked = selectBlanks(lines, 'dificil', seed).map((b) => b.answer);
         expect(picked).toHaveLength(1);
         picked.forEach((answer) => answers.add(answer));
       }
-      expect([...answers].sort()).toEqual(['LOVE', 'MOVE', 'WAY']);
+      expect([...answers].sort()).toEqual(['DREW', 'PAINT', 'SKY']);
     });
 
     it('compares stopwords and the lists without caring about case', () => {
@@ -366,10 +366,10 @@ describe('selectBlanks', () => {
     });
 
     it('still gives the phrasal verb priority on an ALL CAPS line', () => {
-      const lines = [line(0, "DON'T LET ME DOWN AGAIN")];
+      const lines = [line(0, "TONIGHT WE'LL LET THE LADDER DOWN SLOWLY")];
       for (const seed of SEEDS) {
         expect(selectBlanks(lines, 'dificil', seed)).toEqual([
-          { id: '0:1', lineIndex: 0, tokenIndex: 1, answer: 'LET' },
+          { id: '0:2', lineIndex: 0, tokenIndex: 2, answer: 'LET' },
         ]);
       }
     });
@@ -411,7 +411,7 @@ describe('selectBlanks', () => {
   describe('hasBlankableWord', () => {
     it('is true when the line has a usable word, in any case', () => {
       expect(hasBlankableWord(tokenize('Dancing with Maria tonight'))).toBe(true);
-      expect(hasBlankableWord(tokenize('I LOVE THE WAY'))).toBe(true);
+      expect(hasBlankableWord(tokenize('I PAINT THE SKY'))).toBe(true);
     });
 
     it('is false for ad-libs, stopwords, short words and names alone', () => {
@@ -518,7 +518,7 @@ describe('selectBlanks', () => {
     });
 
     it('keeps the order of preference for the second blank too', () => {
-      const lines = [line(0, "Please don't let me down, I'm gonna make it tonight")]; // 10 words
+      const lines = [line(0, "We'll let the ladder down, I'm gonna make it tonight")]; // 10 words
       for (const seed of SEEDS) {
         expect(selectBlanks(lines, 'dificil', seed).map((b) => b.answer)).toEqual(['let', 'gonna']);
       }

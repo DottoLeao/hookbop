@@ -29,10 +29,10 @@ const INELIGIBLE_LINES = [
 const SEEDS = Array.from({ length: 40 }, (_, i) => `seed-${i}`);
 
 describe('makeTiles', () => {
-  const tokens = tokenize("Please, don't let me down!");
+  const tokens = tokenize("Grandpa, won't let me drive!");
 
   it('splits the line the way the tiles need', () => {
-    expect(tokens).toEqual(['Please', "don't", 'let', 'me', 'down']);
+    expect(tokens).toEqual(['Grandpa', "won't", 'let', 'me', 'drive']);
   });
 
   it('has the same words in another order', () => {
@@ -118,8 +118,8 @@ describe('isNextTileCorrect', () => {
     expect(isNextTileCorrect(['go', 'go', 'now'], 2, 'now')).toBe(true);
   });
 
-  it('does not care about capital letters, since "Baby" and "baby" are the same word', () => {
-    expect(isNextTileCorrect(tokenize('Baby baby baby oh'), 0, 'baby')).toBe(true);
+  it('does not care about capital letters, since "Lantern" and "lantern" are the same word', () => {
+    expect(isNextTileCorrect(tokenize('Lantern lantern lantern oh'), 0, 'lantern')).toBe(true);
     expect(isNextTileCorrect(['Please', 'me'], 0, 'please')).toBe(true);
     expect(isNextTileCorrect(['Please', 'me'], 0, 'PLEASE')).toBe(true);
     expect(isNextTileCorrect(['Please', 'me'], 0, 'me')).toBe(false);
@@ -149,9 +149,9 @@ describe('eligibleForTiles', () => {
 
 describe('selectTileLines', () => {
   it('turns each line into one blank for the whole line', () => {
-    const lines = [line(7, "Please, don't let me down!")];
+    const lines = [line(7, "Grandpa, won't let me drive!")];
     expect(selectTileLines(lines, 'dificil', 's')).toEqual([
-      { id: '7:-1', lineIndex: 7, tokenIndex: -1, answer: "Please don't let me down" },
+      { id: '7:-1', lineIndex: 7, tokenIndex: -1, answer: "Grandpa won't let me drive" },
     ]);
   });
 
@@ -208,7 +208,7 @@ describe('selectTileLines', () => {
   });
 
   it('asks for the same usable word as the blanks do: none in stopwords only, any in capitals', () => {
-    const lines = [line(0, 'I am in it'), line(1, 'I LOVE THE WAY'), line(2, 'Run through the fire')];
+    const lines = [line(0, 'I am in it'), line(1, 'I PAINT THE SKY'), line(2, 'Run through the fire')];
     expect(selectTileLines(lines, 'dificil', 's').map((b) => b.lineIndex)).toEqual([1, 2]);
   });
 

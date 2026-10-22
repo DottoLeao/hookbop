@@ -50,8 +50,8 @@ describe('pickBestCandidate', () => {
   });
 
   it('matches the title ignoring case, accents and punctuation', () => {
-    const query = { artist: 'Artist', track: 'Não Quero Dinheiro', durationS: 200 };
-    const candidate = { ...base, id: 6, trackName: 'nao quero dinheiro!', duration: 200 };
+    const query = { artist: 'Artist', track: 'Canção da Lanterna', durationS: 200 };
+    const candidate = { ...base, id: 6, trackName: 'cancao da lanterna!', duration: 200 };
     expect(pickBestCandidate([candidate], query)).toBe(candidate);
   });
 
@@ -94,9 +94,9 @@ describe('diceSimilarity', () => {
   });
 
   it('ignores case, accents and punctuation', () => {
-    expect(diceSimilarity('Não, Quero!', 'nao quero')).toBe(1);
-    expect(diceSimilarity("Don't Stop", 'DONT   STOP')).toBe(1);
-    expect(diceSimilarity('Beyoncé', 'BEYONCE')).toBe(1);
+    expect(diceSimilarity('Canção, Lanterna!', 'cancao lanterna')).toBe(1);
+    expect(diceSimilarity("Won't Fade", 'WONT   FADE')).toBe(1);
+    expect(diceSimilarity('Zéphyr', 'ZEPHYR')).toBe(1);
   });
 
   it('keeps letters from other alphabets and compares Korean syllable by syllable', () => {
@@ -116,7 +116,7 @@ describe('diceSimilarity', () => {
   });
 
   it('gives the same value in both directions', () => {
-    expect(diceSimilarity('Space Oddity', 'Space')).toBe(diceSimilarity('Space', 'Space Oddity'));
+    expect(diceSimilarity('Harbor Lantern', 'Harbor')).toBe(diceSimilarity('Harbor', 'Harbor Lantern'));
   });
 
   it('handles one-character text', () => {

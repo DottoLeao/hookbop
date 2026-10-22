@@ -5,18 +5,18 @@ import { gameReducer, initGame, summaryOf, type GameEvent, type GameState } from
 import { createScore, summarize } from './scoring';
 
 const LINES: LyricLine[] = [
-  { index: 0, startMs: 0, endMs: 4000, text: "Please don't let me down" },
-  { index: 1, startMs: 4000, endMs: 8000, text: 'You know I need you' },
-  { index: 2, startMs: 8000, endMs: 12000, text: 'So stay with me tonight' },
+  { index: 0, startMs: 0, endMs: 4000, text: "Grandpa won't let me drive" },
+  { index: 1, startMs: 4000, endMs: 8000, text: 'Row the small boat home' },
+  { index: 2, startMs: 8000, endMs: 12000, text: 'We sail with the tide' },
 ];
 
 const LET: Blank = { id: '0:2', lineIndex: 0, tokenIndex: 2, answer: 'let' };
-const DOWN: Blank = { id: '0:4', lineIndex: 0, tokenIndex: 4, answer: 'down' };
-const NEED: Blank = { id: '1:3', lineIndex: 1, tokenIndex: 3, answer: 'need' };
-const STAY: Blank = { id: '2:1', lineIndex: 2, tokenIndex: 1, answer: 'stay' };
-const TONIGHT: Blank = { id: '2:4', lineIndex: 2, tokenIndex: 4, answer: 'tonight' };
-const WHOLE_LINE: Blank = { id: '0:-1', lineIndex: 0, tokenIndex: -1, answer: "Please don't let me down" };
-const WHOLE_LAST_LINE: Blank = { id: '2:-1', lineIndex: 2, tokenIndex: -1, answer: 'So stay with me tonight' };
+const DRIVE: Blank = { id: '0:4', lineIndex: 0, tokenIndex: 4, answer: 'drive' };
+const BOAT: Blank = { id: '1:3', lineIndex: 1, tokenIndex: 3, answer: 'boat' };
+const SAIL: Blank = { id: '2:1', lineIndex: 2, tokenIndex: 1, answer: 'sail' };
+const TIDE: Blank = { id: '2:4', lineIndex: 2, tokenIndex: 4, answer: 'tide' };
+const WHOLE_LINE: Blank = { id: '0:-1', lineIndex: 0, tokenIndex: -1, answer: "Grandpa won't let me drive" };
+const WHOLE_LAST_LINE: Blank = { id: '2:-1', lineIndex: 2, tokenIndex: -1, answer: 'We sail with the tide' };
 
 interface Setup {
   mode: Mode;
@@ -49,7 +49,7 @@ const hint = (blankId: string): GameEvent => ({ type: 'HINT', blankId });
 const player = (state: PlayerState): GameEvent => ({ type: 'PLAYER_STATE', state });
 const REPEAT: GameEvent = { type: 'REPEAT_LINE' };
 
-const LINE_TILES = ['Please', "don't", 'let', 'me', 'down'];
+const LINE_TILES = ['Grandpa', "won't", 'let', 'me', 'drive'];
 
 function lastRecord(s: GameState) {
   return s.score.records.at(-1);
@@ -57,11 +57,11 @@ function lastRecord(s: GameState) {
 
 describe('initGame', () => {
   it('starts with every blank pending, playing, nothing answered and the score counting every blank', () => {
-    const s = game({ blanks: [LET, NEED], autoRepeat: false });
+    const s = game({ blanks: [LET, BOAT], autoRepeat: false });
     expect(s).toEqual({
       mode: 'escolha',
       lines: LINES,
-      blanks: [LET, NEED],
+      blanks: [LET, BOAT],
       status: { '0:2': 'pending', '1:3': 'pending' },
       attempted: {},
       hinted: {},
@@ -82,7 +82,7 @@ describe('initGame', () => {
   });
 
   it('gives karaoke no blanks, even when it is handed some', () => {
-    const s = game({ mode: 'karaoke', blanks: [LET, NEED] });
+    const s = game({ mode: 'karaoke', blanks: [LET, BOAT] });
     expect(s.blanks).toEqual([]);
     expect(s.status).toEqual({});
     expect(s.score.totalBlanks).toBe(0);
@@ -136,7 +136,7 @@ describe('gameReducer: the brief scenarios', () => {
   });
 
   it('5. skipped blanks still count in the total', () => {
-    const s = run(game({ blanks: [LET, NEED] }), tick(1000), tick(9000), tick(500), answer('0:2', true, 600));
+    const s = run(game({ blanks: [LET, BOAT] }), tick(1000), tick(9000), tick(500), answer('0:2', true, 600));
     expect(s.status).toEqual({ '0:2': 'correct', '1:3': 'skipped' });
     expect(summaryOf(s)).toMatchObject({ totalBlanks: 2, firstTryCorrect: 1, pct: 50 });
   });
@@ -149,13 +149,13 @@ describe('gameReducer: the brief scenarios', () => {
 
   it('7. the song ending ends the game, and summaryOf gives the right percentage', () => {
     // Nothing is left pending, so the end does not wait (R39).
-    const s = run(game({ blanks: [LET, NEED] }), answer('0:2', true, 3000), answer('1:3', false, 5000), player('ended'));
+    const s = run(game({ blanks: [LET, BOAT] }), answer('0:2', true, 3000), answer('1:3', false, 5000), player('ended'));
     expect(s.phase).toBe('ended');
     expect(summaryOf(s)).toEqual({ totalBlanks: 2, firstTryCorrect: 1, pct: 50, maxCombo: 1, xp: 12 });
   });
 
   it('8. karaoke never pauses', () => {
-    let s = game({ mode: 'karaoke', blanks: [LET, NEED] });
+    let s = game({ mode: 'karaoke', blanks: [LET, BOAT] });
     for (let timeMs = 0; timeMs <= 12000; timeMs += 50) {
       s = gameReducer(s, tick(timeMs));
       expect(s.commands).toEqual([]);
@@ -177,7 +177,7 @@ describe('gameReducer: the brief scenarios', () => {
 
   it('9. montar: a hint places the next right tile, and the finished line is helped', () => {
     const hinted = run(montar(), hint('0:-1'));
-    expect(hinted.tilesPlaced['0:-1']).toEqual(['Please']);
+    expect(hinted.tilesPlaced['0:-1']).toEqual(['Grandpa']);
 
     const done = run(hinted, ...LINE_TILES.slice(1).map((word) => tile(word)));
     expect(done.status['0:-1']).toBe('correct');
@@ -217,7 +217,7 @@ describe('pausing at the end of a line (R3)', () => {
 
   it('pauses again for the next line once a wait is over', () => {
     const s = run(
-      game({ blanks: [LET, NEED] }),
+      game({ blanks: [LET, BOAT] }),
       tick(3850),
       answer('0:2', true, 3900),
       tick(5000),
@@ -230,7 +230,7 @@ describe('pausing at the end of a line (R3)', () => {
   });
 
   it('keeps waiting while the paused line still has a blank with no answer', () => {
-    const first = run(game({ blanks: [LET, DOWN] }), tick(3850), answer('0:2', true, 3900));
+    const first = run(game({ blanks: [LET, DRIVE] }), tick(3850), answer('0:2', true, 3900));
     expect(first.commands).toEqual([]);
     expect(first.phase).toBe('waiting');
     expect(first.waitingBlankId).toBe('0:4');
@@ -241,7 +241,7 @@ describe('pausing at the end of a line (R3)', () => {
   });
 
   it('a miss without auto-repeat on a two-blank line moves the wait to the other blank, and that one plays', () => {
-    const missed = run(game({ blanks: [LET, DOWN], autoRepeat: false }), tick(3850), answer('0:2', false, 3900));
+    const missed = run(game({ blanks: [LET, DRIVE], autoRepeat: false }), tick(3850), answer('0:2', false, 3900));
     expect(missed.commands).toEqual([]);
     expect(missed.phase).toBe('waiting');
     expect(missed.waitingBlankId).toBe('0:4');
@@ -252,7 +252,7 @@ describe('pausing at the end of a line (R3)', () => {
   });
 
   it('keeps waiting when a blank of another line is answered', () => {
-    const s = run(game({ blanks: [LET, NEED], autoRepeat: false }), tick(3850), answer('1:3', true, 3900));
+    const s = run(game({ blanks: [LET, BOAT], autoRepeat: false }), tick(3850), answer('1:3', true, 3900));
     expect(s.commands).toEqual([]);
     expect(s.phase).toBe('waiting');
     expect(s.waitingBlankId).toBe('0:2');
@@ -270,7 +270,7 @@ describe('pausing at the end of a line (R3)', () => {
 
 describe('seeking (R4)', () => {
   it('skips only the blanks of lines that ended before the seek landed', () => {
-    const s = run(game({ blanks: [LET, NEED] }), tick(1000), tick(6000));
+    const s = run(game({ blanks: [LET, BOAT] }), tick(1000), tick(6000));
     expect(s.status).toEqual({ '0:2': 'skipped', '1:3': 'pending' });
     expect(s.commands).toEqual([]);
   });
@@ -299,7 +299,7 @@ describe('seeking (R4)', () => {
   });
 
   it('a jump while the clip buffers is a seek too', () => {
-    const s = run(game({ blanks: [LET, NEED] }), tick(1000), player('playing'), player('buffering'), tick(9000));
+    const s = run(game({ blanks: [LET, BOAT] }), tick(1000), player('playing'), player('buffering'), tick(9000));
     expect(s.status).toEqual({ '0:2': 'skipped', '1:3': 'skipped' });
     expect(s.commands).toEqual([]);
 
@@ -403,7 +403,7 @@ describe('attempt kind', () => {
   });
 
   it('a wrong answer after a hint is helped and leaves the combo alone', () => {
-    const s = run(game({ blanks: [LET, NEED] }), answer('0:2', true, 3000), hint('1:3'), answer('1:3', false, 5000));
+    const s = run(game({ blanks: [LET, BOAT] }), answer('0:2', true, 3000), hint('1:3'), answer('1:3', false, 5000));
     expect(lastRecord(s)).toEqual({ blankId: '1:3', kind: 'helped', correct: false, beforeLineEnd: true });
     expect(s.score.combo).toBe(1);
     expect(s.score.xp).toBe(12);
@@ -412,7 +412,7 @@ describe('attempt kind', () => {
 
 describe('wrong answers', () => {
   it('with auto-repeat, seek to the start of the blank line, play, and go back to playing', () => {
-    const waiting = run(game({ blanks: [NEED] }), tick(4500), tick(5500), tick(6500), tick(7850));
+    const waiting = run(game({ blanks: [BOAT] }), tick(4500), tick(5500), tick(6500), tick(7850));
     expect(waiting.phase).toBe('waiting');
 
     const s = run(waiting, answer('1:3', false, 7900));
@@ -461,29 +461,29 @@ describe('correct answers', () => {
 
 describe('montar', () => {
   it('a right tile joins the placed row in the line spelling, with nothing recorded yet', () => {
-    const s = run(montar(), tile('please'));
-    expect(s.tilesPlaced['0:-1']).toEqual(['Please']);
+    const s = run(montar(), tile('grandpa'));
+    expect(s.tilesPlaced['0:-1']).toEqual(['Grandpa']);
     expect(s.status['0:-1']).toBe('pending');
     expect(s.score.records).toEqual([]);
     expect(s.commands).toEqual([]);
   });
 
   it('a wrong tile records a first-try miss, clears the row and repeats the line; the next miss is a retry', () => {
-    const missed = run(montar(), tile('Please'), tile('let'));
+    const missed = run(montar(), tile('Grandpa'), tile('let'));
     expect(lastRecord(missed)).toEqual({ blankId: '0:-1', kind: 'first', correct: false, beforeLineEnd: true });
     expect(missed.attempted['0:-1']).toBe(true);
     expect(missed.tilesPlaced['0:-1']).toEqual([]);
     expect(missed.commands).toEqual([{ type: 'seek', ms: 0 }, { type: 'play' }]);
 
-    expect(lastRecord(run(missed, tile('down')))?.kind).toBe('retry');
+    expect(lastRecord(run(missed, tile('drive')))?.kind).toBe('retry');
   });
 
   it('without auto-repeat, a wrong tile only plays', () => {
-    expect(run(montar({ autoRepeat: false }), tile('down')).commands).toEqual([{ type: 'play' }]);
+    expect(run(montar({ autoRepeat: false }), tile('drive')).commands).toEqual([{ type: 'play' }]);
   });
 
   it('a line finished after a miss is a retry', () => {
-    const s = run(montar(), tile('down'), ...LINE_TILES.map((word) => tile(word)));
+    const s = run(montar(), tile('drive'), ...LINE_TILES.map((word) => tile(word)));
     expect(s.status['0:-1']).toBe('correct');
     expect(lastRecord(s)).toEqual({ blankId: '0:-1', kind: 'retry', correct: true, beforeLineEnd: true });
   });
@@ -508,8 +508,8 @@ describe('hints outside montar', () => {
 
 describe('REPEAT_LINE', () => {
   const GAP_LINES: LyricLine[] = [
-    { index: 0, startMs: 2000, endMs: 4000, text: "Please don't let me down" },
-    { index: 1, startMs: 6000, endMs: 9000, text: 'You know I need you' },
+    { index: 0, startMs: 2000, endMs: 4000, text: "Grandpa won't let me drive" },
+    { index: 1, startMs: 6000, endMs: 9000, text: 'Row the small boat home' },
   ];
 
   it('in a gap between lines, repeats the line before it', () => {
@@ -585,7 +585,7 @@ describe('player state', () => {
       tick(3900),
       player('playing'),
       answer('0:-1', true, 3900),
-      tile('Please'),
+      tile('Grandpa'),
       hint('0:-1'),
       REPEAT,
       { type: 'SET_RATE', rate: 0.75 },
@@ -603,14 +603,14 @@ describe('the clip ending with a blank still to answer (R39)', () => {
   const nearTheEnd = [tick(10000), tick(11000), tick(11800)];
 
   it('waits for the first pending blank instead of ending, with no command', () => {
-    const s = run(game({ blanks: [LET, STAY] }), answer('0:2', true, 3000), ...nearTheEnd, player('ended'));
+    const s = run(game({ blanks: [LET, SAIL] }), answer('0:2', true, 3000), ...nearTheEnd, player('ended'));
     expect(s.phase).toBe('waiting');
     expect(s.waitingBlankId).toBe('2:1');
     expect(s.commands).toEqual([]);
   });
 
   it('answering it ends the game without playing', () => {
-    const s = run(game({ blanks: [STAY] }), ...nearTheEnd, player('ended'), answer('2:1', true, 11900));
+    const s = run(game({ blanks: [SAIL] }), ...nearTheEnd, player('ended'), answer('2:1', true, 11900));
     expect(lastRecord(s)).toEqual({ blankId: '2:1', kind: 'first', correct: true, beforeLineEnd: true });
     expect(s.phase).toBe('ended');
     expect(s.waitingBlankId).toBeNull();
@@ -619,14 +619,14 @@ describe('the clip ending with a blank still to answer (R39)', () => {
   });
 
   it('a miss without auto-repeat ends it too', () => {
-    const start = game({ blanks: [STAY], autoRepeat: false });
+    const start = game({ blanks: [SAIL], autoRepeat: false });
     const s = run(start, ...nearTheEnd, player('ended'), answer('2:1', false, 11900));
     expect(s.phase).toBe('ended');
     expect(s.commands).toEqual([]);
   });
 
   it('waits for the other pending blanks of that line first', () => {
-    const first = run(game({ blanks: [STAY, TONIGHT] }), ...nearTheEnd, player('ended'), answer('2:1', true, 11900));
+    const first = run(game({ blanks: [SAIL, TIDE] }), ...nearTheEnd, player('ended'), answer('2:1', true, 11900));
     expect(first.phase).toBe('waiting');
     expect(first.waitingBlankId).toBe('2:4');
     expect(first.commands).toEqual([]);
@@ -635,7 +635,7 @@ describe('the clip ending with a blank still to answer (R39)', () => {
   });
 
   it('a hint that finishes the montar line ends it', () => {
-    const lastTiles = ['So', 'stay', 'with', 'me'].map((word) => tile(word, 11900, WHOLE_LAST_LINE.id));
+    const lastTiles = ['We', 'sail', 'with', 'the'].map((word) => tile(word, 11900, WHOLE_LAST_LINE.id));
     const s = run(montar({ blanks: [WHOLE_LAST_LINE] }), ...nearTheEnd, player('ended'), ...lastTiles, hint('2:-1'));
     expect(s.status['2:-1']).toBe('correct');
     expect(lastRecord(s)?.kind).toBe('helped');
@@ -644,7 +644,7 @@ describe('the clip ending with a blank still to answer (R39)', () => {
   });
 
   it('REPEAT_LINE seeks and plays as usual, and the replayed line then waits and plays like any other', () => {
-    const repeated = run(game({ blanks: [STAY] }), ...nearTheEnd, player('ended'), REPEAT);
+    const repeated = run(game({ blanks: [SAIL] }), ...nearTheEnd, player('ended'), REPEAT);
     expect(repeated.commands).toEqual([{ type: 'seek', ms: 8000 }, { type: 'play' }]);
     expect(repeated.phase).toBe('playing');
 
@@ -655,7 +655,7 @@ describe('the clip ending with a blank still to answer (R39)', () => {
 
   it('ending during a wait keeps the wait, even for a miss waited for again, and its answer ends the game', () => {
     const rewaiting = run(
-      game({ blanks: [STAY] }),
+      game({ blanks: [SAIL] }),
       ...nearTheEnd,
       tick(11850),
       answer('2:1', false, 11900),
@@ -690,7 +690,7 @@ describe('purity', () => {
   const SCRIPTS: [string, GameState, GameEvent[]][] = [
     [
       'escolha',
-      game({ blanks: [LET, DOWN, NEED] }),
+      game({ blanks: [LET, DRIVE, BOAT] }),
       [
         tick(1000),
         { type: 'SET_RATE', rate: 0.75 },
@@ -712,7 +712,7 @@ describe('purity', () => {
     [
       'montar',
       montar(),
-      [tick(3850), tile('Please'), tile('let'), hint('0:-1'), tile("don't"), tile('let'), tile('me'), tile('down')],
+      [tick(3850), tile('Grandpa'), tile('let'), hint('0:-1'), tile("won't"), tile('let'), tile('me'), tile('drive')],
     ],
   ];
 
@@ -741,7 +741,7 @@ describe('purity', () => {
 
 describe('summaryOf', () => {
   it('is the summary of the score', () => {
-    const s = run(game({ blanks: [LET, NEED] }), answer('0:2', true, 3000), answer('1:3', false, 5000));
+    const s = run(game({ blanks: [LET, BOAT] }), answer('0:2', true, 3000), answer('1:3', false, 5000));
     expect(summaryOf(s)).toEqual(summarize(s.score));
   });
 });

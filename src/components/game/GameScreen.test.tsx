@@ -25,19 +25,19 @@ const ID = 'dQw4w9WgXcQ';
 const DURATION_MS = 60000;
 
 const LINES: LyricLine[] = [
-  { index: 0, startMs: 0, endMs: 4000, text: "Please don't let me down" },
-  { index: 1, startMs: 4000, endMs: 8000, text: 'I gave you everything I had' },
-  { index: 2, startMs: 8000, endMs: 12000, text: 'And every street looks the same to me' },
+  { index: 0, startMs: 0, endMs: 4000, text: "Grandpa won't let me drive" },
+  { index: 1, startMs: 4000, endMs: 8000, text: 'She gave each kite a name' },
+  { index: 2, startMs: 8000, endMs: 12000, text: 'Then every ferry horn sings across the bay' },
 ];
 const LET: Blank = { id: '0:2', lineIndex: 0, tokenIndex: 2, answer: 'let' };
 const GAVE: Blank = { id: '1:1', lineIndex: 1, tokenIndex: 1, answer: 'gave' };
-const STREET: Blank = { id: '2:2', lineIndex: 2, tokenIndex: 2, answer: 'street' };
+const FERRY: Blank = { id: '2:2', lineIndex: 2, tokenIndex: 2, answer: 'ferry' };
 
 /** Invented lines for the typing mode; "I can't get you off my mind" is the line the wireframe draws. */
 const TYPING_LINES: LyricLine[] = [
   { index: 0, startMs: 0, endMs: 4000, text: "I can't get you off my mind" },
   { index: 1, startMs: 4000, endMs: 8000, text: 'And the radio plays our song' },
-  { index: 2, startMs: 8000, endMs: 12000, text: 'Nothing else matters tonight' },
+  { index: 2, startMs: 8000, endMs: 12000, text: 'Every window glows tonight' },
 ];
 const GET: Blank = { id: '0:2', lineIndex: 0, tokenIndex: 2, answer: 'get' };
 const RADIO: Blank = { id: '1:2', lineIndex: 1, tokenIndex: 2, answer: 'radio' };
@@ -45,11 +45,11 @@ const RADIO: Blank = { id: '1:2', lineIndex: 1, tokenIndex: 2, answer: 'radio' }
 /** Invented lines for Monte o verso, each one a puzzle on its own (a blank for the whole line, tokenIndex -1). */
 const BUILD_LINES: LyricLine[] = [
   { index: 0, startMs: 0, endMs: 4000, text: 'Please come back home tonight' },
-  { index: 1, startMs: 4000, endMs: 8000, text: 'Keep the porch light on for me' },
-  { index: 2, startMs: 8000, endMs: 12000, text: 'Nothing else matters tonight' },
+  { index: 1, startMs: 4000, endMs: 8000, text: 'Hang your lantern by the old gate' },
+  { index: 2, startMs: 8000, endMs: 12000, text: 'Every window glows tonight' },
 ];
 const WHOLE_0: Blank = { id: '0:-1', lineIndex: 0, tokenIndex: -1, answer: 'Please come back home tonight' };
-const WHOLE_1: Blank = { id: '1:-1', lineIndex: 1, tokenIndex: -1, answer: 'Keep the porch light on for me' };
+const WHOLE_1: Blank = { id: '1:-1', lineIndex: 1, tokenIndex: -1, answer: 'Hang your lantern by the old gate' };
 const BUILD_WORDS = tokenize(BUILD_LINES[0].text);
 
 /** An invented line with punctuation and curly apostrophes: its tiles carry neither, and the line shows as written. */
@@ -64,14 +64,14 @@ const ROUND: LyricLine[] = Array.from({ length: 5 }, (_, index) => ({
   index,
   startMs: index * 4000,
   endMs: (index + 1) * 4000,
-  text: "Please don't let me down",
+  text: "Grandpa won't let me drive",
 }));
 const ROUND_BLANKS: Blank[] = ROUND.map((line) => ({ id: `${line.index}:2`, lineIndex: line.index, tokenIndex: 2, answer: 'let' }));
 
 const VIDEO: VideoRecord = {
   youtubeId: ID,
-  title: 'The Beatles - Let It Be (Official Video)',
-  channel: 'TheBeatlesVEVO',
+  title: 'The Paper Lanterns - Neon Harbor (Official Video)',
+  channel: 'ThePaperLanternsVEVO',
   durationS: 213,
   ytFetchedAt: '2026-10-21T12:00:00.000Z',
   status: 'ok',
@@ -279,7 +279,7 @@ describe('GameScreen: header', () => {
     renderGame();
 
     expect(screen.getByRole('link', { name: 'Voltar' })).toHaveAttribute('href', '/');
-    expect(screen.getByText('Let It Be · The Beatles')).toBeInTheDocument();
+    expect(screen.getByText('Neon Harbor · The Paper Lanterns')).toBeInTheDocument();
     expect(screen.getByText('Modo Escolha')).toBeInTheDocument();
     expect(screen.getByText('x0')).toHaveClass('bg-lime', 'text-bg');
     expect(dj()).toHaveAttribute('data-expression', 'idle');
@@ -292,7 +292,7 @@ describe('GameScreen: header', () => {
     renderGame({ headerSlot: slot });
 
     expect(within(slot).getByRole('link', { name: 'Voltar' })).toBeInTheDocument();
-    expect(within(slot).getByText('Let It Be · The Beatles')).toBeInTheDocument();
+    expect(within(slot).getByText('Neon Harbor · The Paper Lanterns')).toBeInTheDocument();
     slot.remove();
   });
 });
@@ -327,7 +327,7 @@ describe('GameScreen: the player', () => {
   });
 
   it('Repetir verso plays the line in play again from its start', () => {
-    renderGame({ blanks: [STREET] });
+    renderGame({ blanks: [FERRY] });
     playTo(5000);
     const before = fake.calls.length;
 
@@ -392,7 +392,7 @@ describe('GameScreen: Escolha', () => {
   });
 
   it('works the options out only for the blank in play, once per blank', () => {
-    renderGame({ blanks: [LET, GAVE, STREET] });
+    renderGame({ blanks: [LET, GAVE, FERRY] });
     expect(distractorsAskedFor()).toEqual(['let']);
 
     // Many clock readings, and the wait at the end of the line, ask for nothing new.
@@ -604,7 +604,7 @@ describe('GameScreen: the typing area cannot be loaded', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('O campo de digitar não carregou.');
     expect(screen.queryByLabelText('Digite a palavra que falta')).not.toBeInTheDocument();
     // The player, the header, the lyrics and the tools are all still there, and work.
-    expect(screen.getByText('Let It Be · The Beatles')).toBeInTheDocument();
+    expect(screen.getByText('Neon Harbor · The Paper Lanterns')).toBeInTheDocument();
     expect(screen.getByTestId('line-current')).toHaveTextContent("I can't lacuna you off my mind");
     const before = fake.calls.length;
     fireEvent.click(screen.getByRole('button', { name: 'Repetir verso' }));
@@ -617,7 +617,7 @@ describe('GameScreen: the typing area cannot be loaded', () => {
 
     expect(field()).toBeEnabled();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(screen.getByText('Let It Be · The Beatles')).toBeInTheDocument();
+    expect(screen.getByText('Neon Harbor · The Paper Lanterns')).toBeInTheDocument();
   });
 });
 
@@ -632,7 +632,7 @@ describe('GameScreen: Monte o verso', () => {
     expect(screen.queryByTestId('line-current')).not.toBeInTheDocument();
     expect(screen.queryByTestId('line-next')).not.toBeInTheDocument();
     expect(visibleText()).not.toContain('Please come back home tonight');
-    expect(visibleText()).not.toMatch(/keep the porch|porch light/i);
+    expect(visibleText()).not.toMatch(/hang your lantern|lantern by/i);
     expect(makeDistractors).not.toHaveBeenCalled();
   });
 
@@ -641,7 +641,7 @@ describe('GameScreen: Monte o verso', () => {
     placeWords(BUILD_WORDS);
     playTo(4500);
     // A miss, so the line has an answer and "Não entendi a ordem" is there (ruling R65).
-    fireEvent.click(tile('me'));
+    fireEvent.click(tile('gate'));
 
     expect(
       inOrder(
@@ -918,9 +918,9 @@ describe('GameScreen: Monte o verso', () => {
 });
 
 describe('GameScreen: one blank in play', () => {
-  const TWO_BLANK_LINES: LyricLine[] = [{ ...LINES[0], text: "Please don't let me down, I'm begging you" }, LINES[1], LINES[2]];
+  const TWO_BLANK_LINES: LyricLine[] = [{ ...LINES[0], text: "Grandpa won't let me drive, I'm asking nicely" }, LINES[1], LINES[2]];
   const A: Blank = { id: '0:2', lineIndex: 0, tokenIndex: 2, answer: 'let' };
-  const B: Blank = { id: '0:6', lineIndex: 0, tokenIndex: 6, answer: 'begging' };
+  const B: Blank = { id: '0:6', lineIndex: 0, tokenIndex: 6, answer: 'asking' };
 
   /** The blank slots of the line in play, in order. */
   function slots() {
@@ -938,7 +938,7 @@ describe('GameScreen: one blank in play', () => {
 
     fireEvent.click(option('late'));
 
-    expect(option('begging')).toBeInTheDocument();
+    expect(option('asking')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'late, errou' })).not.toBeInTheDocument();
     const [slotA, slotB] = slots();
     expect(slotA).toHaveClass('border-dashed');
@@ -966,9 +966,9 @@ describe('GameScreen: the screen follows the clock the game accepted', () => {
 
   it('never shows a line from a stale reading, nor works out options for a blank that is not in play', () => {
     fake = new StalePlayer(DURATION_MS);
-    renderGame({ blanks: [LET, GAVE, STREET] });
+    renderGame({ blanks: [LET, GAVE, FERRY] });
 
-    expect(screen.getByTestId('line-current')).toHaveTextContent("Please don't lacuna me down");
+    expect(screen.getByTestId('line-current')).toHaveTextContent("Grandpa won't lacuna me drive");
     expect(distractorsAskedFor()).toEqual(['let']);
     // The bar shows where the game is, not the stale reading.
     expect(screen.getByTestId('progress').style.width).toBe('0%');
@@ -1199,10 +1199,10 @@ describe('GameScreen: lyrics', () => {
 
     const current = screen.getByTestId('line-current');
     expect(current).toHaveClass('font-heading');
-    expect(current).toHaveTextContent("Please don't lacuna me down");
+    expect(current).toHaveTextContent("Grandpa won't lacuna me drive");
     const next = screen.getByTestId('line-next');
     expect(next).toHaveClass('text-muted');
-    expect(next).toHaveTextContent('I lacuna you everything I had');
+    expect(next).toHaveTextContent('She lacuna each kite a name');
     expect(screen.queryByTestId('line-previous')).not.toBeInTheDocument();
   });
 
@@ -1212,10 +1212,10 @@ describe('GameScreen: lyrics', () => {
 
     playTo(4500);
 
-    expect(screen.getByTestId('line-previous')).toHaveTextContent("Please don't let me down");
+    expect(screen.getByTestId('line-previous')).toHaveTextContent("Grandpa won't let me drive");
     expect(screen.getByTestId('line-previous')).toHaveClass('text-muted');
-    expect(screen.getByTestId('line-current')).toHaveTextContent('I lacuna you everything I had');
-    expect(screen.getByTestId('line-next')).toHaveTextContent('And every street looks the same to me');
+    expect(screen.getByTestId('line-current')).toHaveTextContent('She lacuna each kite a name');
+    expect(screen.getByTestId('line-next')).toHaveTextContent('Then every ferry horn sings across the bay');
   });
 
   it('hides the translation and shows "Traduzir verso" while "Mostrar tradução sempre" is off', () => {
@@ -1568,9 +1568,9 @@ describe('LyricPanel', () => {
   it('lets the player tap a word of the line in play to have it explained, but never the open blank', () => {
     const { onExplain } = renderPanel();
 
-    fireEvent.click(within(screen.getByTestId('line-current')).getByRole('button', { name: 'down' }));
+    fireEvent.click(within(screen.getByTestId('line-current')).getByRole('button', { name: 'drive' }));
 
-    expect(onExplain).toHaveBeenCalledExactlyOnceWith('down', 0, expect.any(HTMLButtonElement));
+    expect(onExplain).toHaveBeenCalledExactlyOnceWith('drive', 0, expect.any(HTMLButtonElement));
     expect(within(screen.getByTestId('line-current')).queryByRole('button', { name: 'let' })).not.toBeInTheDocument();
     expect(within(screen.getByTestId('line-next')).queryAllByRole('button')).toHaveLength(0);
   });
@@ -1578,7 +1578,7 @@ describe('LyricPanel', () => {
   it('hands over the very button that was tapped, so the focus can go back to it even on Safari', () => {
     const { onExplain } = renderPanel({ status: { [LET.id]: 'wrong' } });
 
-    const word = within(screen.getByTestId('line-current')).getByRole('button', { name: 'down' });
+    const word = within(screen.getByTestId('line-current')).getByRole('button', { name: 'drive' });
     fireEvent.click(word);
     expect(onExplain.mock.lastCall?.[2]).toBe(word);
 
@@ -1677,16 +1677,16 @@ describe('LyricPanel', () => {
   });
 
   it('draws two right words on one line the same way, whether one of them was fixed or not (ruling R55)', () => {
-    const DOWN: Blank = { id: '0:4', lineIndex: 0, tokenIndex: 4, answer: 'down' };
+    const DRIVE: Blank = { id: '0:4', lineIndex: 0, tokenIndex: 4, answer: 'drive' };
     renderPanel({
-      blanks: [LET, DOWN],
-      status: { [LET.id]: 'correct', [DOWN.id]: 'correct' },
+      blanks: [LET, DRIVE],
+      status: { [LET.id]: 'correct', [DRIVE.id]: 'correct' },
       corrected: { [LET.id]: [1, 2] },
     });
 
     const line = within(screen.getByTestId('line-current'));
     const fixedWord = line.getByRole('button', { name: 'let, corrigido automaticamente' });
-    const plainWord = line.getByRole('button', { name: 'down, acertou' });
+    const plainWord = line.getByRole('button', { name: 'drive, acertou' });
     for (const word of [fixedWord, plainWord]) {
       expect(word.querySelector('[data-icon="check"]')).not.toBeNull();
     }
@@ -1702,7 +1702,7 @@ describe('LyricPanel', () => {
       status: { [LET.id]: 'correct', [GAVE.id]: 'pending' },
     });
 
-    expect(screen.getByTestId('line-previous')).toHaveTextContent("Please don't let me down");
+    expect(screen.getByTestId('line-previous')).toHaveTextContent("Grandpa won't let me drive");
     expect(screen.getByTestId('line-previous').querySelector('[data-icon]')).toBeNull();
     expect(within(screen.getByTestId('line-previous')).queryAllByRole('button')).toHaveLength(0);
   });
@@ -1715,7 +1715,7 @@ describe('LyricPanel', () => {
       corrected: { [LET.id]: [1, 2] },
     });
 
-    expect(screen.getByTestId('line-previous')).toHaveTextContent("Please don't let me down");
+    expect(screen.getByTestId('line-previous')).toHaveTextContent("Grandpa won't let me drive");
     expect(fixedLettersIn(screen.getByTestId('line-previous'))).toEqual([]);
   });
 
@@ -1727,7 +1727,7 @@ describe('LyricPanel', () => {
   describe('a line that is a puzzle (Monte o verso, rulings R52, R55 and R59)', () => {
     const WHOLE_LINES = { lines: BUILD_LINES, blanks: [WHOLE_0, WHOLE_1] };
     const FIRST_LINE_WORDS = /please|come|back|home|tonight/i;
-    const SECOND_LINE_WORDS = /keep|porch|light/i;
+    const SECOND_LINE_WORDS = /hang|lantern|gate/i;
 
     describe('not in play (ruling R52)', () => {
       it('never shows the words of a line whose blank is not right yet, the line in play of the panel or around it', () => {
@@ -1816,7 +1816,7 @@ describe('LyricPanel', () => {
           status: { [WHOLE_0.id]: 'pending' },
         });
 
-        expect(screen.getByTestId('line-current')).toHaveTextContent('I gave you everything I had');
+        expect(screen.getByTestId('line-current')).toHaveTextContent('She gave each kite a name');
         expect(screen.getByTestId('line-previous')).toHaveTextContent('verso escondido');
       });
     });
@@ -1872,10 +1872,10 @@ describe('LyricPanel', () => {
           current: 1,
           status: { [WHOLE_0.id]: 'correct', [WHOLE_1.id]: 'pending' },
           inPlayId: WHOLE_1.id,
-          translation: { status: 'done', text: 'Deixe a luz da varanda acesa' },
+          translation: { status: 'done', text: 'Pendure sua lanterna no velho portão' },
         });
 
-        expect(screen.getByTestId('translation')).toHaveTextContent('Deixe a luz da varanda acesa');
+        expect(screen.getByTestId('translation')).toHaveTextContent('Pendure sua lanterna no velho portão');
         expect(screen.queryByRole('button', { name: 'Traduzir verso' })).not.toBeInTheDocument();
         expect(screen.queryByTestId('line-current')).not.toBeInTheDocument();
       });
@@ -1895,7 +1895,7 @@ describe('LyricPanel', () => {
       it('still draws a line with words to blank around it: only a blank for the whole line is held by the area', () => {
         renderPanel({ current: 0, status: { [LET.id]: 'pending' }, inPlayId: LET.id });
 
-        expect(screen.getByTestId('line-current')).toHaveTextContent("Please don't lacuna me down");
+        expect(screen.getByTestId('line-current')).toHaveTextContent("Grandpa won't lacuna me drive");
         expect(screen.getByTestId('line-next')).toBeInTheDocument();
       });
     });

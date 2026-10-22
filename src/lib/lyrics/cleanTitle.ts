@@ -1,7 +1,7 @@
 /**
  * Words that mark a bracketed segment as a video tag, not part of the song name.
  * The long ones match anywhere ("Videoclipe", "Remastered"); the short ones only as
- * whole words, so "(24K Magic)" and "(Mvula Mix)" stay.
+ * whole words, so "(14K Sunrise)" and "(Mvula Mix)" stay.
  */
 const TAG_WORDS = /official|video|audio|lyric|visualizer|remaster|clipe|oficial|ao vivo|\b(?:hd|4k|mv)\b/i;
 

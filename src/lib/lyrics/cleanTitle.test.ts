@@ -59,14 +59,14 @@ describe('cleanTitle', () => {
   });
 
   it('matches short tags only as whole words', () => {
-    expect(cleanTitle('Artist - Song (24K Magic)', 'X').track).toBe('Song (24K Magic)');
+    expect(cleanTitle('Artist - Song (14K Sunrise)', 'X').track).toBe('Song (14K Sunrise)');
     expect(cleanTitle('Artist - Song (Mvula Mix)', 'X').track).toBe('Song (Mvula Mix)');
     expect(cleanTitle('Artist - Song (MV)', 'X').track).toBe('Song');
     expect(cleanTitle('Artist - Song (4K)', 'X').track).toBe('Song');
   });
 
   it('splits only on a dash with spaces around it, and only the first one', () => {
-    expect(cleanTitle('Jay-Z - 99 Problems', 'X')).toEqual({ artist: 'Jay-Z', track: '99 Problems' });
+    expect(cleanTitle('Paper-Moon - 12 Lanterns', 'X')).toEqual({ artist: 'Paper-Moon', track: '12 Lanterns' });
     expect(cleanTitle('Artist - Song - Remix', 'X')).toEqual({ artist: 'Artist', track: 'Song - Remix' });
   });
 

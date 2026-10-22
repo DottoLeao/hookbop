@@ -188,11 +188,11 @@ describe('createLrclibSource', () => {
     it('encodes names with characters that matter in a URL', async () => {
       const fetchFn = routed({ get: status(404), search: status(404) });
 
-      await sourceOver(fetchFn).find({ artist: 'AC/DC & Co', track: 'Rock n Roll?=#%', durationS: 200 });
+      await sourceOver(fetchFn).find({ artist: 'Neon/Harbor & Co', track: 'Rock n Roll?=#%', durationS: 200 });
 
       for (const [input] of fetchFn.mock.calls) {
         const url = new URL(String(input));
-        expect(url.searchParams.get('artist_name')).toBe('AC/DC & Co');
+        expect(url.searchParams.get('artist_name')).toBe('Neon/Harbor & Co');
         expect(url.searchParams.get('track_name')).toBe('Rock n Roll?=#%');
       }
     });
