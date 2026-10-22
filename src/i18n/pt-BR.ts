@@ -78,6 +78,12 @@ export const ptBR = {
   'escolha.hit': '{palavra}, acertou',
   'escolha.miss': '{palavra}, errou',
 
+  // Modo Digitação. Como no Escolha, "acertou" e "errou" só existem para leitores de tela, nunca à vista.
+  'digitacao.label': 'Digite a palavra que falta',
+  'digitacao.hit': '{palavra}, acertou',
+  'digitacao.miss': '{palavra}, errou',
+  'digitacao.corrected': '{palavra}, corrigido automaticamente',
+
   'entrar.google': 'Entrar com Google',
   'entrar.email': 'Receber link por e-mail',
   'entrar.emailLabel': 'Seu e-mail',

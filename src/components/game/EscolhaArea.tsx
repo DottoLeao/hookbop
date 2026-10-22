@@ -6,6 +6,7 @@ import { tokenize } from '@/lib/game/blanks';
 import { makeDistractors } from '@/lib/game/distractors';
 import { seededRng, shuffled } from '@/lib/game/rng';
 import type { Blank, LyricLine } from '@/lib/types';
+import { ResultIcon } from './ResultIcon';
 
 /**
  * The three options of a blank: its answer and two distractors, in an order drawn from the blank id and the video,
@@ -30,27 +31,6 @@ interface EscolhaAreaProps {
 
 const option =
   'flex min-h-13 min-w-0 items-center justify-center gap-1.5 rounded-answer px-2 text-center text-button [overflow-wrap:anywhere] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime';
-
-/** ✓ or ✕ in the button's text color (design/canvas/Componentes.dc.html, "Respostas"). */
-function ResultIcon({ hit }: { hit: boolean }) {
-  return (
-    <svg
-      data-icon={hit ? 'check' : 'cross'}
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="3"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      className="shrink-0"
-    >
-      <path d={hit ? 'M5 12l5 5 9-10' : 'M7 7l10 10M17 7L7 17'} />
-    </svg>
-  );
-}
 
 /**
  * "Escolha a palavra que falta": three answer buttons (design/canvas/Escolha.dc.html, Limão colors). A right pick

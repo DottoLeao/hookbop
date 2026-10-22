@@ -6,6 +6,8 @@ import { tokenize } from '@/lib/game/blanks';
 import type { BlankStatus } from '@/lib/game/reducer';
 import { foldApostrophes } from '@/lib/game/text';
 import type { Blank, LyricLine } from '@/lib/types';
+import { CorrectedWord } from './CorrectedWord';
+import { ResultIcon } from './ResultIcon';
 
 interface LyricPanelProps {
   lines: LyricLine[];
@@ -18,6 +20,12 @@ interface LyricPanelProps {
    * "sua vez" slot. The panel never picks one itself, so the slot and the options always point at the same blank.
    */
   inPlayId?: string;
+  /**
+   * The letters that were fixed in the blanks the typing mode took with a slip, by blank id (the places in the
+   * answer, as `matchTyped` gives them). Such a blank on the line in play shows them marked, as in
+   * design/canvas/Digitacao.dc.html.
+   */
+  corrected?: Record<string, number[]>;
   /** Show the line's translation under it, when there is one, in place of "Traduzir verso". */
   showTranslation: boolean;
   /** The translation of the line in play, once something has fetched it. */
@@ -76,10 +84,12 @@ interface LineTextProps {
   onExplain?: (word: string) => void;
   /** The blank the player answers now, on the line in play. */
   inPlayId?: string;
+  /** The letters fixed in the blanks that were typed with a slip, on the line in play. */
+  corrected?: Record<string, number[]>;
 }
 
 /** A line with its open blanks hidden, so no line on screen gives an answer away. */
-function LineText({ text, blanks, status, onExplain, inPlayId }: LineTextProps) {
+function LineText({ text, blanks, status, onExplain, inPlayId, corrected }: LineTextProps) {
   return pieces(text).map((piece, i) => {
     if (!('word' in piece)) return <Fragment key={i}>{piece.text}</Fragment>;
     const blank = blanks.find((b) => b.tokenIndex === piece.index);
@@ -87,6 +97,22 @@ function LineText({ text, blanks, status, onExplain, inPlayId }: LineTextProps) 
       return <Slot key={i} inPlay={blank.id === inPlayId} small={!onExplain} />;
     }
     if (!onExplain) return <Fragment key={i}>{piece.text}</Fragment>;
+    const fixed = blank ? corrected?.[blank.id] : undefined;
+    if (blank && fixed && fixed.length > 0) {
+      // A word typed with a slip and set right: ✓, and the letters that were fixed with a wavy underline.
+      return (
+        <button
+          key={i}
+          type="button"
+          aria-label={t('digitacao.corrected', { palavra: piece.text })}
+          onClick={() => onExplain(piece.word)}
+          className={`${tappable} gap-1 bg-lime px-2.5 text-bg`}
+        >
+          <ResultIcon hit />
+          <CorrectedWord word={piece.text} corrected={fixed} />
+        </button>
+      );
+    }
     const look = blank ? 'bg-lime px-2.5 text-bg' : 'px-0.5 hover:text-lime-light';
     return (
       <button key={i} type="button" onClick={() => onExplain(piece.word)} className={`${tappable} ${look}`}>
@@ -119,6 +145,7 @@ export function LyricPanel({
   blanks,
   status,
   inPlayId,
+  corrected,
   showTranslation,
   translation,
   onTranslate,
@@ -141,7 +168,14 @@ export function LyricPanel({
         </p>
       )}
       <p data-testid="line-current" className="font-heading text-verse leading-snug font-bold">
-        <LineText text={line.text} blanks={own} status={status} onExplain={onExplain} inPlayId={inPlayId} />
+        <LineText
+          text={line.text}
+          blanks={own}
+          status={status}
+          onExplain={onExplain}
+          inPlayId={inPlayId}
+          corrected={corrected}
+        />
       </p>
       {shownTranslation && (
         <p data-testid="translation" className="text-lyric text-muted">

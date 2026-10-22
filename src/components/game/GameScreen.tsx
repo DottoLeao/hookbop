@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { DjBop, type DjBopExpression } from '@/components/brand/DjBop';
 import { t } from '@/i18n/t';
@@ -33,6 +33,12 @@ const REACTION_MS = 1000;
 
 /** DJ Bop makes his combo face each time the combo reaches a multiple of this. */
 const COMBO_CHEER = 5;
+
+/**
+ * The typing area is loaded when a typing round needs it, not with the game screen: it brings the typo check and the
+ * English word list (~100K words) that only this mode uses.
+ */
+const DigitacaoArea = lazy(() => import('./DigitacaoArea').then((module) => ({ default: module.DigitacaoArea })));
 
 /** What the player can use in this phase, which is fixed when the app is built. */
 const entitlements = getEntitlements(process.env.NEXT_PUBLIC_APP_PHASE);
@@ -136,6 +142,9 @@ export function GameScreen({ adapter, mode, lines, blanks, video, onEnd, headerS
   const [slow, setSlow] = useState(false);
   const [dj, setDj] = useState<DjBopExpression>('idle');
   const djTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // The letters fixed in each blank the typing mode took with a slip ("gte" for "get"), by blank id. The lyrics and
+  // the typing area mark them.
+  const [corrected, setCorrected] = useState<Record<string, number[]>>({});
   const [settingsOpen, setSettingsOpen] = useState(false);
   const gearRef = useRef<HTMLButtonElement>(null);
 
@@ -233,11 +242,14 @@ export function GameScreen({ adapter, mode, lines, blanks, video, onEnd, headerS
     djTimerRef.current = setTimeout(() => setDj('idle'), REACTION_MS);
   }
 
-  function answer(answered: Blank, correct: boolean) {
+  function answer(answered: Blank, correct: boolean, correctedIndices: number[] = []) {
     const before = gameRef.current;
     const next = dispatch({ type: 'ANSWER', blankId: answered.id, correct, atMs: adapter.getCurrentTimeMs() });
     // The game took no answer: the blank was already right, or the song is over.
     if (next.score.records.length === before.score.records.length) return;
+    if (correct && correctedIndices.length > 0) {
+      setCorrected((marks) => ({ ...marks, [answered.id]: correctedIndices }));
+    }
 
     const { combo } = next.score;
     // sfx never looks at the setting, so the switch is checked here.
@@ -323,6 +335,7 @@ export function GameScreen({ adapter, mode, lines, blanks, video, onEnd, headerS
             blanks={game.blanks}
             status={game.status}
             inPlayId={blank?.id}
+            corrected={corrected}
             showTranslation={settings.alwaysShowTranslation}
             onTranslate={noHelpYet}
             onExplain={noHelpYet}
@@ -336,6 +349,19 @@ export function GameScreen({ adapter, mode, lines, blanks, video, onEnd, headerS
               solved={solved}
               onAnswer={(correct) => answer(blank, correct)}
             />
+          )}
+          {blank && mode === 'digitacao' && (
+            // Room for the field while its code loads (the area's own height, 74 px), so the tools do not jump.
+            <Suspense fallback={<div data-testid="digitacao-loading" aria-hidden="true" className="h-18.5" />}>
+              <DigitacaoArea
+                key={blank.id}
+                blank={blank}
+                hinted={hinted}
+                solved={solved}
+                corrected={corrected[blank.id]}
+                onAnswer={(correct, correctedIndices) => answer(blank, correct, correctedIndices)}
+              />
+            </Suspense>
           )}
           <ToolsBar
             slow={slow}
