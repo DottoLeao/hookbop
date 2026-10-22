@@ -41,6 +41,7 @@ export class Seed {
   private readonly userIds = new Set<string>();
   private readonly emails = new Set<string>();
   private readonly codes = new Set<string>();
+  private readonly youtubeIds = new Set<string>();
 
   /** A confirmed account with a profile: someone who is already in the app. */
   async member({ name, owner = false }: { name: string; owner?: boolean }): Promise<SeededMember> {
@@ -72,6 +73,39 @@ export class Seed {
     return code;
   }
 
+  /** A video with lyrics (or without), as the app would have remembered it. The id is made up and is 11 characters long. */
+  async video({ title, status = 'ok' }: { title: string; status?: 'ok' | 'no_lyrics' }): Promise<string> {
+    const youtubeId = `e${randomUUID().replaceAll('-', '').slice(0, 10)}`;
+    this.youtubeIds.add(youtubeId);
+    const { error } = await this.db.from('videos').insert({
+      youtube_id: youtubeId,
+      title,
+      channel: 'Invented Artist',
+      duration_s: 185,
+      yt_fetched_at: new Date().toISOString(),
+      status,
+    });
+    if (error) throw error;
+    return youtubeId;
+  }
+
+  /** A finished game of `userId` on `youtubeId`, `minutesAgo` minutes ago. */
+  async play({ userId, youtubeId, minutesAgo = 0 }: { userId: string; youtubeId: string; minutesAgo?: number }) {
+    const { error } = await this.db.from('plays').insert({
+      user_id: userId,
+      youtube_id: youtubeId,
+      mode: 'escolha',
+      difficulty: 'facil',
+      total_blanks: 10,
+      first_try_correct: 9,
+      pct: 90,
+      max_combo: 5,
+      xp: 100,
+      created_at: new Date(Date.now() - minutesAgo * 60_000).toISOString(),
+    });
+    if (error) throw error;
+  }
+
   /** An address a test signs in with through the app, so the account does not exist yet. */
   newcomerEmail(): string {
     const email = `e2e-${randomUUID()}@example.com`;
@@ -92,11 +126,13 @@ export class Seed {
     }
     const ids = [...this.userIds];
 
-    // Order matters: invites and profiles point at users, and nothing cascades.
+    // Order matters: plays point at profiles and videos, invites and profiles point at users, and only answers cascade.
     if (ids.length > 0) {
+      await this.db.from('plays').delete().in('user_id', ids);
       await this.db.from('invites').delete().in('created_by', ids);
       await this.db.from('invites').delete().in('used_by', ids);
     }
+    if (this.youtubeIds.size > 0) await this.db.from('videos').delete().in('youtube_id', [...this.youtubeIds]);
     if (this.codes.size > 0) await this.db.from('invites').delete().in('code', [...this.codes]);
     if (ids.length > 0) await this.db.from('profiles').delete().in('id', ids);
     for (const id of ids) await this.db.auth.admin.deleteUser(id);

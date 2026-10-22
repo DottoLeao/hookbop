@@ -9,11 +9,18 @@ type VideoRow = Omit<Database['public']['Tables']['videos']['Row'], 'updated_at'
 const COLUMNS =
   'youtube_id, title, channel, duration_s, yt_fetched_at, status, lyrics_source, lyrics_ref, lyrics_lrc, lyrics_duration_s, offset_ms';
 
+/** The columns a record needs, and the lyrics' columns, which a read may leave out (the home page's cards do). */
+export type VideoColumns = Pick<
+  VideoRow,
+  'youtube_id' | 'title' | 'channel' | 'duration_s' | 'yt_fetched_at' | 'status' | 'offset_ms'
+> &
+  Partial<Pick<VideoRow, 'lyrics_source' | 'lyrics_ref' | 'lyrics_lrc' | 'lyrics_duration_s'>>;
+
 /**
  * The row as a video record, or null when it lacks what a record needs. The app always writes
  * those columns, so a gap means a half-written row: the video is resolved again and saved whole.
  */
-function toRecord(row: VideoRow): VideoRecord | null {
+export function toRecord(row: VideoColumns): VideoRecord | null {
   const { title, channel, duration_s: durationS, yt_fetched_at: ytFetchedAt, status } = row;
   if (title === null || channel === null || durationS === null || ytFetchedAt === null) return null;
   if (status !== 'ok' && status !== 'no_lyrics') return null;

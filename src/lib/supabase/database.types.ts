@@ -197,7 +197,10 @@ isOneToOne: false
             [_ in never]: never
           }
           Functions: {
-            "ensure_owner":
+            "apply_double_xp":
+{ Args: { "p_play_id": string }; Returns: number
+                           },
+"ensure_owner":
 { Args: Record<PropertyKey, never>; Returns: boolean
                            },
 "is_member":

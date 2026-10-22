@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { describe, expect, it, vi } from 'vitest';
 import type { Database } from './database.types';
-import { DEFAULT_MEMBER_CAP, listActiveMembers, memberCap } from './members';
+import { DEFAULT_MEMBER_CAP, isActiveOwner, listActiveMembers, memberCap, type Member } from './members';
 
 type Client = SupabaseClient<Database>;
 
@@ -73,5 +73,26 @@ describe('memberCap', () => {
     const { admin } = adminWith({ data: null, error: { message: 'invalid api key' } });
 
     await expect(memberCap(admin)).rejects.toThrow(/invalid api key/);
+  });
+});
+
+describe('isActiveOwner', () => {
+  const members: Member[] = [
+    { id: 'owner-1', displayName: 'Dono', joinedAt: '2026-10-20T10:00:00Z', isOwner: true },
+    { id: 'user-2', displayName: 'Joana', joinedAt: '2026-10-21T10:00:00Z', isOwner: false },
+  ];
+
+  it('is true for the owner among the members', () => {
+    expect(isActiveOwner(members, 'owner-1')).toBe(true);
+  });
+
+  it('is false for any other member', () => {
+    expect(isActiveOwner(members, 'user-2')).toBe(false);
+  });
+
+  it('is false for someone who is not among the members (removed, or signed out)', () => {
+    expect(isActiveOwner(members, 'stranger')).toBe(false);
+    expect(isActiveOwner(members, null)).toBe(false);
+    expect(isActiveOwner([], 'owner-1')).toBe(false);
   });
 });

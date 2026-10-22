@@ -45,3 +45,11 @@ export async function memberCap(admin: Client): Promise<number> {
   const cap = Number(data?.value);
   return Number.isInteger(cap) && cap > 0 ? cap : DEFAULT_MEMBER_CAP;
 }
+
+/**
+ * Whether `userId` is the owner among the active members. A removed owner is not in the list, so is not the owner
+ * here. The owner's page (/admin) and the home page's "Admin" link both ask this, so they never disagree.
+ */
+export function isActiveOwner(members: Member[], userId: string | null): boolean {
+  return members.some((member) => member.id === userId && member.isOwner);
+}

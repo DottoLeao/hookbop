@@ -10,3 +10,9 @@ const dateFormat = new Intl.DateTimeFormat('pt-BR', {
 export function formatDate(timestamp: string): string {
   return dateFormat.format(new Date(timestamp));
 }
+
+/** A length in seconds as 3:05, for a song card. A length that is missing or negative reads 0:00. */
+export function formatDuration(seconds: number): string {
+  const whole = Number.isFinite(seconds) ? Math.max(0, Math.round(seconds)) : 0;
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+}

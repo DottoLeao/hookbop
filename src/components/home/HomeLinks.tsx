@@ -1,0 +1,38 @@
+import Link from 'next/link';
+import type { ReactNode } from 'react';
+import { focusRing } from '@/components/game/styles';
+import { t } from '@/i18n/t';
+
+const pill = `flex min-h-11 items-center rounded-full border-[1.5px] border-border px-4 text-body font-semibold text-text ${focusRing}`;
+
+function Pill({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <Link href={href} className={pill}>
+      {children}
+    </Link>
+  );
+}
+
+/**
+ * The shortcuts at the foot of the home page: "Convidar" for every member, "Admin" for the owner only, and the third-party
+ * licences. The licences are a plain text file, which opens in a new tab: an app installed on the phone has no way
+ * back from a page that is not its own.
+ */
+export function HomeLinks({ showAdmin }: { showAdmin: boolean }) {
+  return (
+    <nav className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+      <div className="flex gap-2">
+        <Pill href="/convidar">{t('home.invite')}</Pill>
+        {showAdmin && <Pill href="/admin">{t('home.admin')}</Pill>}
+      </div>
+      <a
+        href="/licencas.txt"
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`flex min-h-11 items-center rounded-button px-2 text-label text-muted underline ${focusRing}`}
+      >
+        {t('home.licenses')}
+      </a>
+    </nav>
+  );
+}

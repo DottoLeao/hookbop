@@ -4,7 +4,7 @@ import { t } from '@/i18n/t';
 import { currentUserId } from '@/lib/auth/currentUser';
 import { formatDate } from '@/lib/format';
 import { createServiceSupabase } from '@/lib/supabase/admin';
-import { listActiveMembers, memberCap } from '@/lib/supabase/members';
+import { isActiveOwner, listActiveMembers, memberCap } from '@/lib/supabase/members';
 import { createServerSupabase } from '@/lib/supabase/server';
 import { RemoveMemberForm } from './RemoveMemberForm';
 
@@ -14,7 +14,7 @@ async function Members() {
   const supabase = await createServerSupabase();
   const userId = await currentUserId(supabase);
   const members = await listActiveMembers(supabase);
-  if (!members.some((member) => member.id === userId && member.isOwner)) redirect('/');
+  if (!isActiveOwner(members, userId)) redirect('/');
 
   // The cap is a server setting no member can read; only the number comes back.
   const cap = await memberCap(createServiceSupabase());

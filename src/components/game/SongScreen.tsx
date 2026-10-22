@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { DjBop, type DjBopExpression } from '@/components/brand/DjBop';
 import { t } from '@/i18n/t';
+import { currentUserId } from '@/lib/auth/currentUser';
+import { getEntitlements } from '@/lib/entitlements';
 import { selectBlanks } from '@/lib/game/blanks';
 import { selectTileLines } from '@/lib/game/tiles';
 import { cleanTitle } from '@/lib/lyrics/cleanTitle';
@@ -14,12 +16,15 @@ import { resolveSong, type SongResolution, type SongStore, type VideoRecord } fr
 import type { PlayerAdapter, PlayerError } from '@/lib/player/adapter';
 import { createYouTubeAdapter, PlayerLoadError } from '@/lib/player/youtubeAdapter';
 import { createBrowserSupabase } from '@/lib/supabase/client';
+import { applyDoubleXp, createSupabasePlaysDb, savePlay } from '@/lib/supabase/plays';
 import { createSupabaseSongStore } from '@/lib/supabase/songStore';
-import type { Blank, Difficulty, LyricLine, Mode } from '@/lib/types';
+import type { AnswerRecord, Blank, Difficulty, LyricLine, Mode, PlaySummary } from '@/lib/types';
 import { fetchVideoMeta } from '@/lib/youtube/fetchVideoMeta';
 import { CalibrationSheet } from './CalibrationSheet';
+import { EndScreen } from './EndScreen';
 import { GameScreen } from './GameScreen';
 import { ModePicker } from './ModePicker';
+import { useGameSave, type SavePlay } from './useGameSave';
 
 /** How the app introduces itself to LRCLIB, as its API asks. */
 const LRCLIB_CLIENT = 'Hookbop/0.1 (+https://hookbop.app)';
@@ -28,6 +33,21 @@ const LRCLIB_CLIENT = 'Hookbop/0.1 (+https://hookbop.app)';
 const DURATION_POLL_MS = 100;
 /** ...for at most this long (ruling R42). */
 const DURATION_WAIT_MS = 3000;
+
+/** What the player can use in this phase, which is fixed when the app is built. */
+const entitlements = getEntitlements(process.env.NEXT_PUBLIC_APP_PHASE);
+
+/** Set in the browser when a song is finished for the first time; the install prompt waits for it. */
+const FIRST_FINISH_KEY = 'hb_first_finish';
+
+/** The mark of a first finished song. Browser storage can be blocked, and then there is simply no mark. */
+function rememberFirstFinish() {
+  try {
+    window.localStorage.setItem(FIRST_FINISH_KEY, '1');
+  } catch {
+    // Site data blocked (SecurityError) or full: the install prompt just does not show.
+  }
+}
 
 /** What the song screen reaches outside itself for. Tests pass fakes; the app uses `browserDeps`. */
 export interface SongScreenDeps {
@@ -39,6 +59,10 @@ export interface SongScreenDeps {
   createAdapter: (el: HTMLElement, youtubeId: string) => Promise<PlayerAdapter>;
   /** Records this player's offset vote and gives back the new median, in ms. */
   saveOffsetVote: (youtubeId: string, offsetMs: number) => Promise<number>;
+  /** Saves a finished game for the signed-in player and gives back the play and the XP it earned. */
+  savePlay: SavePlay;
+  /** Doubles the XP of a saved play, once, and gives back the XP it ends up with. */
+  doubleXp: (playId: string) => Promise<{ xp: number }>;
   /** A clock in ms, for timeToReadyMs. `performance.now` when left out. */
   now?: () => number;
   /** Waits `ms`, between two reads of the duration. A timer when left out. */
@@ -73,6 +97,13 @@ const browserDeps: SongScreenDeps = {
     if (error) throw new Error(`Could not save the offset vote: ${error.message}`);
     return data;
   },
+  savePlay: async (game, resume) => {
+    const client = createBrowserSupabase();
+    const userId = await currentUserId(client);
+    if (!userId) throw new Error('Could not save the play: nobody is signed in.');
+    return savePlay(createSupabasePlaysDb(client), { ...game, userId, now: new Date() }, resume);
+  },
+  doubleXp: (playId) => applyDoubleXp(createSupabasePlaysDb(createBrowserSupabase()), playId),
   now: defaultNow,
   sleep: defaultSleep,
 };
@@ -120,6 +151,16 @@ type Phase =
       mode: Mode;
       difficulty: Difficulty;
       blanks: Blank[];
+    }
+  /** The song is over. What the game earned is in `summary`; where its saving stands is `useGameSave`'s. */
+  | {
+      kind: 'end';
+      adapter: PlayerAdapter;
+      video: VideoRecord;
+      lines: LyricLine[];
+      mode: Mode;
+      difficulty: Difficulty;
+      summary: PlaySummary;
     };
 
 function phaseFor(resolution: SongResolution, adapter: PlayerAdapter): Phase {
@@ -171,9 +212,6 @@ function officialAudioSearchUrl(video: VideoRecord): string {
   return `https://www.youtube.com/results?search_query=${encodeURIComponent(`${artist} ${track} official audio`)}`;
 }
 
-/** The end of a song does nothing yet: the game screen stays on its last state. */
-function endGame() {}
-
 const action =
   'flex min-h-11 w-full items-center justify-center rounded-button px-4 text-center text-button font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime';
 const primaryAction = `${action} bg-lime text-bg`;
@@ -209,7 +247,7 @@ function PasteAnother({ className }: { className: string }) {
  * in every state, so the clip is never torn down between loading, calibrating, picking and playing.
  */
 export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: string; deps?: SongScreenDeps }) {
-  const { resolve, store, createAdapter, saveOffsetVote } = deps;
+  const { resolve, store, createAdapter, saveOffsetVote, doubleXp } = deps;
   const now = deps.now ?? defaultNow;
   const sleep = deps.sleep ?? defaultSleep;
 
@@ -224,6 +262,9 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
   const [playerStarted, setPlayerStarted] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
   const [timeToReadyMs, setTimeToReadyMs] = useState<number | null>(null);
+  const gameSave = useGameSave(deps.savePlay);
+  // How many songs this screen has finished: only the first one waited for the song to get ready.
+  const finishedGamesRef = useRef(0);
 
   // The clock for timeToReadyMs starts when the screen opens, and retries do not restart it.
   useEffect(() => {
@@ -339,6 +380,35 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
     setLyricsAttempt((n) => n + 1);
   }
 
+  /** A round starts, from the mode picker or from "Jogar de novo". */
+  function startGame(player: PlayerAdapter, video: VideoRecord, lines: LyricLine[], mode: Mode, difficulty: Difficulty) {
+    gameSave.reset();
+    setPhase({
+      kind: 'game',
+      adapter: player,
+      video,
+      lines,
+      mode,
+      difficulty,
+      blanks: blanksFor(mode, lines, difficulty, youtubeId),
+    });
+  }
+
+  /** The game reports its end: the result takes its place, and the play is saved, once. */
+  function finishGame(game: Extract<Phase, { kind: 'game' }>, summary: PlaySummary, records: AnswerRecord[]) {
+    const { adapter: player, video, lines, mode, difficulty } = game;
+    gameSave.begin({
+      youtubeId: video.youtubeId,
+      mode,
+      difficulty,
+      summary,
+      records,
+      timeToReadyMs: finishedGamesRef.current === 0 ? (timeToReadyMs ?? 0) : null,
+    });
+    finishedGamesRef.current += 1;
+    setPhase({ kind: 'end', adapter: player, video, lines, mode, difficulty, summary });
+  }
+
   function content(): ReactNode {
     if (playerError === 'other') {
       // A timeout or a script that did not load: a new player may well work.
@@ -420,17 +490,7 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
           <ModePicker
             video={video}
             onCalibrate={() => setPhase({ kind: 'calibration', adapter: player, video, lines })}
-            onPlay={(mode, difficulty) =>
-              setPhase({
-                kind: 'game',
-                adapter: player,
-                video,
-                lines,
-                mode,
-                difficulty,
-                blanks: blanksFor(mode, lines, difficulty, youtubeId),
-              })
-            }
+            onPlay={(mode, difficulty) => startGame(player, video, lines, mode, difficulty)}
           />
         );
       }
@@ -445,10 +505,27 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
             blanks={phase.blanks}
             video={phase.video}
             timeToReadyMs={timeToReadyMs ?? 0}
-            onEnd={endGame}
+            onEnd={(summary, records) => finishGame(phase, summary, records)}
             headerSlot={gameHeaderSlot}
           />
         );
+
+      case 'end': {
+        const { adapter: player, video, lines, mode, difficulty, summary } = phase;
+        return (
+          <EndScreen
+            mode={mode}
+            summary={summary}
+            save={gameSave.save}
+            doubleXp={entitlements.double_xp}
+            onDoubleXp={doubleXp}
+            onRetrySave={gameSave.retry}
+            onPlayAgain={() => startGame(player, video, lines, mode, difficulty)}
+            onOtherMode={() => setPhase({ kind: 'picker', adapter: player, video, lines })}
+            onFinished={rememberFirstFinish}
+          />
+        );
+      }
     }
   }
 

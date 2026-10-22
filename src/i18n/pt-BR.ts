@@ -11,7 +11,18 @@ export const ptBR = {
   'dj.endOk': 'Boa! Bora de novo?',
   'dj.endLow': 'Quase! Solta o replay que você pega.',
 
+  // Tela inicial: colar um link, as músicas da galera e os atalhos.
   'home.pastePlaceholder': 'Cole o link do YouTube',
+  'home.pasteLabel': 'Link do YouTube',
+  'home.play': 'Jogar',
+  'home.invalidLink': 'Esse link não parece do YouTube.',
+  'home.songsTitle': 'Músicas da galera',
+  'home.songsError': 'Não deu pra carregar as músicas agora.',
+  // Ninguém jogou ainda: o DJ Bop convida a colar a primeira.
+  'home.empty': 'Tá silêncio por aqui. Cola a primeira!',
+  'home.invite': 'Convidar',
+  'home.admin': 'Admin',
+  'home.licenses': 'Licenças de terceiros',
 
   // Tela da música (/jogar/[youtubeId]): carregar, erros, calibrar e escolher o modo.
   'jogar.back': 'Voltar',
@@ -54,6 +65,24 @@ export const ptBR = {
   'dificuldade.facil': 'Fácil',
   'dificuldade.medio': 'Médio',
   'dificuldade.dificil': 'Difícil',
+
+  // Fim da música. O anel e as falas do DJ Bop (dj.endGreat, dj.endOk, dj.endLow) vêm do percentual de acertos de primeira.
+  'fim.ring': '{pct}% de acerto',
+  'fim.blanks': '{certas} de {total} lacunas certas',
+  'fim.maxCombo': 'combo máximo',
+  'fim.xp': 'XP',
+  'fim.xpValue': '+{n}',
+  // O XP ainda não voltou do banco, ou não deu pra saber qual é.
+  'fim.xpPending': '…',
+  'fim.xpUnknown': '–',
+  'fim.doubleXp': 'Dobrar o XP · anúncio',
+  'fim.doubleXpUsed': 'XP dobrado',
+  'fim.doubleXpError': 'Não rolou dobrar. Tenta de novo?',
+  'fim.saveFailed': 'Essa partida ainda não foi salva.',
+  'fim.saveRetry': 'Tentar salvar de novo',
+  'fim.playAgain': 'Jogar de novo',
+  'fim.otherMode': 'Outro modo',
+  'fim.otherSong': 'Outra música',
 
   // Tela de jogo: cabeçalho, letra, ferramentas e configurações.
   'jogo.song': '{musica} · {artista}',

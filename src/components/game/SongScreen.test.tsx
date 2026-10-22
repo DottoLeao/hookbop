@@ -8,6 +8,8 @@ import type { SongResolution, SongStore, VideoRecord } from '@/lib/lyrics/resolv
 import type { PlayerAdapter } from '@/lib/player/adapter';
 import { FakePlayerAdapter } from '@/lib/player/fakeAdapter';
 import { PlayerLoadError } from '@/lib/player/youtubeAdapter';
+import { AnswersNotSavedError } from '@/lib/supabase/plays';
+import type { AnswerRecord, PlaySummary } from '@/lib/types';
 import { GameScreen } from './GameScreen';
 import { SongScreen, type SongScreenDeps } from './SongScreen';
 
@@ -78,6 +80,8 @@ interface MockDeps {
   resolve: Mock<SongScreenDeps['resolve']>;
   store: { getVideo: Mock<SongStore['getVideo']>; upsertVideo: Mock<SongStore['upsertVideo']> };
   saveOffsetVote: Mock<SongScreenDeps['saveOffsetVote']>;
+  savePlay: Mock<SongScreenDeps['savePlay']>;
+  doubleXp: Mock<SongScreenDeps['doubleXp']>;
   sleep: Mock<NonNullable<SongScreenDeps['sleep']>>;
   now?: () => number;
 }
@@ -91,6 +95,8 @@ function makeDeps(over: Partial<MockDeps> = {}): MockDeps {
       upsertVideo: vi.fn<SongStore['upsertVideo']>().mockResolvedValue(undefined),
     },
     saveOffsetVote: vi.fn<SongScreenDeps['saveOffsetVote']>().mockResolvedValue(0),
+    savePlay: vi.fn<SongScreenDeps['savePlay']>().mockResolvedValue({ playId: 'play-1', xp: 120 }),
+    doubleXp: vi.fn<SongScreenDeps['doubleXp']>().mockResolvedValue({ xp: 240 }),
     // The duration wait does not sleep for real in tests.
     sleep: vi.fn<NonNullable<SongScreenDeps['sleep']>>().mockResolvedValue(undefined),
     ...over,
@@ -569,19 +575,251 @@ describe('SongScreen: mode picker', () => {
     expect(gameProps().timeToReadyMs).toBe(2500);
   });
 
-  it('gives the game a place for its header above the player, and an onEnd that does nothing yet', async () => {
+  it('gives the game a place for its header above the player', async () => {
     render(<SongScreen youtubeId={ID} deps={makeDeps()} />);
     await screen.findByRole('button', { name: 'Jogar' });
 
     pick('Escolha');
 
-    const { headerSlot, onEnd } = gameProps();
+    const { headerSlot } = gameProps();
     expect(headerSlot).toBeInstanceOf(HTMLElement);
     expect(headerSlot!.compareDocumentPosition(screen.getByTestId('player')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // The song screen draws no header of its own during the game.
     expect(screen.queryByRole('link', { name: 'Voltar' })).not.toBeInTheDocument();
-    expect(() => onEnd({ totalBlanks: 1, firstTryCorrect: 1, pct: 100, maxCombo: 1, xp: 12 }, [])).not.toThrow();
     expect(screen.getByTestId('game-screen')).toBeInTheDocument();
+  });
+});
+
+const SUMMARY: PlaySummary = { totalBlanks: 12, firstTryCorrect: 11, pct: 92, maxCombo: 8, xp: 240 };
+const RECORDS: AnswerRecord[] = [
+  { blankId: 'b1', kind: 'first', correct: true, beforeLineEnd: true },
+  { blankId: 'b2', kind: 'first', correct: false, beforeLineEnd: false },
+];
+
+/** The game on screen reports its end. */
+async function finishGame(summary = SUMMARY, records = RECORDS) {
+  await act(async () => gameProps().onEnd(summary, records));
+}
+
+/** Opens the song, picks a mode and lets the game report that it ended. */
+async function playToTheEnd(deps: MockDeps, mode = 'Escolha', difficulty: string | undefined = 'Médio') {
+  render(<SongScreen youtubeId={ID} deps={deps} />);
+  await screen.findByRole('button', { name: 'Jogar' });
+  pick(mode, difficulty);
+  await finishGame();
+}
+
+describe('SongScreen: the end of a song', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('takes the place of the game with the result, and the player stays where it is', async () => {
+    const deps = makeDeps();
+    render(<SongScreen youtubeId={ID} deps={deps} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+    pick('Escolha');
+    const player = screen.getByTestId('player');
+    const playerHost = player.firstElementChild;
+    const destroy = vi.spyOn(fake, 'destroy');
+
+    await finishGame();
+
+    expect(screen.queryByTestId('game-screen')).not.toBeInTheDocument();
+    expect(screen.getByRole('img', { name: '92% de acerto' })).toBeInTheDocument();
+    expect(screen.getByText('11 de 12 lacunas certas')).toBeInTheDocument();
+    expect(screen.getByText('Mandou bem!')).toBeInTheDocument();
+    expect(screen.getByTestId('player')).toBe(player);
+    expect(player.firstElementChild).toBe(playerHost);
+    expect(destroy).not.toHaveBeenCalled();
+  });
+
+  it('saves the play once, with what the game reported and the time the screen took to get ready', async () => {
+    let clock = 1000;
+    const lyrics = deferred<SongResolution>();
+    const deps = makeDeps({ resolve: vi.fn<SongScreenDeps['resolve']>().mockReturnValue(lyrics.promise), now: () => clock });
+    render(<SongScreen youtubeId={ID} deps={deps} />);
+    await waitFor(() => expect(deps.resolve).toHaveBeenCalled());
+    clock = 3500;
+    await act(async () => lyrics.resolve(READY));
+    pick('Digitação', 'Difícil');
+
+    await finishGame();
+
+    expect(deps.savePlay).toHaveBeenCalledTimes(1);
+    expect(deps.savePlay).toHaveBeenCalledWith(
+      { youtubeId: ID, mode: 'digitacao', difficulty: 'dificil', summary: SUMMARY, records: RECORDS, timeToReadyMs: 2500 },
+      undefined,
+    );
+  });
+
+  it('saves the play once even if the game reports its end twice', async () => {
+    const deps = makeDeps();
+    await playToTheEnd(deps);
+
+    await finishGame();
+    await finishGame();
+
+    expect(deps.savePlay).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the XP the play was saved with once the save is back, not the game's own", async () => {
+    const saving = deferred<{ playId: string; xp: number }>();
+    const deps = makeDeps({ savePlay: vi.fn<SongScreenDeps['savePlay']>().mockReturnValue(saving.promise) });
+    await playToTheEnd(deps);
+
+    expect(screen.getByText('…')).toBeInTheDocument();
+    expect(screen.queryByText('+240')).not.toBeInTheDocument();
+
+    await act(async () => saving.resolve({ playId: 'play-1', xp: 120 }));
+
+    expect(screen.getByText('+120')).toBeInTheDocument();
+    expect(screen.queryByText('+240')).not.toBeInTheDocument();
+  });
+
+  it('saves Karaokê too, and shows no ring or score', async () => {
+    const savePlay = vi.fn<SongScreenDeps['savePlay']>().mockResolvedValue({ playId: 'play-1', xp: 0 });
+    render(<SongScreen youtubeId={ID} deps={makeDeps({ savePlay })} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+    pick('Karaokê');
+
+    await finishGame({ totalBlanks: 0, firstTryCorrect: 0, pct: 0, maxCombo: 0, xp: 0 }, []);
+
+    expect(savePlay).toHaveBeenCalledWith(expect.objectContaining({ mode: 'karaoke', records: [] }), undefined);
+    expect(screen.queryByRole('img', { name: /de acerto/ })).not.toBeInTheDocument();
+    expect(screen.getByText('Mandou bem!')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Jogar de novo' })).toBeInTheDocument();
+  });
+
+  describe('when the save fails', () => {
+    beforeEach(() => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+
+    it('still shows the result, and tries again on "Tentar salvar de novo"', async () => {
+      const savePlay = vi
+        .fn<SongScreenDeps['savePlay']>()
+        .mockRejectedValueOnce(new Error('offline'))
+        .mockResolvedValueOnce({ playId: 'play-1', xp: 120 });
+      await playToTheEnd(makeDeps({ savePlay }));
+
+      expect(screen.getByRole('img', { name: '92% de acerto' })).toBeInTheDocument();
+      expect(screen.getByText('Essa partida ainda não foi salva.')).toBeInTheDocument();
+
+      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Tentar salvar de novo' })));
+
+      expect(savePlay).toHaveBeenCalledTimes(2);
+      expect(savePlay).toHaveBeenLastCalledWith(expect.objectContaining({ mode: 'escolha', summary: SUMMARY }), undefined);
+      expect(screen.queryByText('Essa partida ainda não foi salva.')).not.toBeInTheDocument();
+      expect(screen.getByText('+120')).toBeInTheDocument();
+    });
+
+    it('only finishes the answers when the play itself was saved', async () => {
+      const saved = { playId: 'play-1', xp: 60 };
+      const savePlay = vi
+        .fn<SongScreenDeps['savePlay']>()
+        .mockRejectedValueOnce(new AnswersNotSavedError(saved))
+        .mockResolvedValueOnce(saved);
+      await playToTheEnd(makeDeps({ savePlay }));
+
+      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Tentar salvar de novo' })));
+
+      expect(savePlay).toHaveBeenLastCalledWith(expect.anything(), saved);
+      expect(screen.getByText('+60')).toBeInTheDocument();
+    });
+  });
+
+  it('doubles the XP of the saved play, once', async () => {
+    const deps = makeDeps();
+    await playToTheEnd(deps);
+    expect(screen.getByText('+120')).toBeInTheDocument();
+
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Dobrar o XP · anúncio' })));
+
+    expect(deps.doubleXp).toHaveBeenCalledTimes(1);
+    expect(deps.doubleXp).toHaveBeenCalledWith('play-1');
+    expect(screen.getByText('+240')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'XP dobrado' })).toBeInTheDocument();
+  });
+
+  it('plays the same mode and difficulty again on "Jogar de novo", saving that game too, with no time to get ready', async () => {
+    const savePlay = vi
+      .fn<SongScreenDeps['savePlay']>()
+      .mockResolvedValueOnce({ playId: 'play-1', xp: 120 })
+      .mockResolvedValueOnce({ playId: 'play-2', xp: 60 });
+    await playToTheEnd(makeDeps({ savePlay }), 'Digitação', 'Difícil');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Jogar de novo' }));
+
+    expect(screen.queryByRole('img', { name: '92% de acerto' })).not.toBeInTheDocument();
+    expect(gameProps()).toMatchObject({
+      mode: 'digitacao',
+      difficulty: 'dificil',
+      blanks: selectBlanks(LINES, 'dificil', ID),
+      adapter: fake,
+    });
+
+    await finishGame();
+
+    expect(savePlay).toHaveBeenCalledTimes(2);
+    expect(savePlay).toHaveBeenLastCalledWith(
+      expect.objectContaining({ mode: 'digitacao', difficulty: 'dificil', timeToReadyMs: null }),
+      undefined,
+    );
+    expect(screen.getByText('+60')).toBeInTheDocument();
+  });
+
+  it('forgets the answer of the save of the game before once the next one starts', async () => {
+    const first = deferred<{ playId: string; xp: number }>();
+    const savePlay = vi
+      .fn<SongScreenDeps['savePlay']>()
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce({ playId: 'play-2', xp: 60 });
+    await playToTheEnd(makeDeps({ savePlay }));
+    fireEvent.click(screen.getByRole('button', { name: 'Jogar de novo' }));
+    await finishGame();
+
+    await act(async () => first.resolve({ playId: 'play-1', xp: 120 }));
+
+    expect(screen.getByText('+60')).toBeInTheDocument();
+    expect(screen.queryByText('+120')).not.toBeInTheDocument();
+  });
+
+  it('goes back to the modes of the same song on "Outro modo"', async () => {
+    await playToTheEnd(makeDeps());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Outro modo' }));
+
+    expect(screen.getByRole('radio', { name: 'Karaokê' })).toBeInTheDocument();
+    expect(screen.getByText('Let It Be')).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: '92% de acerto' })).not.toBeInTheDocument();
+  });
+
+  it('goes to the home page on "Outra música"', async () => {
+    await playToTheEnd(makeDeps());
+
+    expect(screen.getByRole('link', { name: 'Outra música' })).toHaveAttribute('href', '/');
+  });
+
+  it('remembers that the player finished a song, for the install prompt', async () => {
+    render(<SongScreen youtubeId={ID} deps={makeDeps()} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+    pick('Escolha');
+    expect(localStorage.getItem('hb_first_finish')).toBeNull();
+
+    await finishGame();
+
+    expect(localStorage.getItem('hb_first_finish')).toBe('1');
+  });
+
+  it('carries on when the browser will not keep it (site data blocked)', async () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('blocked', 'SecurityError');
+    });
+
+    await playToTheEnd(makeDeps());
+
+    expect(screen.getByRole('img', { name: '92% de acerto' })).toBeInTheDocument();
   });
 });
 
