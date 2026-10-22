@@ -58,12 +58,12 @@ describe('inflections', () => {
 
 describe('makeDistractors', () => {
   it('gives two different real words that are not the answer or in the line', () => {
-    const d = makeDistractors('let', ['please', "don't", 'let', 'me', 'down'], 's1');
+    const d = makeDistractors('let', ['grandpa', "won't", 'let', 'me', 'drive'], 's1');
     expect(new Set(d).size).toBe(2);
     for (const w of d) {
       expect(w).not.toBe('let');
       expect(isRealWord(w)).toBe(true);
-      expect(['lets', "let's", 'letting', 'me', 'down']).not.toContain(w);
+      expect(['lets', "let's", 'letting', 'me', 'drive']).not.toContain(w);
     }
   });
 
@@ -202,9 +202,9 @@ describe('makeDistractors', () => {
   });
 
   it('does not change the line it is given', () => {
-    const line = ['please', 'let', 'me'];
+    const line = ['grandpa', 'let', 'me'];
     makeDistractors('let', line, 's1');
-    expect(line).toEqual(['please', 'let', 'me']);
+    expect(line).toEqual(['grandpa', 'let', 'me']);
   });
 });
 

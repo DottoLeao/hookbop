@@ -33,14 +33,14 @@ const LET: Blank = { id: '0:2', lineIndex: 0, tokenIndex: 2, answer: 'let' };
 const GAVE: Blank = { id: '1:1', lineIndex: 1, tokenIndex: 1, answer: 'gave' };
 const FERRY: Blank = { id: '2:2', lineIndex: 2, tokenIndex: 2, answer: 'ferry' };
 
-/** Invented lines for the typing mode; "I can't get you off my mind" is the line the wireframe draws. */
+/** Invented lines for the typing mode. */
 const TYPING_LINES: LyricLine[] = [
-  { index: 0, startMs: 0, endMs: 4000, text: "I can't get you off my mind" },
-  { index: 1, startMs: 4000, endMs: 8000, text: 'And the radio plays our song' },
+  { index: 0, startMs: 0, endMs: 4000, text: "Soon we'll get there before the rain" },
+  { index: 1, startMs: 4000, endMs: 8000, text: 'And the kettle sings by candlelight' },
   { index: 2, startMs: 8000, endMs: 12000, text: 'Every window glows tonight' },
 ];
 const GET: Blank = { id: '0:2', lineIndex: 0, tokenIndex: 2, answer: 'get' };
-const RADIO: Blank = { id: '1:2', lineIndex: 1, tokenIndex: 2, answer: 'radio' };
+const KETTLE: Blank = { id: '1:2', lineIndex: 1, tokenIndex: 2, answer: 'kettle' };
 
 /** Invented lines for Monte o verso, each one a puzzle on its own (a blank for the whole line, tokenIndex -1). */
 const BUILD_LINES: LyricLine[] = [
@@ -496,7 +496,7 @@ describe('GameScreen: Digitação', () => {
     expect(fieldBox()).toHaveClass('bg-error');
     expect(fieldBox().querySelector('[data-icon="cross"]')).not.toBeNull();
     expect(fake.calls.slice(before)).toEqual(['seek:0', 'play']);
-    expect(screen.getByTestId('line-current')).toHaveTextContent("I can't lacuna you off my mind");
+    expect(screen.getByTestId('line-current')).toHaveTextContent("Soon we'll lacuna there before the rain");
     expect(dj()).toHaveAttribute('data-expression', 'errou');
     expect(playMiss).toHaveBeenCalledOnce();
 
@@ -550,14 +550,14 @@ describe('GameScreen: Digitação', () => {
   });
 
   it('goes on to the next blank with a new field that has the focus, and brings a right one back as it was', async () => {
-    await renderTyping({ blanks: [GET, RADIO] });
+    await renderTyping({ blanks: [GET, KETTLE] });
     type('gte');
     expect(field()).toHaveFocus();
 
     playTo(4500);
 
     // A new question: an empty field, ready to type in.
-    expect(screen.getByTestId('line-current')).toHaveTextContent('And the lacuna plays our song');
+    expect(screen.getByTestId('line-current')).toHaveTextContent('And the lacuna sings by candlelight');
     expect(field()).toHaveValue('');
     expect(field()).not.toHaveAttribute('readonly');
     expect(field()).toHaveFocus();
@@ -567,7 +567,7 @@ describe('GameScreen: Digitação', () => {
       fake.seekTo(1000);
       vi.advanceTimersByTime(100);
     });
-    expect(screen.getByTestId('line-current')).toHaveTextContent("I can't get you off my mind");
+    expect(screen.getByTestId('line-current')).toHaveTextContent("Soon we'll get there before the rain");
     expect(field()).toHaveValue('get');
     expect(field()).toHaveAttribute('readonly');
     expect(fieldBox()).toHaveClass('bg-lime');
@@ -577,7 +577,7 @@ describe('GameScreen: Digitação', () => {
   it('hides the blank of the line in play and works out no options', async () => {
     await renderTyping();
 
-    expect(screen.getByTestId('line-current')).toHaveTextContent("I can't lacuna you off my mind");
+    expect(screen.getByTestId('line-current')).toHaveTextContent("Soon we'll lacuna there before the rain");
     expect(makeDistractors).not.toHaveBeenCalled();
   });
 });
@@ -605,7 +605,7 @@ describe('GameScreen: the typing area cannot be loaded', () => {
     expect(screen.queryByLabelText('Digite a palavra que falta')).not.toBeInTheDocument();
     // The player, the header, the lyrics and the tools are all still there, and work.
     expect(screen.getByText('Neon Harbor · The Paper Lanterns')).toBeInTheDocument();
-    expect(screen.getByTestId('line-current')).toHaveTextContent("I can't lacuna you off my mind");
+    expect(screen.getByTestId('line-current')).toHaveTextContent("Soon we'll lacuna there before the rain");
     const before = fake.calls.length;
     fireEvent.click(screen.getByRole('button', { name: 'Repetir verso' }));
     expect(fake.calls.slice(before)).toEqual(['seek:0', 'play']);
@@ -1302,11 +1302,11 @@ describe('GameScreen: help with a line', () => {
     it('explains a word of the line in play that was tapped', async () => {
       const { requestHelp } = renderHelped();
 
-      fireEvent.click(word('mind'));
+      fireEvent.click(word('rain'));
       await settleHelp();
 
-      expect(within(helpSheet()).getByText('Explicação de mind')).toBeInTheDocument();
-      expect(requestHelp).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ lineIndex: 0, target: 'mind' }));
+      expect(within(helpSheet()).getByText('Explicação de rain')).toBeInTheDocument();
+      expect(requestHelp).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ lineIndex: 0, target: 'rain' }));
     });
 
     it('"Valeu" closes it, shows the game again and gives the focus back to what opened it', async () => {
@@ -1329,7 +1329,7 @@ describe('GameScreen: help with a line', () => {
       const { requestHelp } = renderHelped();
 
       for (let i = 0; i < 2; i++) {
-        fireEvent.click(word('mind'));
+        fireEvent.click(word('rain'));
         await settleHelp();
         fireEvent.click(screen.getByRole('button', { name: 'Valeu' }));
       }
@@ -1340,7 +1340,7 @@ describe('GameScreen: help with a line', () => {
     it('gives a calm line in place of the explanation when the member asked too much, and never a status', async () => {
       renderHelped({ requestHelp: vi.fn<HelpRequester>(() => Promise.reject(new HelpError(429))) });
 
-      fireEvent.click(word('mind'));
+      fireEvent.click(word('rain'));
       await settleHelp();
 
       expect(within(helpSheet()).getByRole('status')).toHaveTextContent('Pausa rapidinha! Volta daqui a pouco?');
@@ -1354,13 +1354,13 @@ describe('GameScreen: help with a line', () => {
       playTo(1000);
       const before = fake.calls.length;
 
-      fireEvent.click(word('mind'));
+      fireEvent.click(word('rain'));
       await settleHelp();
       fireEvent.keyDown(helpSheet(), { key: 'Escape' });
 
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
       expect(fake.calls.slice(before)).toEqual(['pause', 'play']);
-      expect(word('mind')).toHaveFocus();
+      expect(word('rain')).toHaveFocus();
     });
 
     it('pauses a clip that plays, and plays it again on "Valeu"', async () => {
@@ -1368,7 +1368,7 @@ describe('GameScreen: help with a line', () => {
       playTo(1000);
       const before = fake.calls.length;
 
-      fireEvent.click(word('mind'));
+      fireEvent.click(word('rain'));
       await settleHelp();
       expect(fake.calls.slice(before)).toEqual(['pause']);
 
@@ -1382,7 +1382,7 @@ describe('GameScreen: help with a line', () => {
       expect(fake.calls.at(-1)).toBe('pause');
       const before = fake.calls.length;
 
-      fireEvent.click(word('mind'));
+      fireEvent.click(word('rain'));
       await settleHelp();
       fireEvent.click(screen.getByRole('button', { name: 'Valeu' }));
 
@@ -1397,7 +1397,7 @@ describe('GameScreen: help with a line', () => {
       renderHelped();
       playTo(1000);
 
-      fireEvent.click(word('mind'));
+      fireEvent.click(word('rain'));
       await settleHelp();
       // YouTube had not said it paused, so the clock went on to the end of the line, and the game paused it there.
       playTo(3850);
@@ -1413,7 +1413,7 @@ describe('GameScreen: help with a line', () => {
       act(() => fake.emitState('paused'));
       const before = fake.calls.length;
 
-      fireEvent.click(word('mind'));
+      fireEvent.click(word('rain'));
       await settleHelp();
       fireEvent.click(screen.getByRole('button', { name: 'Valeu' }));
 
@@ -1599,14 +1599,14 @@ describe('LyricPanel', () => {
     const { onExplain, onTranslate } = renderPanel({
       lines: TYPING_LINES,
       current: 1,
-      blanks: [RADIO],
-      status: { [RADIO.id]: 'wrong' },
+      blanks: [KETTLE],
+      status: { [KETTLE.id]: 'wrong' },
     });
 
-    fireEvent.click(within(screen.getByTestId('line-current')).getByRole('button', { name: 'plays' }));
-    expect(onExplain).toHaveBeenLastCalledWith('plays', 1, expect.any(HTMLButtonElement));
+    fireEvent.click(within(screen.getByTestId('line-current')).getByRole('button', { name: 'sings' }));
+    expect(onExplain).toHaveBeenLastCalledWith('sings', 1, expect.any(HTMLButtonElement));
     fireEvent.click(screen.getByRole('button', { name: 'Não entendi' }));
-    expect(onExplain).toHaveBeenLastCalledWith('radio', 1, expect.any(HTMLButtonElement));
+    expect(onExplain).toHaveBeenLastCalledWith('kettle', 1, expect.any(HTMLButtonElement));
     fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
     expect(onTranslate).toHaveBeenCalledExactlyOnceWith(1);
   });
