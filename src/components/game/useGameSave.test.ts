@@ -1,6 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
-import { AnswersNotSavedError } from '@/lib/supabase/plays';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useGameSave, type FinishedGame, type SavePlay } from './useGameSave';
 
 const GAME: FinishedGame = {
@@ -12,6 +11,7 @@ const GAME: FinishedGame = {
   timeToReadyMs: 2500,
 };
 
+const UUID = expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
 const SAVED = { playId: 'play-1', xp: 120 };
 
 function deferred<T>() {
@@ -28,6 +28,10 @@ function setup(savePlay: SavePlay) {
   return renderHook(() => useGameSave(savePlay));
 }
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe('useGameSave', () => {
   it('is saving from the first moment, so the end screen never shows an XP that is not there yet', () => {
     const { result } = setup(vi.fn<SavePlay>());
@@ -35,13 +39,13 @@ describe('useGameSave', () => {
     expect(result.current.save).toEqual({ status: 'saving' });
   });
 
-  it('saves the game and then says which play holds the XP', async () => {
+  it('saves the game under an id of its own and then says which play holds the XP', async () => {
     const savePlay = vi.fn<SavePlay>().mockResolvedValue(SAVED);
     const { result } = setup(savePlay);
 
     act(() => result.current.begin(GAME));
 
-    expect(savePlay).toHaveBeenCalledWith(GAME, undefined);
+    expect(savePlay).toHaveBeenCalledWith({ ...GAME, playId: UUID }, false);
     await waitFor(() => expect(result.current.save).toEqual({ status: 'saved', playId: 'play-1', xp: 120 }));
   });
 
@@ -59,7 +63,7 @@ describe('useGameSave', () => {
     expect(savePlay).toHaveBeenCalledTimes(1);
   });
 
-  it('saves the next game once it is told that one began', async () => {
+  it('saves the next game, under another id, once it is told that one began', async () => {
     const savePlay = vi.fn<SavePlay>().mockResolvedValueOnce(SAVED).mockResolvedValueOnce({ playId: 'play-2', xp: 60 });
     const { result } = setup(savePlay);
     act(() => result.current.begin(GAME));
@@ -69,7 +73,9 @@ describe('useGameSave', () => {
     act(() => result.current.begin({ ...GAME, timeToReadyMs: null }));
 
     expect(savePlay).toHaveBeenCalledTimes(2);
-    expect(savePlay).toHaveBeenLastCalledWith({ ...GAME, timeToReadyMs: null }, undefined);
+    expect(savePlay).toHaveBeenLastCalledWith({ ...GAME, timeToReadyMs: null, playId: UUID }, false);
+    const [first, second] = savePlay.mock.calls.map(([game]) => game.playId);
+    expect(second).not.toBe(first);
     expect(result.current.save).toEqual({ status: 'saving' });
     await waitFor(() => expect(result.current.save).toEqual({ status: 'saved', playId: 'play-2', xp: 60 }));
   });
@@ -88,35 +94,43 @@ describe('useGameSave', () => {
     expect(result.current.save).toEqual({ status: 'saved', playId: 'play-2', xp: 60 });
   });
 
-  it('says the save failed, and tries the whole thing again on retry', async () => {
+  it('says the save failed, and on retry saves the same play again, marked as a retry', async () => {
     const savePlay = vi.fn<SavePlay>().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(SAVED);
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { result } = setup(savePlay);
     act(() => result.current.begin(GAME));
     await waitFor(() => expect(result.current.save).toEqual({ status: 'failed' }));
+    expect(warn).toHaveBeenCalledTimes(1);
 
     act(() => result.current.retry());
 
     expect(result.current.save).toEqual({ status: 'saving' });
     await waitFor(() => expect(result.current.save).toEqual({ status: 'saved', playId: 'play-1', xp: 120 }));
     expect(savePlay).toHaveBeenCalledTimes(2);
-    expect(savePlay).toHaveBeenLastCalledWith(GAME, undefined);
+    expect(savePlay).toHaveBeenLastCalledWith({ ...GAME, playId: UUID }, true);
+    // The same play: what makes a retry safe is that both tries carry the same id.
+    expect(savePlay.mock.calls[1][0].playId).toBe(savePlay.mock.calls[0][0].playId);
   });
 
-  it('finishes only the answers on retry when the play itself was saved, so it is not counted twice', async () => {
+  it('keeps retrying the same play, however many times it fails', async () => {
     const savePlay = vi
       .fn<SavePlay>()
-      .mockRejectedValueOnce(new AnswersNotSavedError(SAVED))
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockRejectedValueOnce(new Error('offline'))
       .mockResolvedValueOnce(SAVED);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { result } = setup(savePlay);
     act(() => result.current.begin(GAME));
     await waitFor(() => expect(result.current.save).toEqual({ status: 'failed' }));
+    act(() => result.current.retry());
+    await waitFor(() => expect(savePlay).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.save).toEqual({ status: 'failed' }));
 
     act(() => result.current.retry());
 
     await waitFor(() => expect(result.current.save.status).toBe('saved'));
-    expect(savePlay).toHaveBeenLastCalledWith(GAME, SAVED);
+    const ids = savePlay.mock.calls.map(([game]) => game.playId);
+    expect(new Set(ids).size).toBe(1);
   });
 
   it('does nothing on retry when there is no game to retry', () => {

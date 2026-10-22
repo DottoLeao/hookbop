@@ -12,15 +12,21 @@ test.describe('home page', () => {
     const older = await seed.video({ title: `Invented Artist - Older Song ${suffix}` });
     const newer = await seed.video({ title: `Invented Artist - Newer Song ${suffix} (Official Video)` });
     const noLyrics = await seed.video({ title: `Invented Artist - Silent Song ${suffix}`, status: 'no_lyrics' });
+    const stale = await seed.video({ title: `Invented Artist - Stale Song ${suffix}`, fetchedDaysAgo: 31 });
     await seed.play({ userId: maria.id, youtubeId: older, minutesAgo: 30 });
     await seed.play({ userId: maria.id, youtubeId: newer, minutesAgo: 20 });
     await seed.play({ userId: maria.id, youtubeId: older, minutesAgo: 10 });
     await seed.play({ userId: maria.id, youtubeId: noLyrics, minutesAgo: 5 });
+    await seed.play({ userId: maria.id, youtubeId: stale, minutesAgo: 1 });
 
     await signIn(page, maria.email);
     await expect(page).toHaveURL(/\/$/);
 
-    // The songs, newest play first, each once, and none of the video without lyrics.
+    // The page has one heading, the name of the app, for screen readers.
+    await expect(page.getByRole('heading', { level: 1, name: 'Hookbop' })).toBeAttached();
+
+    // The songs, newest play first, each once, and none of the video without lyrics or the one whose YouTube data is
+    // more than 30 days old (it comes back when somebody opens it, which fetches the data again).
     const songs = page.getByRole('list', { name: 'Músicas da galera' }).getByRole('link');
     const mine = songs.filter({ hasText: suffix });
     await expect(mine).toHaveCount(2);
@@ -29,6 +35,7 @@ test.describe('home page', () => {
     await expect(mine.nth(1)).toContainText(`Newer Song ${suffix}`);
     await expect(mine.nth(1)).not.toContainText('Official Video');
     await expect(page.getByText(`Silent Song ${suffix}`)).toHaveCount(0);
+    await expect(page.getByText(`Stale Song ${suffix}`)).toHaveCount(0);
 
     // The shortcuts: invite for everyone, no admin, and the licences.
     await expect(page.getByRole('link', { name: 'Convidar' })).toHaveAttribute('href', '/convidar');

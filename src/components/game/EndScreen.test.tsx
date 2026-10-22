@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { StrictMode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { applyDoubleXp, type PlaysDb } from '@/lib/supabase/plays';
@@ -49,6 +49,12 @@ describe('EndScreen: the result', () => {
     expect(screen.getByText('11 de 12 lacunas certas')).toBeInTheDocument();
     expect(screen.getByText('Mandou bem!')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'DJ Bop' })).toBeInTheDocument();
+  });
+
+  it('writes the percentage in the middle of the ring', () => {
+    setup();
+
+    expect(within(screen.getByRole('img', { name: '92% de acerto' })).getByText('92%')).toBeInTheDocument();
   });
 
   it('fills the ring as far as the percentage', () => {
@@ -124,6 +130,43 @@ describe('EndScreen: the result', () => {
     expect(screen.getByRole('button', { name: 'Jogar de novo' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Outro modo' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Outra música' })).toBeInTheDocument();
+  });
+});
+
+describe('EndScreen: the heading and the focus', () => {
+  it("has DJ Bop's line as its heading, and names the result after it", () => {
+    setup();
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Mandou bem!' })).toBeInTheDocument();
+    const result = screen.getByRole('region', { name: 'Mandou bem!' });
+    expect(result).toContainElement(screen.getByRole('button', { name: 'Jogar de novo' }));
+  });
+
+  it('has a heading after Karaokê too, where the line is all there is of a score', () => {
+    setup({ mode: 'karaoke' });
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Mandou bem!' })).toBeInTheDocument();
+  });
+
+  it('moves the focus to the result when it appears, without scrolling, so a screen reader reads it', () => {
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+    setup();
+
+    const result = screen.getByRole('region', { name: 'Mandou bem!' });
+    expect(result).toHaveAttribute('tabindex', '-1');
+    expect(result).toHaveFocus();
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    focus.mockRestore();
+  });
+
+  it('does not take the focus back when the save comes in later', () => {
+    const { props, rerender } = setup({ save: { status: 'saving' } });
+    const playAgain = screen.getByRole('button', { name: 'Jogar de novo' });
+    playAgain.focus();
+
+    rerender(<EndScreen {...props} save={SAVED} />);
+
+    expect(playAgain).toHaveFocus();
   });
 });
 

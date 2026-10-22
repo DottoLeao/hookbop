@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { DjBop, type DjBopExpression } from '@/components/brand/DjBop';
 import { t, type MessageKey } from '@/i18n/t';
 import type { Entitlement } from '@/lib/entitlements';
@@ -71,7 +71,7 @@ function Ring({ pct }: { pct: number }) {
         />
       )}
       <text x="70" y="80" textAnchor="middle" fontSize="28" fontWeight="700" className="fill-text font-heading">
-        {pct}%
+        {t('fim.ringValue', { pct })}
       </text>
     </svg>
   );
@@ -119,6 +119,14 @@ export function EndScreen({
     onFinished();
   }, [onFinished]);
 
+  // The result takes the focus when it appears: the game screen it replaces had it, and a keyboard or screen reader
+  // user would otherwise be left on nothing. It names itself after the heading, so that is what is read out.
+  const resultRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    resultRef.current?.focus({ preventScroll: true });
+  }, []);
+  const headingId = useId();
+
   const scored = mode !== 'karaoke' && summary.totalBlanks > 0;
   const { line, expression } = verdict(scored ? summary.pct : null);
 
@@ -147,7 +155,12 @@ export function EndScreen({
     xp !== null ? t('fim.xpValue', { n: xp }) : save.status === 'saving' ? t('fim.xpPending') : t('fim.xpUnknown');
 
   return (
-    <section className="flex flex-1 flex-col gap-4">
+    <section
+      ref={resultRef}
+      tabIndex={-1}
+      aria-labelledby={headingId}
+      className="flex flex-1 flex-col gap-4 focus:outline-hidden"
+    >
       {scored && (
         <div className="flex flex-col items-center gap-1.5">
           <Ring pct={summary.pct} />
@@ -161,12 +174,12 @@ export function EndScreen({
         <div className="shrink-0">
           <DjBop expression={expression} size={64} />
         </div>
-        <p
-          role="status"
+        <h1
+          id={headingId}
           className="rounded-[16px_16px_16px_4px] bg-card px-4 py-2.5 font-heading text-verse leading-tight font-bold"
         >
           {t(line)}
-        </p>
+        </h1>
       </div>
 
       {scored && (

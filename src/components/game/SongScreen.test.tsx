@@ -8,7 +8,6 @@ import type { SongResolution, SongStore, VideoRecord } from '@/lib/lyrics/resolv
 import type { PlayerAdapter } from '@/lib/player/adapter';
 import { FakePlayerAdapter } from '@/lib/player/fakeAdapter';
 import { PlayerLoadError } from '@/lib/player/youtubeAdapter';
-import { AnswersNotSavedError } from '@/lib/supabase/plays';
 import type { AnswerRecord, PlaySummary } from '@/lib/types';
 import { GameScreen } from './GameScreen';
 import { SongScreen, type SongScreenDeps } from './SongScreen';
@@ -23,12 +22,12 @@ const DURATION_MS = 213000;
 const LYRICS_DURATION_S = 200;
 
 const LRC = [
-  "[00:00.30]Please don't let me down",
-  '[00:03.30]I gave you everything I had',
-  '[00:06.30]And every street looks the same to me',
-  '[00:09.30]Hold on to your heart tonight',
-  "[00:12.30]We're gonna dance until the morning",
-  '[00:15.30]Tell me what you want from me',
+  '[00:00.30]Lanterns drift across the silver river',
+  '[00:03.30]We carried every secret down the hill',
+  '[00:06.30]And morning paints the window gold again',
+  '[00:09.30]Hold the compass steady for me now',
+  "[00:12.30]We're sailing past the sleeping harbor lights",
+  '[00:15.30]Tell me which road leads back to the sea',
   '[00:18.30]',
 ].join('\n');
 
@@ -37,8 +36,8 @@ const LINES = parseLrc(LRC, LYRICS_DURATION_S * 1000);
 
 const VIDEO: VideoRecord = {
   youtubeId: ID,
-  title: 'The Beatles - Let It Be (Official Video)',
-  channel: 'TheBeatlesVEVO',
+  title: 'Invented Artist - Invented Song (Official Video)',
+  channel: 'InventedArtistVEVO',
   durationS: 213,
   ytFetchedAt: '2026-10-21T12:00:00.000Z',
   status: 'ok',
@@ -57,7 +56,7 @@ function calibrated(offsetMs: number, needsCalibration: boolean): SongResolution
   return { status: 'ready', video: { ...VIDEO, offsetMs }, lines: applyOffset(LINES, offsetMs), needsCalibration };
 }
 
-const AUDIO_SEARCH = `https://www.youtube.com/results?search_query=${encodeURIComponent('The Beatles Let It Be official audio')}`;
+const AUDIO_SEARCH = `https://www.youtube.com/results?search_query=${encodeURIComponent('Invented Artist Invented Song official audio')}`;
 
 const SLOW = 'O banco de letras tá lento. Tenta de novo?';
 const CANNOT_EMBED = 'Esse clipe não toca fora do YouTube.';
@@ -511,8 +510,8 @@ describe('SongScreen: mode picker', () => {
     for (const difficulty of ['Fácil', 'Médio', 'Difícil']) {
       expect(screen.getByRole('radio', { name: difficulty })).toBeInTheDocument();
     }
-    expect(screen.getByText('Let It Be')).toBeInTheDocument();
-    expect(screen.getByText('The Beatles')).toBeInTheDocument();
+    expect(screen.getByText('Invented Song')).toBeInTheDocument();
+    expect(screen.getByText('Invented Artist')).toBeInTheDocument();
   });
 
   it('starts Escolha on Médio with the blanks selectBlanks picks for the song', async () => {
@@ -648,8 +647,16 @@ describe('SongScreen: the end of a song', () => {
 
     expect(deps.savePlay).toHaveBeenCalledTimes(1);
     expect(deps.savePlay).toHaveBeenCalledWith(
-      { youtubeId: ID, mode: 'digitacao', difficulty: 'dificil', summary: SUMMARY, records: RECORDS, timeToReadyMs: 2500 },
-      undefined,
+      {
+        playId: expect.any(String),
+        youtubeId: ID,
+        mode: 'digitacao',
+        difficulty: 'dificil',
+        summary: SUMMARY,
+        records: RECORDS,
+        timeToReadyMs: 2500,
+      },
+      false,
     );
   });
 
@@ -685,7 +692,7 @@ describe('SongScreen: the end of a song', () => {
 
     await finishGame({ totalBlanks: 0, firstTryCorrect: 0, pct: 0, maxCombo: 0, xp: 0 }, []);
 
-    expect(savePlay).toHaveBeenCalledWith(expect.objectContaining({ mode: 'karaoke', records: [] }), undefined);
+    expect(savePlay).toHaveBeenCalledWith(expect.objectContaining({ mode: 'karaoke', records: [] }), false);
     expect(screen.queryByRole('img', { name: /de acerto/ })).not.toBeInTheDocument();
     expect(screen.getByText('Mandou bem!')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Jogar de novo' })).toBeInTheDocument();
@@ -709,22 +716,22 @@ describe('SongScreen: the end of a song', () => {
       await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Tentar salvar de novo' })));
 
       expect(savePlay).toHaveBeenCalledTimes(2);
-      expect(savePlay).toHaveBeenLastCalledWith(expect.objectContaining({ mode: 'escolha', summary: SUMMARY }), undefined);
+      expect(savePlay).toHaveBeenLastCalledWith(expect.objectContaining({ mode: 'escolha', summary: SUMMARY }), true);
       expect(screen.queryByText('Essa partida ainda não foi salva.')).not.toBeInTheDocument();
       expect(screen.getByText('+120')).toBeInTheDocument();
     });
 
-    it('only finishes the answers when the play itself was saved', async () => {
-      const saved = { playId: 'play-1', xp: 60 };
+    it('saves the same play on retry, under the same id, so nothing is saved twice', async () => {
       const savePlay = vi
         .fn<SongScreenDeps['savePlay']>()
-        .mockRejectedValueOnce(new AnswersNotSavedError(saved))
-        .mockResolvedValueOnce(saved);
+        .mockRejectedValueOnce(new Error('response lost'))
+        .mockResolvedValueOnce({ playId: 'play-1', xp: 60 });
       await playToTheEnd(makeDeps({ savePlay }));
 
       await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Tentar salvar de novo' })));
 
-      expect(savePlay).toHaveBeenLastCalledWith(expect.anything(), saved);
+      expect(savePlay.mock.calls[1][0].playId).toBe(savePlay.mock.calls[0][0].playId);
+      expect(savePlay.mock.calls.map(([, retrying]) => retrying)).toEqual([false, true]);
       expect(screen.getByText('+60')).toBeInTheDocument();
     });
   });
@@ -764,8 +771,10 @@ describe('SongScreen: the end of a song', () => {
     expect(savePlay).toHaveBeenCalledTimes(2);
     expect(savePlay).toHaveBeenLastCalledWith(
       expect.objectContaining({ mode: 'digitacao', difficulty: 'dificil', timeToReadyMs: null }),
-      undefined,
+      false,
     );
+    // Another game, another play.
+    expect(savePlay.mock.calls[1][0].playId).not.toBe(savePlay.mock.calls[0][0].playId);
     expect(screen.getByText('+60')).toBeInTheDocument();
   });
 
@@ -791,7 +800,7 @@ describe('SongScreen: the end of a song', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Outro modo' }));
 
     expect(screen.getByRole('radio', { name: 'Karaokê' })).toBeInTheDocument();
-    expect(screen.getByText('Let It Be')).toBeInTheDocument();
+    expect(screen.getByText('Invented Song')).toBeInTheDocument();
     expect(screen.queryByRole('img', { name: '92% de acerto' })).not.toBeInTheDocument();
   });
 

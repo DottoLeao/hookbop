@@ -35,7 +35,7 @@ export type SongResolution =
   | { status: 'video_unavailable' };
 
 /** YouTube metadata older than this is fetched again. */
-const META_MAX_AGE_MS = 30 * 24 * 3600 * 1000;
+export const META_MAX_AGE_MS = 30 * 24 * 3600 * 1000;
 
 /** A record the app can play: it says 'ok' and holds the lyrics. */
 type PlayableVideo = VideoRecord & { status: 'ok'; lyricsLrc: string; lyricsDurationS: number };

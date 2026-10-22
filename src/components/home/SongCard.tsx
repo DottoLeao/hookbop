@@ -28,7 +28,7 @@ export function SongCard({ video }: { video: VideoRecord }) {
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate text-lyric font-bold">{track}</span>
         <span className="truncate text-label text-muted">
-          {artist} · {formatDuration(video.durationS)}
+          {t('home.songMeta', { artista: artist, duracao: formatDuration(video.durationS) })}
         </span>
       </span>
       <span className="flex min-h-11 shrink-0 items-center rounded-button bg-lime px-4 text-body font-bold text-bg">

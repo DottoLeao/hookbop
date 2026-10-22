@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { repeatMultiplier } from '@/lib/game/scoring';
-import type { VideoRecord } from '@/lib/lyrics/resolveSong';
+import { META_MAX_AGE_MS, type VideoRecord } from '@/lib/lyrics/resolveSong';
 import type { AnswerRecord, AttemptKind, Difficulty, Mode, PlaySummary } from '@/lib/types';
 import type { Database } from './database.types';
 import { toRecord } from './songStore';
@@ -12,6 +12,8 @@ const REPEAT_WINDOW_MS = 7 * 24 * 3600 * 1000;
 
 /** A finished game, as it is saved in `plays`. The columns are the table's own. */
 export interface NewPlay {
+  /** Made by the app, once per game, so that saving the same game again finds this play instead of making another. */
+  id: string;
   user_id: string;
   youtube_id: string;
   mode: Mode;
@@ -37,10 +39,18 @@ export interface NewAnswer {
 
 /** What saving a game and doubling its XP need from the database. `createSupabasePlaysDb` is the real one. */
 export interface PlaysDb {
-  /** How many plays of the song the member has saved since `sinceIso`. */
+  /**
+   * How many plays of the song the member has saved since `sinceIso`, not counting Karaokê ones: Karaokê earns no
+   * XP, so singing along must not lower what the next game of the song is worth.
+   */
   countPlays(userId: string, youtubeId: string, sinceIso: string): Promise<number>;
-  /** Saves a play and gives back its id. */
+  /** Saves a play, under the id it carries, and gives that id back. */
   insertPlay(row: NewPlay): Promise<string>;
+  /** The play with that id, if it is saved. */
+  findPlay(id: string): Promise<{ xp: number } | null>;
+  /** How many answers are saved for the play. */
+  countAnswers(playId: string): Promise<number>;
+  /** Saves all the answers in one statement, so either all of them land or none. */
   insertAnswers(rows: NewAnswer[]): Promise<void>;
   /**
    * Doubles the XP of the member's own play, once, and gives back the XP it ends up with. When it was doubled
@@ -51,6 +61,8 @@ export interface PlaysDb {
 
 /** A game to save. */
 export interface PlayToSave {
+  /** Made once for the game, before its first try: every try saves the same play under it. */
+  playId: string;
   userId: string;
   youtubeId: string;
   mode: Mode;
@@ -70,68 +82,58 @@ export interface SavedPlay {
 }
 
 /**
- * The play is saved, and counts, but its answers are not. `saved` is what to give `savePlay` again to finish the job
- * without a second play (which would be counted against the first and lose XP to the repeat decay).
- */
-export class AnswersNotSavedError extends Error {
-  constructor(
-    readonly saved: SavedPlay,
-    options?: ErrorOptions,
-  ) {
-    super('The play was saved, but its answers were not.', options);
-    this.name = 'AnswersNotSavedError';
-  }
-}
-
-/**
  * Saves a finished game: first the play, with the XP the game earned times the repeat factor of the song (a song the
- * member already played 1 time in the last 7 days gives half), then one answer for each record with its kind. Karaokê
- * always saves 0 XP.
+ * member already played 1 time in the last 7 days gives half; Karaokê plays are not counted), then one answer for each
+ * record with its kind. Karaokê always saves 0 XP.
  *
- * Call it once per game. When only the answers fail, it throws `AnswersNotSavedError`; calling it again with that
- * error's `saved` as `resume` writes the answers and nothing else. Any other failure happens before anything is
- * written, so calling again starts over.
+ * The play goes in under `p.playId`, and the answers in one statement, so saving can be tried again without saving
+ * anything twice, even when a try wrote its rows and the answer got lost on the way back (the request failed, though
+ * the database has the rows). A first try goes straight to writing. With `retrying`, the play is looked up first:
+ * when it is there, it is not written again and its saved XP is what comes back (counting the plays of the song would
+ * now count this one too), and its answers are written only if none are saved yet. When it is not there, nothing of
+ * the game was saved and the whole job is done.
  */
-export async function savePlay(db: PlaysDb, p: PlayToSave, resume?: SavedPlay): Promise<SavedPlay> {
-  let saved = resume;
-  if (!saved) {
-    const karaoke = p.mode === 'karaoke';
-    // Read before the play is written, so the play is not counted against itself.
-    const since = new Date(p.now.getTime() - REPEAT_WINDOW_MS).toISOString();
-    const earlier = karaoke ? 0 : await db.countPlays(p.userId, p.youtubeId, since);
-    const xp = karaoke ? 0 : Math.round(p.summary.xp * repeatMultiplier(earlier));
+export async function savePlay(db: PlaysDb, p: PlayToSave, retrying = false): Promise<SavedPlay> {
+  const found = retrying ? await db.findPlay(p.playId) : null;
+  const saved = found ? { playId: p.playId, xp: found.xp } : await insertNewPlay(db, p);
 
-    const playId = await db.insertPlay({
-      user_id: p.userId,
-      youtube_id: p.youtubeId,
-      mode: p.mode,
-      difficulty: karaoke ? null : p.difficulty,
-      total_blanks: p.summary.totalBlanks,
-      first_try_correct: p.summary.firstTryCorrect,
-      pct: p.summary.pct,
-      max_combo: p.summary.maxCombo,
-      xp,
-      time_to_ready_ms: p.timeToReadyMs,
-    });
-    saved = { playId, xp };
-  }
-
-  if (p.records.length > 0) {
-    try {
-      await db.insertAnswers(
-        p.records.map((record) => ({
-          play_id: saved.playId,
-          blank_id: record.blankId,
-          kind: record.kind,
-          correct: record.correct,
-          before_line_end: record.beforeLineEnd,
-        })),
-      );
-    } catch (error) {
-      throw new AnswersNotSavedError(saved, { cause: error });
-    }
+  // A play that was just written has no answers yet; one that was found may have them.
+  if (p.records.length > 0 && (!found || (await db.countAnswers(saved.playId)) === 0)) {
+    await db.insertAnswers(
+      p.records.map((record) => ({
+        play_id: saved.playId,
+        blank_id: record.blankId,
+        kind: record.kind,
+        correct: record.correct,
+        before_line_end: record.beforeLineEnd,
+      })),
+    );
   }
   return saved;
+}
+
+/** The play of a game, with its XP worked out from the earlier plays of the song. */
+async function insertNewPlay(db: PlaysDb, p: PlayToSave): Promise<SavedPlay> {
+  const karaoke = p.mode === 'karaoke';
+  // Read before the play is written, so the play is not counted against itself.
+  const since = new Date(p.now.getTime() - REPEAT_WINDOW_MS).toISOString();
+  const earlier = karaoke ? 0 : await db.countPlays(p.userId, p.youtubeId, since);
+  const xp = karaoke ? 0 : Math.round(p.summary.xp * repeatMultiplier(earlier));
+
+  const playId = await db.insertPlay({
+    id: p.playId,
+    user_id: p.userId,
+    youtube_id: p.youtubeId,
+    mode: p.mode,
+    difficulty: karaoke ? null : p.difficulty,
+    total_blanks: p.summary.totalBlanks,
+    first_try_correct: p.summary.firstTryCorrect,
+    pct: p.summary.pct,
+    max_combo: p.summary.maxCombo,
+    xp,
+    time_to_ready_ms: p.timeToReadyMs,
+  });
+  return { playId, xp };
 }
 
 /**
@@ -149,13 +151,15 @@ export function applyDoubleXp(db: PlaysDb, playId: string): Promise<{ xp: number
 export function createSupabasePlaysDb(client: Client): PlaysDb {
   return {
     async countPlays(userId, youtubeId, sinceIso) {
-      // Members may read everyone's plays, so the member is named here.
+      // Members may read everyone's plays, so the member is named here. A play always has its mode written, so
+      // leaving out Karaokê with `neq` leaves out nothing else.
       const { count, error } = await client
         .from('plays')
         .select('id', { count: 'exact', head: true })
         .eq('user_id', userId)
         .eq('youtube_id', youtubeId)
-        .gte('created_at', sinceIso);
+        .gte('created_at', sinceIso)
+        .neq('mode', 'karaoke');
       if (error) throw new Error(`Could not count the plays: ${error.message}`);
       return count ?? 0;
     },
@@ -164,6 +168,21 @@ export function createSupabasePlaysDb(client: Client): PlaysDb {
       const { data, error } = await client.from('plays').insert(row).select('id').single();
       if (error) throw new Error(`Could not save the play: ${error.message}`);
       return data.id;
+    },
+
+    async findPlay(id) {
+      const { data, error } = await client.from('plays').select('xp').eq('id', id).maybeSingle();
+      if (error) throw new Error(`Could not look for the play: ${error.message}`);
+      return data ? { xp: data.xp ?? 0 } : null;
+    },
+
+    async countAnswers(playId) {
+      const { count, error } = await client
+        .from('answers')
+        .select('play_id', { count: 'exact', head: true })
+        .eq('play_id', playId);
+      if (error) throw new Error(`Could not count the answers: ${error.message}`);
+      return count ?? 0;
     },
 
     async insertAnswers(rows) {
@@ -183,40 +202,56 @@ export function createSupabasePlaysDb(client: Client): PlaysDb {
 /** What a song card needs of a video. The lyrics are large and stay out of the query. */
 const SONG_COLUMNS = 'youtube_id, title, channel, duration_s, yt_fetched_at, status, offset_ms';
 
+/** How many plays one read takes. */
+const PLAYS_PER_PAGE = 100;
+
 /**
- * How many of the newest plays are read for each song wanted. A song that was played again takes more than one row,
- * so reading exactly `limit` plays could end with fewer than `limit` songs. With at most 50 members, 5 times as many
- * rows is room enough, and still a small read.
+ * How many pages `recentSongs` reads at most, which is 500 plays. This bounds the cost of a home page whose newest
+ * plays are all of a few songs: fewer than `limit` songs can come back only when the newest 500 plays are of fewer
+ * songs than that.
  */
-const PLAYS_READ_PER_SONG = 5;
+const MAX_PLAY_PAGES = 5;
 
 /**
  * The songs the gang played, newest play first, each once: the videos with lyrics (`status = 'ok'`) that any member
- * played. Part A has no friendships, so this is every member's plays (50 at most); part B narrows it to you and your
- * friends.
+ * played, and whose YouTube data is no more than 30 days old (`META_MAX_AGE_MS`, as in `resolveSong`). A song whose
+ * data is older stays off the list until somebody opens it, which fetches the data again. Part A has no friendships,
+ * so this is every member's plays (50 members at most); part B narrows it to you and your friends.
  *
- * It is one query, `plays` with its `videos` row embedded (an inner join, so the filter on the video's status also
- * drops the plays of videos without lyrics), through the signed-in member's client: members may read every play and
- * every video. The plays come newest first and the repeats are dropped here, keeping each song at its latest play,
- * because PostgREST has no "distinct on" to ask for it. Two queries (the plays, then the videos by id) would give the
- * same list in two round trips, and one more place to disagree.
+ * It reads `plays` with its `videos` row embedded (an inner join, so the filters on the video also drop the plays of
+ * videos that do not qualify), through the signed-in member's client: members may read every play and every video.
+ * The plays come newest first, in pages of 100 (`.range()`, ordered by time and then by id, so a page never overlaps
+ * the one before), and the repeats are dropped here, keeping each song at its latest play, because PostgREST has no
+ * "distinct on" to ask for it. It reads pages until it has `limit` different songs or a page comes back short, which
+ * means there are no older plays, and never more than 5 pages. So it gives `limit` songs whenever the newest 500
+ * plays hold that many different ones, however often a few of them were played over and over.
+ *
+ * `now` is the moment the 30 days are counted back from.
  */
-export async function recentSongs(db: Client, limit = 20): Promise<VideoRecord[]> {
-  const { data, error } = await db
-    .from('plays')
-    .select(`created_at, videos!inner(${SONG_COLUMNS})`)
-    .eq('videos.status', 'ok')
-    .order('created_at', { ascending: false })
-    .limit(limit * PLAYS_READ_PER_SONG);
-  if (error) throw new Error(`Could not read the songs: ${error.message}`);
-
+export async function recentSongs(db: Client, limit = 20, now = new Date()): Promise<VideoRecord[]> {
+  const freshSince = new Date(now.getTime() - META_MAX_AGE_MS).toISOString();
   const songs = new Map<string, VideoRecord>();
-  for (const { videos } of data) {
-    if (songs.size >= limit) break;
-    if (songs.has(videos.youtube_id)) continue;
-    // A half-written row (see toRecord) is left out: the home page can do without one card.
-    const song = toRecord(videos);
-    if (song) songs.set(song.youtubeId, song);
+
+  for (let page = 0; page < MAX_PLAY_PAGES && songs.size < limit; page += 1) {
+    const { data, error } = await db
+      .from('plays')
+      .select(`created_at, videos!inner(${SONG_COLUMNS})`)
+      .eq('videos.status', 'ok')
+      // A video with no YouTube data date does not pass the comparison, so it is left out too.
+      .gte('videos.yt_fetched_at', freshSince)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(page * PLAYS_PER_PAGE, (page + 1) * PLAYS_PER_PAGE - 1);
+    if (error) throw new Error(`Could not read the songs: ${error.message}`);
+
+    for (const { videos } of data) {
+      if (songs.size >= limit) break;
+      if (songs.has(videos.youtube_id)) continue;
+      // A half-written row (see toRecord) is left out: the home page can do without one card.
+      const song = toRecord(videos);
+      if (song) songs.set(song.youtubeId, song);
+    }
+    if (data.length < PLAYS_PER_PAGE) break;
   }
   return [...songs.values()];
 }

@@ -13,10 +13,14 @@ export const ptBR = {
 
   // Tela inicial: colar um link, as músicas da galera e os atalhos.
   'home.pastePlaceholder': 'Cole o link do YouTube',
+  // O título da página, só para leitores de tela: o logo é uma imagem.
+  'home.title': 'Hookbop',
   'home.pasteLabel': 'Link do YouTube',
   'home.play': 'Jogar',
   'home.invalidLink': 'Esse link não parece do YouTube.',
   'home.songsTitle': 'Músicas da galera',
+  // No cartão de uma música: o artista e quanto ela dura.
+  'home.songMeta': '{artista} · {duracao}',
   'home.songsError': 'Não deu pra carregar as músicas agora.',
   // Ninguém jogou ainda: o DJ Bop convida a colar a primeira.
   'home.empty': 'Tá silêncio por aqui. Cola a primeira!',
@@ -68,6 +72,7 @@ export const ptBR = {
 
   // Fim da música. O anel e as falas do DJ Bop (dj.endGreat, dj.endOk, dj.endLow) vêm do percentual de acertos de primeira.
   'fim.ring': '{pct}% de acerto',
+  'fim.ringValue': '{pct}%',
   'fim.blanks': '{certas} de {total} lacunas certas',
   'fim.maxCombo': 'combo máximo',
   'fim.xp': 'XP',

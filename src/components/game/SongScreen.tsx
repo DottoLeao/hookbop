@@ -97,11 +97,11 @@ const browserDeps: SongScreenDeps = {
     if (error) throw new Error(`Could not save the offset vote: ${error.message}`);
     return data;
   },
-  savePlay: async (game, resume) => {
+  savePlay: async (game, retrying) => {
     const client = createBrowserSupabase();
     const userId = await currentUserId(client);
     if (!userId) throw new Error('Could not save the play: nobody is signed in.');
-    return savePlay(createSupabasePlaysDb(client), { ...game, userId, now: new Date() }, resume);
+    return savePlay(createSupabasePlaysDb(client), { ...game, userId, now: new Date() }, retrying);
   },
   doubleXp: (playId) => applyDoubleXp(createSupabasePlaysDb(createBrowserSupabase()), playId),
   now: defaultNow,
@@ -403,7 +403,8 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
       difficulty,
       summary,
       records,
-      timeToReadyMs: finishedGamesRef.current === 0 ? (timeToReadyMs ?? 0) : null,
+      // Null when it is not known (the screen was not ready yet) and for the later games, which did not wait for it.
+      timeToReadyMs: finishedGamesRef.current === 0 ? timeToReadyMs : null,
     });
     finishedGamesRef.current += 1;
     setPhase({ kind: 'end', adapter: player, video, lines, mode, difficulty, summary });

@@ -73,8 +73,19 @@ export class Seed {
     return code;
   }
 
-  /** A video with lyrics (or without), as the app would have remembered it. The id is made up and is 11 characters long. */
-  async video({ title, status = 'ok' }: { title: string; status?: 'ok' | 'no_lyrics' }): Promise<string> {
+  /**
+   * A video with lyrics (or without), as the app would have remembered it, with its YouTube data fetched
+   * `fetchedDaysAgo` days ago. The id is made up and is 11 characters long.
+   */
+  async video({
+    title,
+    status = 'ok',
+    fetchedDaysAgo = 0,
+  }: {
+    title: string;
+    status?: 'ok' | 'no_lyrics';
+    fetchedDaysAgo?: number;
+  }): Promise<string> {
     const youtubeId = `e${randomUUID().replaceAll('-', '').slice(0, 10)}`;
     this.youtubeIds.add(youtubeId);
     const { error } = await this.db.from('videos').insert({
@@ -82,7 +93,7 @@ export class Seed {
       title,
       channel: 'Invented Artist',
       duration_s: 185,
-      yt_fetched_at: new Date().toISOString(),
+      yt_fetched_at: new Date(Date.now() - fetchedDaysAgo * 86_400_000).toISOString(),
       status,
     });
     if (error) throw error;
