@@ -84,12 +84,52 @@ interface LineTextProps {
   text: string;
   blanks: Blank[];
   status: Record<string, BlankStatus>;
-  /** Only for the line in play: its words can be tapped. */
+  /** The line in play, drawn large with its right blanks marked. The lines around it are muted plain text. */
+  inPlay?: boolean;
+  /**
+   * Only for the line in play, and only once help may open on it (ruling R83): its words can be tapped. Without it the
+   * line in play is drawn the same way, with nothing to tap.
+   */
   onExplain?: (word: string, opener: HTMLElement) => void;
   /** The blank the player answers now, on the line in play. */
   inPlayId?: string;
   /** The letters fixed in the blanks that were typed with a slip, on the line in play. */
   corrected?: Record<string, number[]>;
+}
+
+/** A blank of the line in play that is right: lime with ✓, as a button to tap or, while help waits, as plain marking. */
+function RightWord({
+  word,
+  fixed,
+  onExplain,
+}: {
+  word: { word: string; text: string };
+  fixed: number[];
+  onExplain?: (word: string, opener: HTMLElement) => void;
+}) {
+  const label = t(fixed.length > 0 ? 'digitacao.corrected' : 'jogo.hit', { palavra: word.text });
+  const look = `${tappable} gap-1 bg-lime px-2.5 text-bg`;
+  const drawn = (
+    <>
+      <ResultIcon hit />
+      {fixed.length > 0 ? <CorrectedWord word={word.text} corrected={fixed} /> : word.text}
+    </>
+  );
+  if (!onExplain) {
+    return (
+      <span className={look}>
+        <span aria-hidden="true" className="contents">
+          {drawn}
+        </span>
+        <span className="sr-only">{label}</span>
+      </span>
+    );
+  }
+  return (
+    <button type="button" aria-label={label} onClick={(event) => onExplain(word.word, event.currentTarget)} className={look}>
+      {drawn}
+    </button>
+  );
 }
 
 /**
@@ -98,35 +138,24 @@ interface LineTextProps {
  * the game a right puzzle line in play is never drawn here but in the answer area's row, which has its check and its
  * words to tap (ruling R59), so the panel only ever draws such a line before or after the line in play.
  */
-function LineText({ text, blanks, status, onExplain, inPlayId, corrected }: LineTextProps) {
+function LineText({ text, blanks, status, inPlay = false, onExplain, inPlayId, corrected }: LineTextProps) {
   const wholeLine = blanks.find((b) => b.tokenIndex === WHOLE_LINE);
   if (wholeLine && status[wholeLine.id] !== 'correct') {
-    return <Slot small={!onExplain} whole />;
+    return <Slot small={!inPlay} whole />;
   }
   return pieces(text).map((piece, i) => {
     if (!('word' in piece)) return <Fragment key={i}>{piece.text}</Fragment>;
     const blank = blanks.find((b) => b.tokenIndex === piece.index);
     if (blank && status[blank.id] !== 'correct') {
-      return <Slot key={i} inPlay={blank.id === inPlayId} small={!onExplain} />;
+      return <Slot key={i} inPlay={blank.id === inPlayId} small={!inPlay} />;
     }
-    if (!onExplain) return <Fragment key={i}>{piece.text}</Fragment>;
+    if (!inPlay) return <Fragment key={i}>{piece.text}</Fragment>;
     if (blank) {
       // A right blank: lime with ✓, whatever the mode, so two right words on a line look alike. One typed with a slip
       // also has the letters that were fixed under a wavy line, and says so to screen readers.
-      const fixed = corrected?.[blank.id] ?? [];
-      return (
-        <button
-          key={i}
-          type="button"
-          aria-label={t(fixed.length > 0 ? 'digitacao.corrected' : 'jogo.hit', { palavra: piece.text })}
-          onClick={(event) => onExplain(piece.word, event.currentTarget)}
-          className={`${tappable} gap-1 bg-lime px-2.5 text-bg`}
-        >
-          <ResultIcon hit />
-          {fixed.length > 0 ? <CorrectedWord word={piece.text} corrected={fixed} /> : piece.text}
-        </button>
-      );
+      return <RightWord key={i} word={piece} fixed={corrected?.[blank.id] ?? []} onExplain={onExplain} />;
     }
+    if (!onExplain) return <Fragment key={i}>{piece.text}</Fragment>;
     return (
       <button
         key={i}
@@ -156,7 +185,8 @@ function Pill({ onClick, children }: { onClick: (event: MouseEvent<HTMLButtonEle
  * The lyrics around the clip: the line before in muted text, the line in play in Space Grotesk with its blank, and
  * the line after in muted text. Under the line in play: its translation once there is one, and "Traduzir verso" until
  * then ("Traduzindo..." while it is on its way, and DJ Bop's calm line next to the pill when it cannot be had), and
- * "Não entendi" once a blank of the line has an answer.
+ * "Não entendi" once every blank of the line has had its first answer. Until then the words of the line in play cannot
+ * be tapped either (ruling R83); "Traduzir verso" is there all along (spec §7, ruling R60).
  *
  * A line that is a puzzle (Monte o verso) is never drawn as text until it is right (ruling R52), and while it is in
  * play the answer area holds it (ruling R59): the panel then draws neither that line nor the line after it, only the
@@ -182,7 +212,12 @@ export function LyricPanel({
   const own = blanksOf(current);
   const inArea = own.some((blank) => blank.id === inPlayId && blank.tokenIndex === WHOLE_LINE);
   const answerable = own.filter((blank) => blank.tokenIndex !== WHOLE_LINE);
-  const answered = answerable.filter((blank) => status[blank.id] === 'correct' || status[blank.id] === 'wrong').at(-1);
+  // Ruling R83: while a blank of the line has had no answer at all, an explanation of the line or of one of its words
+  // could give it away while the first try still counts, and it would be kept for every member. So nothing on the line
+  // can be tapped and "Não entendi" waits until each blank of it has had its first answer, right or wrong.
+  const helpOpen = answerable.every((blank) => status[blank.id] === 'correct' || status[blank.id] === 'wrong');
+  // "Não entendi" explains the blank in play, or the line's last one.
+  const explained = helpOpen ? (answerable.find((blank) => blank.id === inPlayId) ?? answerable.at(-1)) : undefined;
   const shownTranslation = translation?.status === 'done' ? translation.text : null;
   // "Traduzir verso" until the translation is there, except while it is on its way. After a failure it asks again.
   const canTranslate = !shownTranslation && translation?.status !== 'loading';
@@ -204,7 +239,8 @@ export function LyricPanel({
             text={line.text}
             blanks={own}
             status={status}
-            onExplain={explain}
+            inPlay
+            onExplain={helpOpen ? explain : undefined}
             inPlayId={inPlayId}
             corrected={corrected}
           />
@@ -220,10 +256,12 @@ export function LyricPanel({
           {translationNote}
         </p>
       )}
-      {(canTranslate || answered) && (
+      {(canTranslate || explained) && (
         <div className="flex flex-wrap gap-2">
           {canTranslate && <Pill onClick={() => onTranslate(current)}>{t('jogo.translate')}</Pill>}
-          {answered && <Pill onClick={(event) => explain(answered.answer, event.currentTarget)}>{t('jogo.explain')}</Pill>}
+          {explained && (
+            <Pill onClick={(event) => explain(explained.answer, event.currentTarget)}>{t('jogo.explain')}</Pill>
+          )}
         </div>
       )}
       {next && !inArea && (

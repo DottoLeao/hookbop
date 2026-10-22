@@ -1234,6 +1234,25 @@ describe('GameScreen: lyrics', () => {
 
     expect(screen.getByRole('button', { name: 'Não entendi' })).toBeInTheDocument();
   });
+
+  it.each(['escolha', 'digitacao'] as const)(
+    'in %s, keeps the words of the line in play from being tapped until its blank has an answer (ruling R83)',
+    (mode) => {
+      renderGame({ mode, lines: TYPING_LINES, blanks: [GET] });
+
+      expect(within(screen.getByTestId('line-current')).queryAllByRole('button')).toHaveLength(0);
+      expect(screen.queryByRole('button', { name: 'Não entendi' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Traduzir verso' })).toBeInTheDocument();
+    },
+  );
+
+  it('lets the words of the line in play be tapped once its blank has an answer', () => {
+    renderGame({ lines: TYPING_LINES, blanks: [GET] });
+
+    fireEvent.click(option('late'));
+
+    expect(within(screen.getByTestId('line-current')).getByRole('button', { name: 'rain' })).toBeInTheDocument();
+  });
 });
 
 /**
@@ -1275,6 +1294,11 @@ describe('GameScreen: help with a line', () => {
     return within(screen.getByTestId('line-current')).getByRole('button', { name });
   }
 
+  /** A first answer, a wrong one: help opens on the line only once its blank has had one (ruling R83). */
+  function answerFirst() {
+    fireEvent.click(option('late'));
+  }
+
   describe('"Não entendi" and a tapped word', () => {
     it('opens DJ Bop’s explanation of the blank word in place of the game, asking for it with its line', async () => {
       const { requestHelp } = renderHelped();
@@ -1301,6 +1325,7 @@ describe('GameScreen: help with a line', () => {
 
     it('explains a word of the line in play that was tapped', async () => {
       const { requestHelp } = renderHelped();
+      answerFirst();
 
       fireEvent.click(word('rain'));
       await settleHelp();
@@ -1327,6 +1352,7 @@ describe('GameScreen: help with a line', () => {
 
     it('asks only once for the same help, however often the sheet is opened', async () => {
       const { requestHelp } = renderHelped();
+      answerFirst();
 
       for (let i = 0; i < 2; i++) {
         fireEvent.click(word('rain'));
@@ -1339,6 +1365,7 @@ describe('GameScreen: help with a line', () => {
 
     it('gives a calm line in place of the explanation when the member asked too much, and never a status', async () => {
       renderHelped({ requestHelp: vi.fn<HelpRequester>(() => Promise.reject(new HelpError(429))) });
+      answerFirst();
 
       fireEvent.click(word('rain'));
       await settleHelp();
@@ -1351,6 +1378,7 @@ describe('GameScreen: help with a line', () => {
   describe('the clip while the sheet is open (ruling R70)', () => {
     it('closes on Escape too, playing the clip again and giving the focus back', async () => {
       renderHelped();
+      answerFirst();
       playTo(1000);
       const before = fake.calls.length;
 
@@ -1365,6 +1393,7 @@ describe('GameScreen: help with a line', () => {
 
     it('pauses a clip that plays, and plays it again on "Valeu"', async () => {
       renderHelped();
+      answerFirst();
       playTo(1000);
       const before = fake.calls.length;
 
@@ -1378,6 +1407,7 @@ describe('GameScreen: help with a line', () => {
 
     it('leaves a clip the game paused for an answer alone, and still paused after "Valeu"', async () => {
       renderHelped();
+      answerFirst();
       playTo(3850);
       expect(fake.calls.at(-1)).toBe('pause');
       const before = fake.calls.length;
@@ -1395,6 +1425,7 @@ describe('GameScreen: help with a line', () => {
     it('does not play on after "Valeu" when the game began to wait for an answer while the sheet was open', async () => {
       fake = new SlowToReportPlayer(DURATION_MS);
       renderHelped();
+      answerFirst();
       playTo(1000);
 
       fireEvent.click(word('rain'));
@@ -1409,6 +1440,7 @@ describe('GameScreen: help with a line', () => {
 
     it('does not start a clip the player had paused', async () => {
       renderHelped();
+      answerFirst();
       playTo(1000);
       act(() => fake.emitState('paused'));
       const before = fake.calls.length;
@@ -1565,14 +1597,64 @@ describe('LyricPanel', () => {
     return { onTranslate, onExplain };
   }
 
-  it('lets the player tap a word of the line in play to have it explained, but never the open blank', () => {
-    const { onExplain } = renderPanel();
+  it('lets the player tap a word of the line in play to have it explained once its blank has an answer', () => {
+    const { onExplain } = renderPanel({ status: { [LET.id]: 'wrong' } });
 
     fireEvent.click(within(screen.getByTestId('line-current')).getByRole('button', { name: 'drive' }));
 
     expect(onExplain).toHaveBeenCalledExactlyOnceWith('drive', 0, expect.any(HTMLButtonElement));
-    expect(within(screen.getByTestId('line-current')).queryByRole('button', { name: 'let' })).not.toBeInTheDocument();
     expect(within(screen.getByTestId('line-next')).queryAllByRole('button')).toHaveLength(0);
+  });
+
+  describe('no spoilers from help (ruling R83)', () => {
+    const DRIVE: Blank = { id: '0:4', lineIndex: 0, tokenIndex: 4, answer: 'drive' };
+
+    it('a line with one open blank: no word can be tapped and "Não entendi" waits, but "Traduzir verso" is there', () => {
+      const { onTranslate } = renderPanel({ status: { [LET.id]: 'pending' } });
+
+      const line = screen.getByTestId('line-current');
+      expect(within(line).queryAllByRole('button')).toHaveLength(0);
+      expect(line).toHaveTextContent("Grandpa won't lacuna me drive");
+      expect(screen.queryByRole('button', { name: 'Não entendi' })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
+      expect(onTranslate).toHaveBeenCalledExactlyOnceWith(0);
+    });
+
+    it('a blank skipped by a seek is still open: nothing to tap yet', () => {
+      renderPanel({ status: { [LET.id]: 'skipped' } });
+
+      expect(within(screen.getByTestId('line-current')).queryAllByRole('button')).toHaveLength(0);
+      expect(screen.queryByRole('button', { name: 'Não entendi' })).not.toBeInTheDocument();
+    });
+
+    it('a line with two blanks where one is answered: nothing can be tapped, not even the right one', () => {
+      renderPanel({ blanks: [LET, DRIVE], status: { [LET.id]: 'correct', [DRIVE.id]: 'pending' }, inPlayId: DRIVE.id });
+
+      const line = screen.getByTestId('line-current');
+      expect(within(line).queryAllByRole('button')).toHaveLength(0);
+      expect(screen.queryByRole('button', { name: 'Não entendi' })).not.toBeInTheDocument();
+      // The right one still looks right, and says so to screen readers.
+      const right = within(line).getByText('let, acertou').parentElement!;
+      expect(right).toHaveClass('bg-lime', 'text-bg');
+      expect(right.querySelector('[data-icon="check"]')).not.toBeNull();
+      expect(screen.getByRole('button', { name: 'Traduzir verso' })).toBeInTheDocument();
+    });
+
+    it('once every blank of the line has had its first answer, right or wrong, help opens as before', () => {
+      const { onExplain } = renderPanel({
+        blanks: [LET, DRIVE],
+        status: { [LET.id]: 'correct', [DRIVE.id]: 'wrong' },
+        inPlayId: DRIVE.id,
+      });
+
+      const line = within(screen.getByTestId('line-current'));
+      fireEvent.click(line.getByRole('button', { name: "won't" }));
+      expect(onExplain).toHaveBeenLastCalledWith("won't", 0, expect.any(HTMLButtonElement));
+      fireEvent.click(line.getByRole('button', { name: 'let, acertou' }));
+      expect(onExplain).toHaveBeenLastCalledWith('let', 0, expect.any(HTMLButtonElement));
+      fireEvent.click(screen.getByRole('button', { name: 'Não entendi' }));
+      expect(onExplain).toHaveBeenLastCalledWith('drive', 0, expect.any(HTMLButtonElement));
+    });
   });
 
   it('hands over the very button that was tapped, so the focus can go back to it even on Safari', () => {
