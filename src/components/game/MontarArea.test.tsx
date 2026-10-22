@@ -34,6 +34,12 @@ function tile(name: string) {
   return within(screen.getByRole('group', { name: 'Coloque as palavras na ordem' })).getByRole('button', { name });
 }
 
+/** A tile that takes no tap: `aria-disabled`, and never `disabled`, which would take the focus away. */
+function isBlocked(button: HTMLElement) {
+  expect(button).not.toHaveAttribute('disabled');
+  return button.getAttribute('aria-disabled') === 'true';
+}
+
 /** The row of words placed so far (the empty slots are not words, and are hidden from screen readers). */
 function row() {
   return screen.getByTestId('montar-row');
@@ -49,6 +55,13 @@ function emptySlots() {
   return row().querySelectorAll('[data-testid="montar-slot"]');
 }
 
+/** What a sighted player can read: the page's text without what is only there for screen readers. */
+function visibleText() {
+  const copy = document.body.cloneNode(true) as HTMLElement;
+  copy.querySelectorAll('.sr-only').forEach((hidden) => hidden.remove());
+  return copy.textContent;
+}
+
 describe('MontarArea', () => {
   it('shows the words of the line as shuffled tiles, one per word, in the order the song seed gives', () => {
     renderArea();
@@ -57,7 +70,7 @@ describe('MontarArea', () => {
     expect(shown).toEqual(makeTiles(TOKENS, tileSeed(ID, BLANK.lineIndex)));
     expect([...shown].sort()).toEqual([...TOKENS].sort());
     expect(shown).not.toEqual(TOKENS);
-    for (const button of tiles()) expect(button).toBeEnabled();
+    for (const button of tiles()) expect(isBlocked(button)).toBe(false);
   });
 
   it('shows an empty slot for each word of the line before anything is placed', () => {
@@ -75,8 +88,9 @@ describe('MontarArea', () => {
     expect(reserved()).toHaveTextContent(TOKENS.join(''));
     rerender(<MontarArea {...props} placed={['Please', 'come']} />);
     expect(reserved()).toHaveTextContent(TOKENS.join(''));
-    // It is not part of what a screen reader or a query for the placed words sees.
+    // It is not part of what a screen reader or a query for the placed words sees, and nothing in it can be focused.
     expect(placedWords()).toEqual(['Please', 'come']);
+    expect(reserved()?.querySelector('button, a, input, [tabindex]')).toBeNull();
   });
 
   it('hands the tapped word to onTile', () => {
@@ -87,20 +101,55 @@ describe('MontarArea', () => {
     expect(onTile).toHaveBeenCalledExactlyOnceWith('Please');
   });
 
-  it('puts a placed word in the lime row, followed by empty slots, and its tile is disabled, dashed and faint', () => {
+  it('puts a placed word in the lime row, followed by empty slots, and its tile is aria-disabled, dashed and faint', () => {
     renderArea({ placed: ['Please', 'come'] });
 
     expect(placedWords()).toEqual(['Please', 'come']);
     for (const chip of within(row()).getAllByRole('listitem')) expect(chip).toHaveClass('bg-lime', 'text-bg');
     expect(emptySlots()).toHaveLength(TOKENS.length - 2);
     for (const word of ['Please', 'come']) {
-      expect(tile(word)).toBeDisabled();
+      expect(isBlocked(tile(word))).toBe(true);
       expect(tile(word)).toHaveClass('border-dashed', 'border-faint', 'text-faint');
     }
-    expect(tile('back')).toBeEnabled();
+    expect(isBlocked(tile('back'))).toBe(false);
     expect(tile('back')).not.toHaveClass('border-dashed');
     // The check belongs to a solved line only.
     expect(row().querySelector('[data-icon]')).toBeNull();
+  });
+
+  it('takes no tap on a tile that is placed', () => {
+    const { onTile } = renderArea({ placed: ['Please'] });
+
+    fireEvent.click(tile('Please'));
+
+    expect(onTile).not.toHaveBeenCalled();
+  });
+
+  it('keeps the focus on the tile that was tapped, also once it is placed (ruling R58)', () => {
+    const { rerender, props, onTile } = renderArea();
+    const tapped = tile('Please');
+    tapped.focus();
+    expect(tapped).toHaveFocus();
+
+    fireEvent.click(tapped);
+    expect(onTile).toHaveBeenCalledExactlyOnceWith('Please');
+    rerender(<MontarArea {...props} placed={['Please']} />);
+
+    // The same button, still focused, and no longer to be tapped.
+    expect(tile('Please')).toBe(tapped);
+    expect(tapped).toHaveFocus();
+    expect(isBlocked(tapped)).toBe(true);
+  });
+
+  it('keeps the focus on the last tile too when the line is right', () => {
+    const { rerender, props } = renderArea({ placed: TOKENS.slice(0, -1) });
+    const last = tile('tonight');
+    last.focus();
+
+    rerender(<MontarArea {...props} placed={TOKENS} solved />);
+
+    expect(tile('tonight')).toHaveFocus();
+    expect(isBlocked(tile('tonight'))).toBe(true);
   });
 
   it('turns a wrong tile red with a cross, with the result only in its accessible name, until the next tap', () => {
@@ -112,14 +161,42 @@ describe('MontarArea', () => {
     const miss = tile('tonight, errou');
     expect(miss).toHaveClass('bg-error');
     expect(miss.querySelector('[data-icon="cross"]')).not.toBeNull();
-    expect(miss).toBeEnabled();
-    expect(document.body.textContent).not.toMatch(/acertou|errou/i);
+    expect(isBlocked(miss)).toBe(false);
+    expect(visibleText()).not.toMatch(/acertou|errou/i);
 
     // The next tap, on any tile, takes the red away.
     fireEvent.click(tile('Please'));
     expect(screen.queryByRole('button', { name: 'tonight, errou' })).not.toBeInTheDocument();
     expect(tile('tonight')).not.toHaveClass('bg-error');
     expect(onTile).toHaveBeenLastCalledWith('Please');
+  });
+
+  it('keeps a wrong tile as wide as it was: its weight does not change, and it takes no more room for the cross', () => {
+    renderArea();
+    const before = tile('tonight').className;
+
+    fireEvent.click(tile('tonight'));
+
+    const miss = tile('tonight, errou');
+    expect(miss).toHaveClass('font-semibold');
+    expect(miss).not.toHaveClass('font-bold');
+    // The cross sits in the padding: 24 + 8 = 16 + 16, the padding of a tile that is not red.
+    expect(before).toContain('px-4');
+    expect(miss).toHaveClass('pl-6', 'pr-2');
+    expect(miss.querySelector('[data-icon="cross"]')?.parentElement).toHaveClass('absolute');
+  });
+
+  it('takes the red off the wrong tile when a hint fills the row again, as the next tap does', () => {
+    const { rerender, props } = renderArea();
+    fireEvent.click(tile('tonight'));
+    expect(tile('tonight, errou')).toHaveClass('bg-error');
+
+    // The hint places the next word, "Please".
+    rerender(<MontarArea {...props} placed={['Please']} />);
+
+    expect(screen.queryByRole('button', { name: /errou/ })).not.toBeInTheDocument();
+    expect(tile('tonight')).not.toHaveClass('bg-error');
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
   it('does not turn a right tile red', () => {
@@ -141,7 +218,7 @@ describe('MontarArea', () => {
     expect(tile('tonight, errou')).toHaveClass('bg-error');
   });
 
-  it('shows a solved line: the row is lime with a check, every tile is disabled, and nothing can be placed', () => {
+  it('shows a solved line: the row is lime with a check, every tile is aria-disabled, and nothing can be placed', () => {
     const { onTile } = renderArea({ placed: TOKENS, solved: true });
 
     expect(placedWords()).toEqual(TOKENS);
@@ -149,18 +226,33 @@ describe('MontarArea', () => {
     expect(row()).toHaveClass('border-lime');
     expect(row().querySelector('[data-icon="check"]')).not.toBeNull();
     expect(row()).toHaveAccessibleName('Please come back home tonight, acertou');
-    expect(document.body.textContent).not.toMatch(/acertou|errou/i);
+    expect(visibleText()).not.toMatch(/acertou|errou/i);
     for (const button of tiles()) {
-      expect(button).toBeDisabled();
+      expect(isBlocked(button)).toBe(true);
       fireEvent.click(button);
     }
     expect(onTile).not.toHaveBeenCalled();
   });
 
+  it('says the result to screen readers in a status line that is never seen, and says nothing before a result', () => {
+    const { rerender, props } = renderArea();
+    const status = screen.getByRole('status');
+    expect(status).toHaveClass('sr-only');
+    expect(status).toBeEmptyDOMElement();
+
+    fireEvent.click(tile('tonight'));
+    expect(status).toHaveTextContent('tonight, errou');
+    expect(visibleText()).not.toMatch(/acertou|errou/i);
+
+    rerender(<MontarArea {...props} placed={TOKENS} solved />);
+    expect(status).toHaveTextContent('Please come back home tonight, acertou');
+    expect(visibleText()).not.toMatch(/acertou|errou/i);
+  });
+
   it('keeps the same picture when it is shown again from the same placed words', () => {
     const { rerender, props, unmount } = renderArea({ tokens: ['come', 'baby', 'baby', 'back'], placed: [] });
     rerender(<MontarArea {...props} placed={['baby']} />);
-    const picture = () => tiles().map((button) => [button.textContent, button.hasAttribute('disabled')]);
+    const picture = () => tiles().map((button) => [button.textContent, button.getAttribute('aria-disabled')]);
     const before = picture();
     unmount();
 
@@ -177,10 +269,17 @@ describe('MontarArea', () => {
     expect(onExplain).toHaveBeenCalledExactlyOnceWith('');
   });
 
-  it('keeps every tile and "Não entendi a ordem" at least 44 px tall', () => {
+  it('keeps every tile and "Não entendi a ordem" at least 44 px tall, and every tile 44 px wide', () => {
     renderArea({ placed: ['Please'] });
 
     for (const button of screen.getAllByRole('button')) expect(button).toHaveClass('min-h-11');
+    for (const button of tiles()) expect(button).toHaveClass('min-w-11');
+  });
+
+  it('gives a one-letter word a tile as wide as a touch target', () => {
+    renderArea({ tokens: ['I', 'love', 'you'] });
+
+    expect(tile('I')).toHaveClass('min-w-11');
   });
 });
 
@@ -195,27 +294,40 @@ describe('MontarArea: a word that is on the line twice', () => {
     expect(babies()).toHaveLength(2);
   });
 
-  it('disables exactly one of the two tiles when one is placed, and both when both are', () => {
+  it('blocks exactly one of the two tiles when one is placed, and both when both are', () => {
     const { rerender, props } = renderArea({ tokens: REPEATED });
 
     rerender(<MontarArea {...props} placed={['baby']} />);
-    expect(babies().filter((button) => button.hasAttribute('disabled'))).toHaveLength(1);
-    expect(babies().filter((button) => button.hasAttribute('disabled') === false)).toHaveLength(1);
+    expect(babies().filter(isBlocked)).toHaveLength(1);
+    expect(babies().filter((button) => !isBlocked(button))).toHaveLength(1);
 
     rerender(<MontarArea {...props} placed={['baby', 'baby']} />);
-    expect(babies().every((button) => button.hasAttribute('disabled'))).toBe(true);
-    expect(tile('come')).toBeEnabled();
+    expect(babies().every(isBlocked)).toBe(true);
+    expect(isBlocked(tile('come'))).toBe(false);
   });
 
-  it('ignores capitals when it marks the tile a placed word stands for', () => {
+  it('takes the tile spelled the same first, whatever order the tiles are in', () => {
     const { rerender, props } = renderArea({ tokens: ['Baby', 'baby', 'come', 'back'] });
+    const blockedWords = () => tiles().filter(isBlocked).map((button) => button.textContent);
 
     rerender(<MontarArea {...props} placed={['Baby']} />);
-    const disabled = tiles().filter((button) => button.hasAttribute('disabled'));
-    expect(disabled).toHaveLength(1);
-    expect(disabled[0].textContent?.toLowerCase()).toBe('baby');
+    expect(blockedWords()).toEqual(['Baby']);
+
+    rerender(<MontarArea {...props} placed={['baby']} />);
+    expect(blockedWords()).toEqual(['baby']);
 
     rerender(<MontarArea {...props} placed={['Baby', 'baby']} />);
-    expect(tiles().filter((button) => button.hasAttribute('disabled'))).toHaveLength(2);
+    expect(blockedWords().sort()).toEqual(['Baby', 'baby']);
+    rerender(<MontarArea {...props} placed={['baby', 'Baby']} />);
+    expect(blockedWords().sort()).toEqual(['Baby', 'baby']);
+  });
+
+  it('falls back to a tile that differs in capitals alone when none is spelled the same', () => {
+    const { rerender, props } = renderArea({ tokens: ['Baby', 'come', 'back'] });
+
+    // The game takes "baby" for the next word "Baby", and puts the line's own spelling in the row.
+    rerender(<MontarArea {...props} placed={['baby']} />);
+
+    expect(tiles().filter(isBlocked).map((button) => button.textContent)).toEqual(['Baby']);
   });
 });

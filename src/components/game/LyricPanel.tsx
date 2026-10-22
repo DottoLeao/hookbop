@@ -18,6 +18,8 @@ interface LyricPanelProps {
   /**
    * The blank the player answers now, as the game screen picked it for the answer area: it gets the solid
    * "sua vez" slot. The panel never picks one itself, so the slot and the options always point at the same blank.
+   * When it is a blank for the whole line (Monte o verso), the answer area is where that line is built, so the panel
+   * draws neither that line nor the line after it (ruling R59).
    */
   inPlayId?: string;
   /**
@@ -168,6 +170,11 @@ function Pill({ onClick, children }: { onClick: () => void; children: string }) 
  * The lyrics around the clip: the line before in muted text, the line in play in Space Grotesk with its blank, and
  * the line after in muted text. Under the line in play: its translation when it is always shown, "Traduzir verso"
  * when it is not, and "Não entendi" once a blank of the line has an answer.
+ *
+ * A line that is a puzzle (Monte o verso) is never drawn as text until it is right (ruling R52), and while it is in
+ * play the answer area holds it (ruling R59): the panel then draws neither that line nor the line after it, only the
+ * line before, "Traduzir verso" and the translation, so nothing here changes size when the line is solved. A puzzle
+ * line never gets "Não entendi": that pill would explain the hidden line, and the area has "Não entendi a ordem".
  */
 export function LyricPanel({
   lines,
@@ -187,7 +194,9 @@ export function LyricPanel({
   const next = lines[current + 1];
   const blanksOf = (lineIndex: number) => blanks.filter((blank) => blank.lineIndex === lineIndex);
   const own = blanksOf(current);
-  const answered = own.filter((blank) => status[blank.id] === 'correct' || status[blank.id] === 'wrong').at(-1);
+  const inArea = own.some((blank) => blank.id === inPlayId && blank.tokenIndex === WHOLE_LINE);
+  const answerable = own.filter((blank) => blank.tokenIndex !== WHOLE_LINE);
+  const answered = answerable.filter((blank) => status[blank.id] === 'correct' || status[blank.id] === 'wrong').at(-1);
   const shownTranslation = showTranslation && translation ? translation : null;
 
   return (
@@ -197,16 +206,18 @@ export function LyricPanel({
           <LineText text={previous.text} blanks={blanksOf(current - 1)} status={status} />
         </p>
       )}
-      <p data-testid="line-current" className="font-heading text-verse leading-snug font-bold">
-        <LineText
-          text={line.text}
-          blanks={own}
-          status={status}
-          onExplain={onExplain}
-          inPlayId={inPlayId}
-          corrected={corrected}
-        />
-      </p>
+      {!inArea && (
+        <p data-testid="line-current" className="font-heading text-verse leading-snug font-bold">
+          <LineText
+            text={line.text}
+            blanks={own}
+            status={status}
+            onExplain={onExplain}
+            inPlayId={inPlayId}
+            corrected={corrected}
+          />
+        </p>
+      )}
       {shownTranslation && (
         <p data-testid="translation" className="text-lyric text-muted">
           {shownTranslation}
@@ -218,7 +229,7 @@ export function LyricPanel({
           {answered && <Pill onClick={() => onExplain(answered.answer)}>{t('jogo.explain')}</Pill>}
         </div>
       )}
-      {next && (
+      {next && !inArea && (
         <p data-testid="line-next" className="text-lyric text-muted">
           <LineText text={next.text} blanks={blanksOf(current + 1)} status={status} />
         </p>
