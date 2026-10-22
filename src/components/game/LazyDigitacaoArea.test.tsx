@@ -152,6 +152,84 @@ describe('LazyDigitacaoArea', () => {
       expect(screen.getByText('campo da palavra get')).toBeInTheDocument();
     });
 
+    it('does not stay failed for the next round: an area mounted after a failure asks again by itself, with no alert', async () => {
+      const load = vi.fn<AreaLoader>().mockImplementationOnce(failed).mockImplementation(loaded);
+      const first = renderLazy(load);
+      await settle();
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+      expect(load).toHaveBeenCalledOnce();
+      first.unmount();
+      consoleError.mockClear();
+
+      renderLazy(load);
+      // The player sees the room of the area while the code comes, and not the button.
+      expect(screen.getByTestId('digitacao-loading')).toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      await settle();
+
+      expect(load).toHaveBeenCalledTimes(2);
+      expect(screen.getByText('campo da palavra get')).toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(consoleError).not.toHaveBeenCalled();
+    });
+
+    it('asks once for each area mounted after a failure, and shows the button again when that fails too', async () => {
+      const load = vi.fn<AreaLoader>(failed);
+      const first = renderLazy(load);
+      await settle();
+      first.unmount();
+
+      const second = renderLazy(load);
+      await settle();
+
+      expect(load).toHaveBeenCalledTimes(2);
+      expect(screen.getByRole('alert')).toHaveTextContent('O campo de digitar não carregou.');
+      expect(screen.getByRole('button', { name: 'Tentar de novo' })).toBeInTheDocument();
+      expect(screen.getByText('o resto do jogo')).toBeInTheDocument();
+      // Nothing keeps asking while the button is up.
+      await settle();
+      expect(load).toHaveBeenCalledTimes(2);
+      second.unmount();
+
+      renderLazy(load);
+      await settle();
+
+      expect(load).toHaveBeenCalledTimes(3);
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+    });
+
+    it('keeps what the silent retry loaded for good, like any loaded area', async () => {
+      const load = vi.fn<AreaLoader>().mockImplementationOnce(failed).mockImplementation(loaded);
+      const first = renderLazy(load);
+      await settle();
+      first.unmount();
+      const second = renderLazy(load);
+      await settle();
+      second.unmount();
+
+      renderLazy(load);
+
+      expect(screen.getByText('campo da palavra get')).toBeInTheDocument();
+      expect(screen.queryByTestId('digitacao-loading')).not.toBeInTheDocument();
+      expect(load).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps what "Tentar de novo" loaded for the areas after it', async () => {
+      const load = vi.fn<AreaLoader>().mockImplementationOnce(failed).mockImplementation(loaded);
+      const first = renderLazy(load);
+      await settle();
+      fireEvent.click(screen.getByRole('button', { name: 'Tentar de novo' }));
+      await settle();
+      expect(load).toHaveBeenCalledTimes(2);
+      first.unmount();
+
+      renderLazy(load);
+
+      expect(screen.getByText('campo da palavra get')).toBeInTheDocument();
+      expect(screen.queryByTestId('digitacao-loading')).not.toBeInTheDocument();
+      expect(load).toHaveBeenCalledTimes(2);
+    });
+
     it('also holds when the area breaks while it draws, so it never takes the game down', async () => {
       function Broken(): never {
         throw new Error('the area broke');

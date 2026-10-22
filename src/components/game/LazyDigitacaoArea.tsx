@@ -28,29 +28,36 @@ type LazyArea = LazyExoticComponent<ComponentType<DigitacaoAreaProps>>;
 /**
  * The lazy component of each loader, kept for the whole visit as `React.lazy` expects: once the code is there, an area
  * mounted again (the next round, a blank after a line with none) draws at once instead of showing the loading room
- * while a new lazy component waits for the same code. The tests give loaders of their own, hence one per loader.
+ * while a new lazy component waits for the same code. Only a lazy component that loaded stays: one whose load failed
+ * leaves (see `newLazyAreaFor`). The tests give loaders of their own, hence one per loader.
  */
 const lazyAreas = new WeakMap<AreaLoader, LazyArea>();
 
 function lazyAreaFor(load: AreaLoader): LazyArea {
-  let area = lazyAreas.get(load);
-  if (!area) {
-    area = lazy(load);
-    lazyAreas.set(load, area);
-  }
-  return area;
+  return lazyAreas.get(load) ?? newLazyAreaFor(load);
 }
 
-/** A new lazy component in place of one whose load failed: a `React.lazy` that failed stays failed for good. */
-function reloadAreaFor(load: AreaLoader): LazyArea {
-  const area = lazy(load);
+/**
+ * A new lazy component for the loader, which takes the place of the one in the cache. A `React.lazy` that failed stays
+ * failed for good, so when this one's load fails it leaves the cache (unless a newer one has taken its place already):
+ * the next area mounted, a new typing round, builds another and asks for the code again, silently. It is the one
+ * silent try of each mount; if it fails too, that area shows "Tentar de novo".
+ */
+function newLazyAreaFor(load: AreaLoader): LazyArea {
+  const area: LazyArea = lazy(() =>
+    load().catch((error: unknown) => {
+      if (lazyAreas.get(load) === area) lazyAreas.delete(load);
+      throw error;
+    }),
+  );
   lazyAreas.set(load, area);
   return area;
 }
 
 /**
- * Starts getting the typing area's code now, so it is already there at the first blank. Nothing comes of a failure
- * here: the area asks again when it is needed, and shows a retry if that fails too.
+ * Starts getting the typing area's code now, so it is already there at the first blank. A failure here is let go: the
+ * area asks for the code itself when it mounts, and that is the ask that counts. If it fails, the area shows "Tentar de
+ * novo", and the next area mounted asks once more by itself (see `newLazyAreaFor`).
  */
 export function preloadDigitacaoArea(load: AreaLoader = loadDigitacaoArea): void {
   load().catch(() => {});
@@ -93,7 +100,8 @@ interface LazyDigitacaoAreaProps extends DigitacaoAreaProps {
 /**
  * The typing area, loaded on demand (`React.lazy` in a `Suspense`, ruling R49) and safe to lose: when the code does not
  * load, a short line and "Tentar de novo" take its place, and only that. The button asks for the code again with a new
- * lazy component, which then stands in for the failed one for every area after it.
+ * lazy component, which then stands in for the failed one for every area after it. Without a tap, the next area
+ * mounted (a new typing round) asks again by itself, and shows the button only if that fails too.
  */
 export function LazyDigitacaoArea({ load = loadDigitacaoArea, ...area }: LazyDigitacaoAreaProps) {
   const [Area, setArea] = useState(() => lazyAreaFor(load));
@@ -106,7 +114,7 @@ export function LazyDigitacaoArea({ load = loadDigitacaoArea, ...area }: LazyDig
           <button
             type="button"
             onClick={() => {
-              setArea(() => reloadAreaFor(load));
+              setArea(() => newLazyAreaFor(load));
               retry();
             }}
             className="min-h-11 shrink-0 rounded-button bg-lime px-3.5 text-body font-bold text-bg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime"
