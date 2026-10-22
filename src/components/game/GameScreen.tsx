@@ -14,6 +14,7 @@ import { cleanTitle } from '@/lib/lyrics/cleanTitle';
 import type { VideoRecord } from '@/lib/lyrics/resolveSong';
 import { lastStartedLineIndex } from '@/lib/lyrics/startedLine';
 import type { PlayerAdapter } from '@/lib/player/adapter';
+import { usePauseWhenHidden } from '@/lib/player/usePauseWhenHidden';
 import { usePlayerTime } from '@/lib/player/usePlayerTime';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from '@/lib/settings';
 import type { AnswerRecord, Blank, Command, Difficulty, LyricLine, Mode, PlaySummary } from '@/lib/types';
@@ -194,6 +195,12 @@ export function GameScreen({
     },
     [adapter],
   );
+
+  // The clip never plays in the background (spec §4, ruling R84): hiding the page pauses it through the same command
+  // path as the game's own pauses, and nothing plays it again when the page comes back. That matters most in Karaokê,
+  // which has no blank to stop the clip. The player's pause report reaches the game as any other.
+  const pauseClip = useCallback(() => run([{ type: 'pause' }]), [run]);
+  usePauseWhenHidden(pauseClip);
 
   /** One event through the reducer, then its commands to the player. Gives back the new state. */
   const dispatch = useCallback(

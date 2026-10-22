@@ -590,6 +590,58 @@ async function playToTheEnd(deps: MockDeps, mode = 'Escolha', difficulty: string
   await finishGame();
 }
 
+/** The page goes to the background or comes back, as the browser reports it. */
+function setVisibility(state: DocumentVisibilityState) {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+  act(() => {
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+}
+
+describe('SongScreen: the page in the background (ruling R84)', () => {
+  afterEach(() => {
+    setVisibility('visible');
+  });
+
+  it('pauses the clip on the mode picker when the page is hidden, and nothing plays it again', async () => {
+    render(<SongScreen youtubeId={ID} deps={makeDeps()} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+    // The player pressed play on the clip to hear it before picking a mode.
+    act(() => fake.emitState('playing'));
+    const before = fake.calls.length;
+
+    setVisibility('hidden');
+    setVisibility('visible');
+
+    expect(fake.calls.slice(before)).toEqual(['pause']);
+  });
+
+  it('pauses the clip during the calibration, on pagehide too', async () => {
+    render(<SongScreen youtubeId={ID} deps={makeDeps({ resolve: vi.fn<SongScreenDeps['resolve']>().mockResolvedValue(NEEDS_CALIBRATION) })} />);
+    await screen.findByRole('button', { name: 'Começou!' });
+    act(() => fake.emitState('playing'));
+    const before = fake.calls.length;
+
+    act(() => {
+      window.dispatchEvent(new Event('pagehide'));
+    });
+
+    expect(fake.calls.slice(before)).toEqual(['pause']);
+    expect(screen.getByRole('button', { name: 'Começou!' })).toBeInTheDocument();
+  });
+
+  it('leaves the game to the game screen, which pauses through its own commands', async () => {
+    render(<SongScreen youtubeId={ID} deps={makeDeps()} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+    pick('Escolha');
+    const before = fake.calls.length;
+
+    setVisibility('hidden');
+
+    expect(fake.calls.slice(before)).toEqual([]);
+  });
+});
+
 describe('SongScreen: the end of a song', () => {
   beforeEach(() => {
     localStorage.clear();

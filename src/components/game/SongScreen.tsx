@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { DjBop, type DjBopExpression } from '@/components/brand/DjBop';
 import { t } from '@/i18n/t';
 import { currentUserId } from '@/lib/auth/currentUser';
@@ -13,6 +13,7 @@ import { linesOfVideo } from '@/lib/lyrics/linesOfVideo';
 import { applyOffset } from '@/lib/lyrics/lrc';
 import type { SongResolution, VideoRecord } from '@/lib/lyrics/resolveSong';
 import type { PlayerAdapter, PlayerError } from '@/lib/player/adapter';
+import { usePauseWhenHidden } from '@/lib/player/usePauseWhenHidden';
 import { createYouTubeAdapter, PlayerLoadError } from '@/lib/player/youtubeAdapter';
 import { postSong } from '@/lib/song/postSong';
 import { createBrowserSupabase } from '@/lib/supabase/client';
@@ -235,6 +236,12 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
   const gameSave = useGameSave(deps.savePlay);
   // How many songs this screen has finished: only the first one waited for the song to get ready.
   const finishedGamesRef = useRef(0);
+
+  // The clip never plays in the background (spec §4, ruling R84). Outside a game (calibrating, picking a mode, or any
+  // other state with a player) the screen pauses it when the page is hidden; during a game the game screen does it
+  // through its own commands. Nothing plays it again when the page comes back.
+  const pausePlayer = useCallback(() => adapter?.pause(), [adapter]);
+  usePauseWhenHidden(pausePlayer, adapter !== null && phase.kind !== 'game');
 
   // The clock for timeToReadyMs starts when the screen opens, and retries do not restart it.
   useEffect(() => {

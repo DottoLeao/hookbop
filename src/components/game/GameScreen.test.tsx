@@ -337,6 +337,61 @@ describe('GameScreen: the player', () => {
   });
 });
 
+/** The page goes to the background or comes back, as the browser reports it. */
+function setVisibility(state: DocumentVisibilityState) {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+  act(() => {
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+}
+
+describe('GameScreen: the page in the background (ruling R84)', () => {
+  afterEach(() => {
+    setVisibility('visible');
+  });
+
+  it('pauses the clip when the page is hidden, and nothing plays it again when the page comes back', () => {
+    renderGame({ blanks: [FERRY] });
+    playTo(2000);
+    const before = fake.calls.length;
+
+    setVisibility('hidden');
+    expect(fake.calls.slice(before)).toEqual(['pause']);
+
+    setVisibility('visible');
+    act(() => vi.advanceTimersByTime(5000));
+    expect(fake.calls.slice(before)).toEqual(['pause']);
+    expect(fake.getCurrentTimeMs()).toBe(2000);
+  });
+
+  it('pauses the clip when the page is left or put away (pagehide)', () => {
+    renderGame({ blanks: [FERRY] });
+    playTo(2000);
+    const before = fake.calls.length;
+
+    act(() => {
+      window.dispatchEvent(new Event('pagehide'));
+    });
+
+    expect(fake.calls.slice(before)).toEqual(['pause']);
+  });
+
+  it('plays on only when the player presses play, and the game goes on from there', () => {
+    const onEnd = renderGame({ blanks: [FERRY] });
+    playTo(2000);
+    setVisibility('hidden');
+    setVisibility('visible');
+
+    // The player's own play button.
+    act(() => fake.emitState('playing'));
+    playTo(11850);
+
+    expect(fake.calls.at(-1)).toBe('pause');
+    expect(screen.getByTestId('line-current')).toHaveTextContent('Then every lacuna horn sings across the bay');
+    expect(onEnd).not.toHaveBeenCalled();
+  });
+});
+
 describe('GameScreen: Escolha', () => {
   it('offers the answer and its two distractors, shuffled with the seed blank id + video id', () => {
     renderGame();
@@ -2042,6 +2097,19 @@ describe('GameScreen: Karaokê', () => {
   function currentRow() {
     return karaokeRows().find((row) => row.getAttribute('aria-current') === 'true');
   }
+
+  it('pauses when the page is hidden, since no blank ever stops its clip, and never plays again by itself (ruling R84)', () => {
+    renderKaraoke();
+    playTo(6000);
+    const before = fake.calls.length;
+
+    setVisibility('hidden');
+    setVisibility('visible');
+    act(() => vi.advanceTimersByTime(5000));
+
+    expect(fake.calls.slice(before)).toEqual(['pause']);
+    expect(fake.getCurrentTimeMs()).toBe(6000);
+  });
 
   it('shows "Livre" in the header in place of the combo, and no combo or points anywhere', () => {
     renderKaraoke();
