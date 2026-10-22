@@ -184,35 +184,120 @@ describe('createSupabaseSongStore.upsertVideo', () => {
     );
   });
 
-  it('clears the lyrics columns for a video without lyrics', async () => {
-    const { client, upsert } = clientSaving();
-    const noLyrics: VideoRecord = {
-      youtubeId: ID,
-      title: video.title,
-      channel: video.channel,
-      durationS: 200,
-      ytFetchedAt: video.ytFetchedAt,
-      status: 'no_lyrics',
-      offsetMs: 0,
-    };
-
-    await createSupabaseSongStore(client).upsertVideo(noLyrics);
-
-    expect(upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: 'no_lyrics',
-        lyrics_source: null,
-        lyrics_ref: null,
-        lyrics_lrc: null,
-        lyrics_duration_s: null,
-      }),
-      expect.anything(),
-    );
-  });
-
   it('fails when the video cannot be saved', async () => {
     const { client } = clientSaving({ message: 'new row violates row-level security policy' });
 
     await expect(createSupabaseSongStore(client).upsertVideo(video)).rejects.toThrow(/row-level security/);
+  });
+
+  it('writes an ok video with one upsert that replaces the row, as before', async () => {
+    const { client, upsert } = clientSaving();
+
+    await createSupabaseSongStore(client).upsertVideo(video);
+
+    expect(upsert).toHaveBeenCalledOnce();
+    expect(upsert.mock.calls[0][1]).toStrictEqual({ onConflict: 'youtube_id' });
+  });
+});
+
+describe('createSupabaseSongStore.upsertVideo for a video without lyrics', () => {
+  const WRITTEN_AT = new Date('2026-10-22T12:00:00.000Z');
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(WRITTEN_AT);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const noLyrics: VideoRecord = {
+    youtubeId: ID,
+    title: 'The Artist - The Song',
+    channel: 'The Artist',
+    durationS: 200.4,
+    ytFetchedAt: '2026-10-22T12:00:00.000Z',
+    status: 'no_lyrics',
+    offsetMs: 0,
+  };
+
+  const NO_LYRICS_COLUMNS = {
+    title: 'The Artist - The Song',
+    channel: 'The Artist',
+    duration_s: 200,
+    yt_fetched_at: '2026-10-22T12:00:00.000Z',
+    status: 'no_lyrics',
+    lyrics_source: null,
+    lyrics_ref: null,
+    lyrics_lrc: null,
+    lyrics_duration_s: null,
+    updated_at: WRITTEN_AT.toISOString(),
+  };
+
+  type Failure = { message: string } | null;
+
+  /** A client that records the order of the writes: `videos.upsert(...)`, then `videos.update(...).eq(...).or(...)`. */
+  function clientSaving({ upsertError = null, updateError = null }: { upsertError?: Failure; updateError?: Failure } = {}) {
+    const calls: string[] = [];
+    const or = vi.fn<(filter: string) => Promise<{ error: Failure }>>(async () => {
+      calls.push('update');
+      return { error: updateError };
+    });
+    const eq = vi.fn<(column: string, value: string) => { or: typeof or }>(() => ({ or }));
+    const update = vi.fn<(columns: Record<string, unknown>) => { eq: typeof eq }>(() => ({ eq }));
+    const upsert = vi.fn<(row: Record<string, unknown>, options: unknown) => Promise<{ error: Failure }>>(async () => {
+      calls.push('upsert');
+      return { error: upsertError };
+    });
+    const from = vi.fn(() => ({ upsert, update }));
+    return { client: { from } as unknown as Client, from, upsert, update, eq, or, calls };
+  }
+
+  it('first adds the row if it is missing, and a row that already exists is left alone by that step', async () => {
+    const { client, from, upsert } = clientSaving();
+
+    await createSupabaseSongStore(client).upsertVideo(noLyrics);
+
+    expect(from).toHaveBeenCalledWith('videos');
+    expect(upsert).toHaveBeenCalledExactlyOnceWith(
+      { youtube_id: ID, ...NO_LYRICS_COLUMNS },
+      { onConflict: 'youtube_id', ignoreDuplicates: true },
+    );
+  });
+
+  it('then updates the row only where it does not say ok, so a video with lyrics is never replaced', async () => {
+    const { client, update, eq, or, calls } = clientSaving();
+
+    await createSupabaseSongStore(client).upsertVideo(noLyrics);
+
+    expect(update).toHaveBeenCalledExactlyOnceWith(NO_LYRICS_COLUMNS);
+    expect(eq).toHaveBeenCalledExactlyOnceWith('youtube_id', ID);
+    // A half-written row has no status at all, and "status <> 'ok'" alone would skip it: it is still repaired.
+    expect(or).toHaveBeenCalledExactlyOnceWith('status.is.null,status.neq.ok');
+    expect(calls).toEqual(['upsert', 'update']);
+  });
+
+  it('never writes offset_ms in either step, which only set_offset_vote changes', async () => {
+    const { client, upsert, update } = clientSaving();
+
+    await createSupabaseSongStore(client).upsertVideo({ ...noLyrics, offsetMs: 1500 });
+
+    expect(Object.keys(upsert.mock.calls[0][0])).not.toContain('offset_ms');
+    expect(Object.keys(update.mock.calls[0][0])).not.toContain('offset_ms');
+    expect(Object.keys(update.mock.calls[0][0])).not.toContain('youtube_id');
+  });
+
+  it('fails when the row cannot be added, and does not go on to the update', async () => {
+    const { client, calls } = clientSaving({ upsertError: { message: 'new row violates row-level security policy' } });
+
+    await expect(createSupabaseSongStore(client).upsertVideo(noLyrics)).rejects.toThrow(/row-level security/);
+    expect(calls).toEqual(['upsert']);
+  });
+
+  it('fails when the row cannot be updated', async () => {
+    const { client } = clientSaving({ updateError: { message: 'connection reset' } });
+
+    await expect(createSupabaseSongStore(client).upsertVideo(noLyrics)).rejects.toThrow(/connection reset/);
   });
 });
