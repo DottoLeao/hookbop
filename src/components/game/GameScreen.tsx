@@ -16,6 +16,7 @@ import { usePlayerTime } from '@/lib/player/usePlayerTime';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from '@/lib/settings';
 import type { AnswerRecord, Blank, Command, Difficulty, LyricLine, Mode, PlaySummary } from '@/lib/types';
 import { EscolhaArea, escolhaOptions } from './EscolhaArea';
+import { KaraokeView } from './KaraokeView';
 import { LazyDigitacaoArea, preloadDigitacaoArea } from './LazyDigitacaoArea';
 import { LyricPanel } from './LyricPanel';
 import { MontarArea } from './MontarArea';
@@ -96,6 +97,14 @@ function currentBlank(game: GameState, lineIndex: number): Blank | null {
 /** There is no help sheet yet: "Traduzir verso", "Não entendi" and a tapped word open nothing for now. */
 function noHelpYet() {}
 
+/**
+ * There is no translation service yet (ruling R56), so every ask for a translation is turned down. Karaokê reads that as
+ * "no translation": it shows nothing under the line and shows no error.
+ */
+function noTranslationYet(): Promise<string> {
+  return Promise.reject(new Error('There is no translation service yet'));
+}
+
 const iconButton =
   'flex size-11 shrink-0 items-center justify-center rounded-button bg-card text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime';
 
@@ -124,6 +133,10 @@ function LineIcon({ children }: { children: ReactNode }) {
  *
  * Every event goes through the game reducer, and the commands it gives go to the player at once. The player's clock
  * comes in as TICK every 100 ms (ignored for 300 ms after a seek) and its state as PLAYER_STATE.
+ *
+ * Karaokê has no blanks and no points: the scrolling lyrics of `KaraokeView` take the place of the lyric panel and the
+ * answer area, "Livre" the place of the combo, and the translation switch the place of "Dica". It follows the game's
+ * clock like the other modes, and plays through to the end report.
  */
 export function GameScreen({ adapter, mode, lines, blanks, video, onEnd, headerSlot }: GameScreenProps) {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
@@ -143,6 +156,8 @@ export function GameScreen({ adapter, mode, lines, blanks, video, onEnd, headerS
   // the typing area mark them.
   const [corrected, setCorrected] = useState<Record<string, number[]>>({});
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Karaokê only. Shown at the start of every round, and not a setting: it is not saved.
+  const [showTranslations, setShowTranslations] = useState(true);
   const gearRef = useRef<HTMLButtonElement>(null);
 
   const run = useCallback(
@@ -228,6 +243,7 @@ export function GameScreen({ adapter, mode, lines, blanks, video, onEnd, headerS
 
   useEffect(() => () => clearTimeout(djTimerRef.current), []);
 
+  const karaoke = mode === 'karaoke';
   const lineIndex = currentLineIndex(game);
   const blank = currentBlank(game, lineIndex);
   const solved = blank !== null && game.status[blank.id] === 'correct';
@@ -322,10 +338,17 @@ export function GameScreen({ adapter, mode, lines, blanks, video, onEnd, headerS
         <p className="truncate text-body font-bold">{t('jogo.song', { musica: track, artista: artist })}</p>
         <p className="truncate text-label text-muted">{t('jogo.mode', { modo: t(`modo.${mode}`) })}</p>
       </div>
-      <p className="shrink-0 rounded-full bg-lime px-3 py-1.5 text-body font-bold text-bg">
-        <span className="sr-only">{t('jogo.comboLabel')} </span>
-        {t('jogo.combo', { n: game.score.combo })}
-      </p>
+      {karaoke ? (
+        // Karaokê has no blanks and gives no points, so there is no combo to show.
+        <p className="shrink-0 rounded-full border-[1.5px] border-border px-3 py-1.5 text-body font-bold">
+          {t('jogo.free')}
+        </p>
+      ) : (
+        <p className="shrink-0 rounded-full bg-lime px-3 py-1.5 text-body font-bold text-bg">
+          <span className="sr-only">{t('jogo.comboLabel')} </span>
+          {t('jogo.combo', { n: game.score.combo })}
+        </p>
+      )}
       <DjBop expression={dj} size={36} />
       <button
         ref={gearRef}
@@ -355,17 +378,28 @@ export function GameScreen({ adapter, mode, lines, blanks, video, onEnd, headerS
             already picked are still there when the sheet closes. */}
         {settingsOpen && <SettingsSheet settings={settings} onChange={changeSettings} onClose={closeSettings} />}
         <div hidden={settingsOpen} className="contents">
-          <LyricPanel
-            lines={lines}
-            current={lineIndex}
-            blanks={game.blanks}
-            status={game.status}
-            inPlayId={blank?.id}
-            corrected={corrected}
-            showTranslation={settings.alwaysShowTranslation}
-            onTranslate={noHelpYet}
-            onExplain={noHelpYet}
-          />
+          {karaoke ? (
+            <KaraokeView
+              lines={lines}
+              timeMs={game.lastTickMs}
+              fetchTranslation={noTranslationYet}
+              onExplain={noHelpYet}
+              showTranslations={showTranslations}
+              visible={!settingsOpen}
+            />
+          ) : (
+            <LyricPanel
+              lines={lines}
+              current={lineIndex}
+              blanks={game.blanks}
+              status={game.status}
+              inPlayId={blank?.id}
+              corrected={corrected}
+              showTranslation={settings.alwaysShowTranslation}
+              onTranslate={noHelpYet}
+              onExplain={noHelpYet}
+            />
+          )}
           {blank && options && (
             <EscolhaArea
               key={blank.id}
@@ -401,9 +435,15 @@ export function GameScreen({ adapter, mode, lines, blanks, video, onEnd, headerS
             slow={slow}
             onSlow={toggleSlow}
             onRepeat={() => dispatch({ type: 'REPEAT_LINE' })}
-            onHint={hint}
-            hintPerk={entitlements.hint}
-            hintDisabled={!blank || solved || hinted}
+            {...(karaoke
+              ? {
+                  // No blanks, so no hint: its place is the switch for the translations.
+                  action: {
+                    label: t(showTranslations ? 'karaoke.hideTranslation' : 'karaoke.showTranslation'),
+                    onClick: () => setShowTranslations((shown) => !shown),
+                  },
+                }
+              : { onHint: hint, hintPerk: entitlements.hint, hintDisabled: !blank || solved || hinted })}
           />
         </div>
       </section>

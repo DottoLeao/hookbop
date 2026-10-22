@@ -1573,12 +1573,250 @@ describe('LyricPanel', () => {
   });
 });
 
+describe('GameScreen: Karaokê', () => {
+  // Invented lines, not lyrics.
+  const KARAOKE_LINES: LyricLine[] = [
+    { index: 0, startMs: 0, endMs: 4000, text: 'Paper boats on a river of light' },
+    { index: 1, startMs: 4000, endMs: 8000, text: "We're counting the stars from the roof" },
+    { index: 2, startMs: 8000, endMs: 12000, text: 'Hold the line till the morning comes' },
+  ];
+  const scrollTo = vi.fn();
+
+  // jsdom has neither Element.scrollTo nor matchMedia, which the lyrics list reaches for to follow the song.
+  beforeEach(() => {
+    scrollTo.mockClear();
+    Object.defineProperty(Element.prototype, 'scrollTo', { configurable: true, writable: true, value: scrollTo });
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: false })),
+    );
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(Element.prototype, 'scrollTo');
+    vi.unstubAllGlobals();
+  });
+
+  function renderKaraoke(over: Partial<GameScreenProps> = {}) {
+    return renderGame({ mode: 'karaoke', lines: KARAOKE_LINES, blanks: [], ...over });
+  }
+
+  /** The lines of the lyrics list, in order. */
+  function karaokeRows() {
+    return within(screen.getByRole('list', { name: 'Letra' })).getAllByRole('listitem');
+  }
+
+  function currentRow() {
+    return karaokeRows().find((row) => row.getAttribute('aria-current') === 'true');
+  }
+
+  it('shows "Livre" in the header in place of the combo, and no combo or points anywhere', () => {
+    renderKaraoke();
+
+    expect(screen.getByText('Modo Karaokê')).toBeInTheDocument();
+    const pill = screen.getByText('Livre');
+    expect(pill).toHaveClass('rounded-full', 'border-border');
+    expect(pill).not.toHaveClass('bg-lime');
+    expect(screen.queryByText('Combo')).not.toBeInTheDocument();
+    expect(screen.queryByText(/^x\d+$/)).not.toBeInTheDocument();
+    expect(visibleText()).not.toMatch(/combo|ponto|xp/i);
+  });
+
+  it('keeps the combo pill in the other modes', () => {
+    renderGame();
+
+    expect(screen.getByText('x0')).toBeInTheDocument();
+    expect(screen.queryByText('Livre')).not.toBeInTheDocument();
+  });
+
+  it('shows the scrolling lyrics in place of the lyric panel and the answer area', () => {
+    renderKaraoke();
+
+    expect(karaokeRows()).toHaveLength(3);
+    expect(screen.queryByTestId('line-current')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Traduzir verso' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group')).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+  });
+
+  it('has 0.75x, Repetir verso and the translation switch in the tools, and no Dica', () => {
+    renderKaraoke();
+
+    expect(screen.getByRole('button', { name: '0.75x' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Repetir verso' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Esconder tradução' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Dica/ })).not.toBeInTheDocument();
+  });
+
+  it('"Esconder tradução" becomes "Mostrar tradução" and back, and nothing is saved', () => {
+    renderKaraoke();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Esconder tradução' }));
+    expect(screen.getByRole('button', { name: 'Mostrar tradução' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Esconder tradução' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar tradução' }));
+    expect(screen.getByRole('button', { name: 'Esconder tradução' })).toBeInTheDocument();
+    expect(localStorage.getItem('hb_settings')).toBeNull();
+  });
+
+  it('starts with the translations shown, whatever "Mostrar tradução sempre" says', () => {
+    saveSettings(localStorage, { ...DEFAULT_SETTINGS, alwaysShowTranslation: false });
+    renderKaraoke();
+
+    expect(screen.getByRole('button', { name: 'Esconder tradução' })).toBeInTheDocument();
+  });
+
+  it('puts the current line where the clock is, and moves it along', () => {
+    renderKaraoke();
+    expect(currentRow()).toBe(karaokeRows()[0]);
+
+    playTo(4500);
+
+    expect(currentRow()).toBe(karaokeRows()[1]);
+    expect(currentRow()).toHaveClass('bg-lime');
+  });
+
+  it('follows the clock the game accepted, not a stale reading of the player (ruling R44)', () => {
+    class StalePlayer extends FakePlayerAdapter {
+      private staleRead = false;
+
+      override seekTo(ms: number): void {
+        super.seekTo(ms);
+        this.staleRead = true;
+      }
+
+      override getCurrentTimeMs(): number {
+        if (!this.staleRead) return super.getCurrentTimeMs();
+        this.staleRead = false;
+        return 60000;
+      }
+    }
+    fake = new StalePlayer(DURATION_MS);
+
+    renderKaraoke();
+
+    expect(currentRow()).toBe(karaokeRows()[0]);
+  });
+
+  it('plays the song through without ever pausing, and reports the end once with no points', () => {
+    const onEnd = renderKaraoke();
+
+    playTo(11900);
+    expect(count('pause')).toBe(0);
+
+    act(() => fake.emitState('ended'));
+    act(() => fake.emitState('ended'));
+
+    expect(onEnd).toHaveBeenCalledExactlyOnceWith(
+      { totalBlanks: 0, firstTryCorrect: 0, pct: 0, maxCombo: 0, xp: 0 },
+      [],
+    );
+  });
+
+  it('Repetir verso plays the line in play again from its start', () => {
+    renderKaraoke();
+    playTo(5000);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Repetir verso' }));
+
+    expect(fake.calls.slice(-2)).toEqual(['seek:4000', 'play']);
+  });
+
+  it('0.75x slows the clip down, and a second tap puts it back to normal speed', () => {
+    renderKaraoke();
+    const slow = screen.getByRole('button', { name: '0.75x' });
+
+    fireEvent.click(slow);
+    expect(fake.calls.at(-1)).toBe('rate:0.75');
+    fireEvent.click(slow);
+    expect(fake.calls.at(-1)).toBe('rate:1');
+  });
+
+  it('shows nothing under the lines, and no error, while there is no translation service (ruling R56)', async () => {
+    renderKaraoke();
+    await act(async () => {});
+
+    expect(screen.getByRole('list', { name: 'Letra' }).querySelector('[lang="pt-BR"]')).toBeNull();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(visibleText()).not.toMatch(/erro|falha|não deu|tenta/i);
+  });
+
+  it('lets a word of the current line be tapped, and no help opens yet', () => {
+    renderKaraoke();
+
+    fireEvent.click(within(currentRow()!).getByRole('button', { name: 'river' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('centers the current line again after the settings sheet, which hides the list and loses its scroll', () => {
+    renderKaraoke();
+    scrollTo.mockClear();
+
+    openSettings();
+    expect(scrollTo).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Pronto' }));
+
+    expect(scrollTo).toHaveBeenCalledOnce();
+  });
+
+  it('scrolls only the list, never the page under the player', () => {
+    const pageScroll = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    renderKaraoke();
+
+    playTo(4500);
+
+    expect(scrollTo).toHaveBeenCalled();
+    expect(pageScroll).not.toHaveBeenCalled();
+  });
+});
+
 describe('ToolsBar', () => {
   function renderTools(hintPerk: 'free' | 'ad' | 'off') {
     const handlers = { onSlow: vi.fn(), onRepeat: vi.fn(), onHint: vi.fn() };
     render(<ToolsBar {...handlers} hintPerk={hintPerk} slow={false} />);
     return handlers;
   }
+
+  describe('with an action of the mode in place of the hint', () => {
+    function renderAction() {
+      const onClick = vi.fn();
+      render(<ToolsBar onSlow={vi.fn()} onRepeat={vi.fn()} slow={false} action={{ label: 'Esconder tradução', onClick }} />);
+      return onClick;
+    }
+
+    it('shows the action, drawn like the other tools, and no hint', () => {
+      const onClick = renderAction();
+
+      const action = screen.getByRole('button', { name: 'Esconder tradução' });
+      expect(action).toHaveClass('bg-card', 'min-h-11');
+      // The dashed lime border is the mark of an ad spot, and this is not one.
+      expect(action).not.toHaveClass('border-dashed');
+      expect(action).not.toHaveAttribute('aria-pressed');
+      fireEvent.click(action);
+      expect(onClick).toHaveBeenCalledOnce();
+      expect(screen.queryByRole('button', { name: /Dica/ })).not.toBeInTheDocument();
+    });
+
+    it('keeps 0.75x and Repetir verso, each at least 44 px tall', () => {
+      renderAction();
+
+      expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual([
+        '0.75x',
+        'Repetir verso',
+        'Esconder tradução',
+      ]);
+      for (const button of screen.getAllByRole('button')) expect(button).toHaveClass('min-h-11');
+    });
+
+    it('lets a long label wrap onto a second line, so it fits on a 320 px phone', () => {
+      renderAction();
+
+      expect(screen.getByRole('button', { name: 'Esconder tradução' })).not.toHaveClass('whitespace-nowrap');
+      expect(screen.getByRole('button', { name: 'Repetir verso' })).toHaveClass('whitespace-nowrap');
+    });
+  });
 
   it('the free hint is "Dica" in a dashed lime border', () => {
     const { onHint } = renderTools('free');

@@ -3,30 +3,56 @@
 import { t } from '@/i18n/t';
 import type { Entitlement } from '@/lib/entitlements';
 
-interface ToolsBarProps {
+interface ToolsBarBaseProps {
   /** 0.75x: slows the clip down, or puts it back to normal speed. */
   onSlow: () => void;
   /** "Repetir verso". */
   onRepeat: () => void;
+  /** The clip plays at 0.75x. */
+  slow: boolean;
+}
+
+/** The third tool is the hint... */
+interface HintProps {
   onHint: () => void;
   /** How the hint is unlocked in this phase (`getEntitlements`). */
   hintPerk: Entitlement;
-  /** The clip plays at 0.75x. */
-  slow: boolean;
   /** There is no blank to help with right now, or it already had its hint. */
   hintDisabled?: boolean;
+  action?: never;
 }
 
+/** ...or, in a mode that has no use for one, an action of that mode in its place (Karaokê: the translation switch). */
+interface ActionProps {
+  action: {
+    /** What the button says. */
+    label: string;
+    onClick: () => void;
+  };
+  onHint?: never;
+  hintPerk?: never;
+  hintDisabled?: never;
+}
+
+export type ToolsBarProps = ToolsBarBaseProps & (HintProps | ActionProps);
+
+const toolBase =
+  'flex min-h-11 min-w-0 items-center justify-center rounded-button px-1 text-body font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime';
+
 // Each tool gets its own share of the row, so "Repetir verso" fits on one line on a 320 px phone.
-const tool =
-  'flex min-h-11 min-w-0 items-center justify-center rounded-button px-1 text-body font-semibold whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime';
+const tool = `${toolBase} whitespace-nowrap`;
 
 /**
  * The tools under the answers: 0.75x, "Repetir verso" and the hint. The hint sits in a dashed lime border, the mark
  * of an ad spot. In this phase it is free; behind an ad (the public phase) it keeps that lime spot but stays off,
  * since there are no ads yet (ruling R46). A free hint with nothing to help with greys out.
+ *
+ * A mode with no hint gives an `action` instead, which takes the hint's place and share of the row. It is a tool like
+ * 0.75x and "Repetir verso", not an ad spot, so it has no dashed border. Its label may be longer than "Dica", so it can
+ * wrap onto a second line (the 44 px of the row hold two) instead of running out of the button on a narrow phone.
  */
-export function ToolsBar({ onSlow, onRepeat, onHint, hintPerk, slow, hintDisabled = false }: ToolsBarProps) {
+export function ToolsBar(props: ToolsBarProps) {
+  const { onSlow, onRepeat, slow, action, onHint, hintPerk, hintDisabled } = props;
   const hintLook = hintPerk === 'free' ? 'disabled:border-border disabled:text-faint' : '';
   return (
     <div className="mt-auto flex gap-2">
@@ -41,7 +67,16 @@ export function ToolsBar({ onSlow, onRepeat, onHint, hintPerk, slow, hintDisable
       <button type="button" onClick={onRepeat} className={`${tool} flex-[1.3] bg-card text-text`}>
         {t('jogo.repeat')}
       </button>
-      {hintPerk !== 'off' && (
+      {action && (
+        <button
+          type="button"
+          onClick={action.onClick}
+          className={`${toolBase} flex-[1.1] bg-card text-center leading-tight text-text`}
+        >
+          {action.label}
+        </button>
+      )}
+      {!action && hintPerk !== 'off' && (
         <button
           type="button"
           onClick={onHint}

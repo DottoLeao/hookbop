@@ -60,6 +60,8 @@ export const ptBR = {
   'jogo.mode': 'Modo {modo}',
   'jogo.comboLabel': 'Combo',
   'jogo.combo': 'x{n}',
+  // No Karaokê o cabeçalho não mostra combo: não há lacunas nem pontos.
+  'jogo.free': 'Livre',
   'jogo.settings': 'Configurações',
   'jogo.settingsDone': 'Pronto',
   'jogo.blank': 'lacuna',
@@ -76,6 +78,11 @@ export const ptBR = {
   'config.alwaysShowTranslation': 'Mostrar tradução sempre',
   'config.autoRepeatOnMiss': 'Repetir sozinho depois de errar',
   'config.sounds': 'Sons',
+
+  // Modo Karaokê: a letra rolando, com a tradução embaixo de cada verso.
+  'karaoke.lyrics': 'Letra',
+  'karaoke.hideTranslation': 'Esconder tradução',
+  'karaoke.showTranslation': 'Mostrar tradução',
 
   // Modo Escolha. "acertou" e "errou" só aparecem no nome acessível do botão, nunca na tela.
   'escolha.question': 'Escolha a palavra que falta',

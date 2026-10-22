@@ -2,11 +2,10 @@
 
 import { Fragment } from 'react';
 import { t } from '@/i18n/t';
-import { tokenize } from '@/lib/game/blanks';
 import type { BlankStatus } from '@/lib/game/reducer';
-import { foldApostrophes } from '@/lib/game/text';
 import type { Blank, LyricLine } from '@/lib/types';
 import { CorrectedWord } from './CorrectedWord';
+import { focusRing, pieces, tappable } from './lineWords';
 import { ResultIcon } from './ResultIcon';
 
 interface LyricPanelProps {
@@ -37,32 +36,6 @@ interface LyricPanelProps {
   /** "Não entendi", or a tap on a word of the line in play: the word or expression to explain. */
   onExplain: (target: string) => void;
 }
-
-/** A word of the line, numbered as `tokenize` numbers it (a blank's tokenIndex), or what sits between two words. */
-type Piece = { word: string; index: number; text: string } | { text: string };
-
-/**
- * The line cut into its words and the spaces and punctuation between them, all as written. `tokenize` reads the
- * text with its apostrophes made plain, which keeps every character where it was, so its words are found in order.
- */
-function pieces(text: string): Piece[] {
-  const plain = foldApostrophes(text);
-  const out: Piece[] = [];
-  let cursor = 0;
-  tokenize(text).forEach((word, index) => {
-    const at = plain.indexOf(word, cursor);
-    if (at > cursor) out.push({ text: text.slice(cursor, at) });
-    out.push({ word, index, text: text.slice(at, at + word.length) });
-    cursor = at + word.length;
-  });
-  if (cursor < text.length) out.push({ text: text.slice(cursor) });
-  return out;
-}
-
-const focusRing = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime';
-
-/** An answered blank or a word that can be tapped, at least 44 px tall even inside a line of text. */
-const tappable = `inline-flex min-h-11 items-center rounded-blank align-middle ${focusRing}`;
 
 /**
  * The `tokenIndex` of a blank for the whole line (Monte o verso, `selectTileLines`): the line is the puzzle, so no
