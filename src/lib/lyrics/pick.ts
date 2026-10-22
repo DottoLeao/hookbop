@@ -11,6 +11,10 @@ export type LrclibCandidate = {
 };
 
 const MIN_TRACK_SIMILARITY = 0.6;
+/** An artist less alike than this is someone else's song of the same name... */
+const MIN_ARTIST_SIMILARITY = 0.3;
+/** ...unless the duration is this close to the video's, which says it is the same recording. */
+const SAME_RECORDING_S = 2;
 const TRACK_WEIGHT = 0.5;
 const ARTIST_WEIGHT = 0.3;
 const DURATION_WEIGHT = 0.2;
@@ -45,7 +49,10 @@ function stripTrailingDecorations(title: string): string {
   }
 }
 
-/** The candidate's score, or null when it cannot be used (no synced lyrics, or a different song). */
+/**
+ * The candidate's score, or null when it cannot be used: no synced lyrics, a different title, or a different artist
+ * with a duration more than 2 s from the video's (a cover or another song of the same name).
+ */
 function scoreOf(candidate: LrclibCandidate, q: LyricsQuery): Scored | null {
   if (!candidate.syncedLyrics?.trim()) return null;
 
@@ -60,6 +67,7 @@ function scoreOf(candidate: LrclibCandidate, q: LyricsQuery): Scored | null {
   const diff = Math.abs(candidate.duration - q.durationS);
   // An unusable duration (NaN) says nothing, so it is treated as infinitely far.
   const durationDiffS = Number.isFinite(diff) ? diff : Infinity;
+  if (artistSimilarity < MIN_ARTIST_SIMILARITY && durationDiffS > SAME_RECORDING_S) return null;
   const durationCloseness = Math.max(0, 1 - durationDiffS / DURATION_REACH_S);
 
   const score =
@@ -76,6 +84,7 @@ function isBetter(a: Scored, b: Scored): boolean {
  * The candidate that best matches the song, or null when none is good enough.
  * Only candidates with synced lyrics and a title at least 0.6 similar to the track count;
  * the title is compared as written and without its trailing decorations, and the better match counts.
+ * An artist less than 0.3 similar rules a candidate out, unless its duration is within 2 s of the video's.
  * The score is 0.5 title + 0.3 artist + 0.2 duration; on a tie the closer duration wins,
  * and on a full tie the earlier candidate stays.
  */

@@ -247,14 +247,25 @@ describe('resolveSong, a new video', () => {
 });
 
 describe('resolveSong, a video with no lyrics on record', () => {
-  it('stays without lyrics while the metadata is fresh, and does not ask again', async () => {
-    const stored = noLyricsVideo();
-    const { resolve, meta, find, upsertVideo } = arrange({ stored });
+  it('stays without lyrics for 3 days, and does not ask again in that time', async () => {
+    for (const fetchedAgo of [DAY_MS, 3 * DAY_MS]) {
+      const stored = noLyricsVideo({ ytFetchedAt: ago(fetchedAgo) });
+      const { resolve, meta, find, upsertVideo } = arrange({ stored });
 
-    expect(await resolve()).toEqual({ status: 'no_lyrics', video: stored });
-    expect(meta).not.toHaveBeenCalled();
-    expect(find).not.toHaveBeenCalled();
-    expect(upsertVideo).not.toHaveBeenCalled();
+      expect(await resolve()).toEqual({ status: 'no_lyrics', video: stored });
+      expect(meta).not.toHaveBeenCalled();
+      expect(find).not.toHaveBeenCalled();
+      expect(upsertVideo).not.toHaveBeenCalled();
+    }
+  });
+
+  it('looks the lyrics up again after 3 days, well before the 30 days of the metadata, since LRCLIB grows', async () => {
+    const { resolve, meta, find, upsertVideo } = arrange({ stored: noLyricsVideo({ ytFetchedAt: ago(3 * DAY_MS + 1) }) });
+
+    expect(await resolve(200)).toMatchObject({ status: 'ready', lines: LINES });
+    expect(meta).toHaveBeenCalledOnce();
+    expect(find).toHaveBeenCalledExactlyOnceWith(QUERY);
+    expect(upsertVideo).toHaveBeenCalledWith(expect.objectContaining({ status: 'ok', ytFetchedAt: NOW.toISOString() }));
   });
 
   const stale = (over: Partial<VideoRecord> = {}) => noLyricsVideo({ ytFetchedAt: ago(31 * DAY_MS), ...over });
@@ -274,7 +285,7 @@ describe('resolveSong, a video with no lyrics on record', () => {
     expect(result).toMatchObject({ status: 'ready', lines: LINES, needsCalibration: true });
   });
 
-  it('records the new date when there are still no lyrics, so the next try waits another 30 days', async () => {
+  it('records the new date when there are still no lyrics, so the next try waits another 3 days', async () => {
     const { resolve, upsertVideo } = arrange({ stored: stale(), lookup: { status: 'not_found' } });
 
     const result = await resolve(200);

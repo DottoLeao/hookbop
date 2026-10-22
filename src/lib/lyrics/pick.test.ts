@@ -80,6 +80,38 @@ describe('pickBestCandidate', () => {
     expect(pickBestCandidate([below], query)).toBeNull();
   });
 
+  describe('the artist floor', () => {
+    // "Glass Otter" and "Artist" share no bigram: their similarity is 0.
+    const stranger = { ...base, artistName: 'Glass Otter' };
+
+    it('rejects a candidate by an artist less than 0.3 alike, even with the right title', () => {
+      expect(diceSimilarity('Glass Otter', 'Artist')).toBeLessThan(0.3);
+      expect(pickBestCandidate([{ ...stranger, id: 30, duration: 215 }], q)).toBeNull();
+      expect(pickBestCandidate([{ ...stranger, id: 31, duration: 202.5 }], q)).toBeNull();
+    });
+
+    it('keeps such a candidate when its duration is within 2 s of the video, which says it is the same recording', () => {
+      const close = { ...stranger, id: 32, duration: 201.5 };
+      const atTheEdge = { ...stranger, id: 33, duration: 198 };
+      expect(pickBestCandidate([close], q)).toBe(close);
+      expect(pickBestCandidate([atTheEdge], q)).toBe(atTheEdge);
+    });
+
+    it('takes an artist 0.3 alike or more, whatever the duration', () => {
+      // "Artisans" against "Artist": 2 * 4 / (7 + 5) = 0.67, and "Arcade" 2 * 1 / (5 + 5) = 0.2.
+      const alike = { ...base, id: 34, artistName: 'Artisans', duration: 240 };
+      const unlike = { ...base, id: 35, artistName: 'Arcade', duration: 240 };
+      expect(diceSimilarity('Artisans', 'Artist')).toBeGreaterThanOrEqual(0.3);
+      expect(diceSimilarity('Arcade', 'Artist')).toBeLessThan(0.3);
+      expect(pickBestCandidate([alike], q)).toBe(alike);
+      expect(pickBestCandidate([unlike], q)).toBeNull();
+    });
+
+    it('applies when the video duration is unusable, since no duration can vouch for the candidate', () => {
+      expect(pickBestCandidate([{ ...stranger, id: 36, duration: 200 }], { ...q, durationS: NaN })).toBeNull();
+    });
+  });
+
   it('still picks by title and artist when the video duration is unusable', () => {
     const weakTitle = { ...base, id: 13, trackName: 'Songs', duration: 200 };
     const exactTitle = { ...base, id: 14, duration: 200 };

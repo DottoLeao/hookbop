@@ -50,6 +50,12 @@ export type SongResolution =
 /** YouTube metadata older than this is fetched again. */
 export const META_MAX_AGE_MS = 30 * 24 * 3600 * 1000;
 
+/**
+ * "No lyrics" is checked again this soon, with the metadata: LRCLIB gains songs every day, and a player who pasted a
+ * new release should not wait a month for it.
+ */
+export const NO_LYRICS_RECHECK_MS = 3 * 24 * 3600 * 1000;
+
 /** A record the app can play: it says 'ok' and holds the lyrics. */
 type PlayableVideo = VideoRecord & { status: 'ok'; lyricsLrc: string; lyricsDurationS: number };
 
@@ -57,9 +63,11 @@ function isPlayable(video: VideoRecord): video is PlayableVideo {
   return video.status === 'ok' && video.lyricsLrc !== undefined && video.lyricsDurationS !== undefined;
 }
 
+/** Whether the record can be used as it is: 30 days for a song with lyrics, 3 for one without. */
 function isFresh(video: VideoRecord, now: Date): boolean {
+  const maxAgeMs = video.status === 'no_lyrics' ? NO_LYRICS_RECHECK_MS : META_MAX_AGE_MS;
   // A date that cannot be read gives NaN, which is never <= anything, so it counts as stale.
-  return now.getTime() - Date.parse(video.ytFetchedAt) <= META_MAX_AGE_MS;
+  return now.getTime() - Date.parse(video.ytFetchedAt) <= maxAgeMs;
 }
 
 function ready(video: PlayableVideo, videoDurationS: number): SongResolution {
@@ -108,6 +116,7 @@ async function refreshStale(
  * metadata and the lyrics service for what the memory lacks.
  *
  * - A remembered video whose metadata is at most 30 days old is used as it is: nothing is asked.
+ *   "No lyrics" is trusted for 3 days only.
  * - Older metadata is fetched again and saved. A video with lyrics keeps them, and the offset
  *   the players settled on; if that refresh fails, the saved record is played anyway (see
  *   `refreshStale`). A video with no lyrics gets one more lookup, since they may exist now.
