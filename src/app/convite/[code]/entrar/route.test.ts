@@ -9,16 +9,30 @@ vi.mock('@/lib/supabase/admin', () => ({ createServiceSupabase: vi.fn() }));
 
 const CODE = 'ABCDEFGH23';
 
+type InviteRow = {
+  used_by: string | null;
+  used_at: string | null;
+  inviter: { display_name: string; removed_at: string | null };
+};
+
 /** The service client answering `invites ... where code = CODE` with this row (null: no such invite). */
-function arrange(row: { used_by: string | null; used_at: string | null; inviter: { display_name: string } } | null, error: { message: string } | null = null) {
+function arrange(row: InviteRow | null, error: { message: string } | null = null) {
   const maybeSingle = vi.fn(async () => ({ data: row, error }));
   const from = vi.fn(() => ({ select: () => ({ eq: () => ({ maybeSingle }) }) }));
   vi.mocked(createServiceSupabase).mockReturnValue({ from } as unknown as ReturnType<typeof createServiceSupabase>);
   return { from };
 }
 
-const OPEN = { used_by: null, used_at: null, inviter: { display_name: 'Maria' } };
-const USED = { used_by: 'user-2', used_at: '2026-10-22T10:00:00Z', inviter: { display_name: 'Maria' } };
+const OPEN: InviteRow = { used_by: null, used_at: null, inviter: { display_name: 'Maria', removed_at: null } };
+const USED: InviteRow = {
+  used_by: 'user-2',
+  used_at: '2026-10-22T10:00:00Z',
+  inviter: { display_name: 'Maria', removed_at: null },
+};
+const FROM_REMOVED: InviteRow = {
+  ...OPEN,
+  inviter: { display_name: 'Maria', removed_at: '2026-10-21T09:00:00Z' },
+};
 
 function post(code: string) {
   return POST(new NextRequest(`http://localhost:3000/convite/${encodeURIComponent(code)}/entrar`, { method: 'POST' }), {
@@ -57,6 +71,16 @@ describe('POST /convite/[code]/entrar', () => {
 
   it('sends a code someone already used back to the invite page, with no cookie', async () => {
     arrange(USED);
+
+    const response = await post(CODE);
+
+    expect(response.status).toBe(303);
+    expect(destination(response)).toBe(`/convite/${CODE}`);
+    expect(response.cookies.get('hb_invite')).toBeUndefined();
+  });
+
+  it('sends a code whose inviter was removed back to the invite page, with no cookie', async () => {
+    arrange(FROM_REMOVED);
 
     const response = await post(CODE);
 
