@@ -62,16 +62,33 @@ const focusRing = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-
 /** An answered blank or a word that can be tapped, at least 44 px tall even inside a line of text. */
 const tappable = `inline-flex min-h-11 items-center rounded-blank align-middle ${focusRing}`;
 
-/** A blank still open. The one in play is solid ("sua vez"); the others, and those of the lines around it, dashed. */
-function Slot({ inPlay, small }: { inPlay: boolean; small: boolean }) {
+/**
+ * The `tokenIndex` of a blank for the whole line (Monte o verso, `selectTileLines`): the line is the puzzle, so no
+ * word of it is a blank of its own.
+ */
+const WHOLE_LINE = -1;
+
+/** How big a slot is: for a word, or for a whole line, in the line in play (large) or the lines around it (small). */
+const SLOT_SIZE = {
+  word: { large: 'h-[34px] w-18', small: 'h-5 w-12' },
+  line: { large: 'h-[34px] w-full', small: 'h-5 w-40 max-w-full' },
+};
+
+/**
+ * A blank still open. The one in play is solid ("sua vez"); the others, and those of the lines around it, dashed.
+ * `whole` is a line that is a puzzle, hidden altogether: one dashed bar as wide as the line in place of its words
+ * (the player builds it in the answer area, so the bar has no "sua vez" look).
+ */
+function Slot({ inPlay = false, small, whole = false }: { inPlay?: boolean; small: boolean; whole?: boolean }) {
+  const size = SLOT_SIZE[whole ? 'line' : 'word'][small ? 'small' : 'large'];
   const look = small
-    ? 'h-5 w-12 border-[1.5px] border-dashed border-faint'
+    ? 'border-[1.5px] border-dashed border-faint'
     : inPlay
-      ? 'h-[34px] w-18 border-[2.5px] border-lime bg-card'
-      : 'h-[34px] w-18 border-2 border-dashed border-lime';
+      ? 'border-[2.5px] border-lime bg-card'
+      : 'border-2 border-dashed border-lime';
   return (
-    <span className={`inline-block rounded-blank align-middle ${look}`}>
-      <span className="sr-only">{t('jogo.blank')}</span>
+    <span className={`inline-block rounded-blank align-middle ${size} ${look}`}>
+      <span className="sr-only">{t(whole ? 'jogo.hiddenLine' : 'jogo.blank')}</span>
     </span>
   );
 }
@@ -88,11 +105,19 @@ interface LineTextProps {
   corrected?: Record<string, number[]>;
 }
 
-/** A line with its open blanks hidden, so no line on screen gives an answer away. */
+/**
+ * A line with its open blanks hidden, so no line on screen gives an answer away. A line that is a puzzle (a blank for
+ * the whole line) is hidden altogether until the puzzle is right (ruling R52): then its words show, each one a right
+ * one, as the blanks of the other modes do (ruling R55).
+ */
 function LineText({ text, blanks, status, onExplain, inPlayId, corrected }: LineTextProps) {
+  const wholeLine = blanks.find((b) => b.tokenIndex === WHOLE_LINE);
+  if (wholeLine && status[wholeLine.id] !== 'correct') {
+    return <Slot small={!onExplain} whole />;
+  }
   return pieces(text).map((piece, i) => {
     if (!('word' in piece)) return <Fragment key={i}>{piece.text}</Fragment>;
-    const blank = blanks.find((b) => b.tokenIndex === piece.index);
+    const blank = wholeLine ?? blanks.find((b) => b.tokenIndex === piece.index);
     if (blank && status[blank.id] !== 'correct') {
       return <Slot key={i} inPlay={blank.id === inPlayId} small={!onExplain} />;
     }

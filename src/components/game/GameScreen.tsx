@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom';
 import { DjBop, type DjBopExpression } from '@/components/brand/DjBop';
 import { t } from '@/i18n/t';
 import { getEntitlements } from '@/lib/entitlements';
+import { tokenize } from '@/lib/game/blanks';
 import { awaitsAnswer, gameReducer, initGame, summaryOf, type GameEvent, type GameState } from '@/lib/game/reducer';
 import { playHit, playMiss } from '@/lib/game/sfx';
 import { cleanTitle } from '@/lib/lyrics/cleanTitle';
@@ -17,6 +18,7 @@ import type { AnswerRecord, Blank, Command, Difficulty, LyricLine, Mode, PlaySum
 import { EscolhaArea, escolhaOptions } from './EscolhaArea';
 import { LazyDigitacaoArea, preloadDigitacaoArea } from './LazyDigitacaoArea';
 import { LyricPanel } from './LyricPanel';
+import { MontarArea } from './MontarArea';
 import { SettingsSheet } from './SettingsSheet';
 import { ToolsBar } from './ToolsBar';
 
@@ -236,19 +238,31 @@ export function GameScreen({ adapter, mode, lines, blanks, video, onEnd, headerS
     [mode, blank, lines, video.youtubeId],
   );
 
+  // The words of the line in play, for Monte o verso only.
+  const montarTokens = useMemo(
+    () => (mode === 'montar' && blank ? tokenize(lines[blank.lineIndex].text) : null),
+    [mode, blank, lines],
+  );
+
   function showReaction(expression: DjBopExpression) {
     setDj(expression);
     clearTimeout(djTimerRef.current);
     djTimerRef.current = setTimeout(() => setDj('idle'), REACTION_MS);
   }
 
-  function answer(answered: Blank, correct: boolean, correctedIndices: number[] = []) {
+  /**
+   * An event that can settle a blank goes through the game, and when the game took an answer (a record was added),
+   * the sound and DJ Bop react to it. When it took none, nothing does: the blank was already right, the song is over,
+   * or (Monte o verso) the tile only joined the row in the middle of the line.
+   */
+  function dispatchAnswer(event: GameEvent, correctedIndices: number[] = []) {
     const before = gameRef.current;
-    const next = dispatch({ type: 'ANSWER', blankId: answered.id, correct, atMs: adapter.getCurrentTimeMs() });
-    // The game took no answer: the blank was already right, or the song is over.
-    if (next.score.records.length === before.score.records.length) return;
+    const next = dispatch(event);
+    const record = next.score.records.at(-1);
+    if (!record || next.score.records.length === before.score.records.length) return;
+    const { blankId, correct } = record;
     if (correct && correctedIndices.length > 0) {
-      setCorrected((marks) => ({ ...marks, [answered.id]: correctedIndices }));
+      setCorrected((marks) => ({ ...marks, [blankId]: correctedIndices }));
     }
 
     const { combo } = next.score;
@@ -261,8 +275,20 @@ export function GameScreen({ adapter, mode, lines, blanks, video, onEnd, headerS
     showReaction(!correct ? 'errou' : comboReached ? 'combo' : 'acertou');
   }
 
+  /** Escolha and Digitação: the area says whether the answer is right. */
+  function answer(answered: Blank, correct: boolean, correctedIndices: number[] = []) {
+    const atMs = adapter.getCurrentTimeMs();
+    dispatchAnswer({ type: 'ANSWER', blankId: answered.id, correct, atMs }, correctedIndices);
+  }
+
+  /** Monte o verso: the game decides whether the tile is the next word, and answers the line when the row is full. */
+  function placeTile(placing: Blank, word: string) {
+    dispatchAnswer({ type: 'TILE', blankId: placing.id, word, atMs: adapter.getCurrentTimeMs() });
+  }
+
+  // In Monte o verso the hint places the next word, which can finish the line: that is an answer like any other.
   function hint() {
-    if (blank && !solved) dispatch({ type: 'HINT', blankId: blank.id });
+    if (blank && !solved) dispatchAnswer({ type: 'HINT', blankId: blank.id });
   }
 
   function toggleSlow() {
@@ -357,6 +383,18 @@ export function GameScreen({ adapter, mode, lines, blanks, video, onEnd, headerS
               solved={solved}
               corrected={corrected[blank.id]}
               onAnswer={(correct, correctedIndices) => answer(blank, correct, correctedIndices)}
+            />
+          )}
+          {blank && montarTokens && (
+            <MontarArea
+              key={blank.id}
+              blank={blank}
+              tokens={montarTokens}
+              placed={game.tilesPlaced[blank.id] ?? []}
+              youtubeId={video.youtubeId}
+              solved={solved}
+              onTile={(word) => placeTile(blank, word)}
+              onExplain={noHelpYet}
             />
           )}
           <ToolsBar

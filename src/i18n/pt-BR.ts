@@ -63,6 +63,8 @@ export const ptBR = {
   'jogo.settings': 'Configurações',
   'jogo.settingsDone': 'Pronto',
   'jogo.blank': 'lacuna',
+  // No Monte o verso, o verso em jogo fica escondido: só um espaço no lugar dele.
+  'jogo.hiddenLine': 'verso escondido',
   // Uma lacuna certa na letra: o resultado só no nome acessível, nunca na tela.
   'jogo.hit': '{palavra}, acertou',
   'jogo.translate': 'Traduzir verso',
@@ -88,6 +90,14 @@ export const ptBR = {
   // Quando o código do campo não carrega. Sem culpar ninguém, e o jogo segue.
   'digitacao.loadFailed': 'O campo de digitar não carregou.',
   'digitacao.retry': 'Tentar de novo',
+
+  // Modo Monte o verso. "acertou" e "errou" só existem para leitores de tela, nunca à vista.
+  'montar.question': 'Coloque as palavras na ordem',
+  // A fileira com as palavras já colocadas; quando o verso fecha, o nome acessível diz o resultado.
+  'montar.row': 'Seu verso',
+  'montar.hit': '{palavra}, acertou',
+  'montar.miss': '{palavra}, errou',
+  'montar.explain': 'Não entendi a ordem',
 
   'entrar.google': 'Entrar com Google',
   'entrar.email': 'Receber link por e-mail',

@@ -4,6 +4,7 @@ import { tokenize } from '@/lib/game/blanks';
 import { makeDistractors } from '@/lib/game/distractors';
 import { seededRng, shuffled } from '@/lib/game/rng';
 import { playHit, playMiss } from '@/lib/game/sfx';
+import { makeTiles, tileSeed } from '@/lib/game/tiles';
 import type { VideoRecord } from '@/lib/lyrics/resolveSong';
 import { FakePlayerAdapter } from '@/lib/player/fakeAdapter';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from '@/lib/settings';
@@ -37,6 +38,16 @@ const TYPING_LINES: LyricLine[] = [
 ];
 const GET: Blank = { id: '0:2', lineIndex: 0, tokenIndex: 2, answer: 'get' };
 const RADIO: Blank = { id: '1:2', lineIndex: 1, tokenIndex: 2, answer: 'radio' };
+
+/** Invented lines for Monte o verso, each one a puzzle on its own (a blank for the whole line, tokenIndex -1). */
+const BUILD_LINES: LyricLine[] = [
+  { index: 0, startMs: 0, endMs: 4000, text: 'Please come back home tonight' },
+  { index: 1, startMs: 4000, endMs: 8000, text: 'Keep the porch light on for me' },
+  { index: 2, startMs: 8000, endMs: 12000, text: 'Nothing else matters tonight' },
+];
+const WHOLE_0: Blank = { id: '0:-1', lineIndex: 0, tokenIndex: -1, answer: 'Please come back home tonight' };
+const WHOLE_1: Blank = { id: '1:-1', lineIndex: 1, tokenIndex: -1, answer: 'Keep the porch light on for me' };
+const BUILD_WORDS = tokenize(BUILD_LINES[0].text);
 
 /** Five lines in a row, each with "let" blanked: enough for a combo of 5. */
 const ROUND: LyricLine[] = Array.from({ length: 5 }, (_, index) => ({
@@ -145,6 +156,28 @@ async function settleImports(arrived: () => boolean = () => true) {
     });
     if (arrived()) return;
   }
+}
+
+/** The Monte o verso game on the line "Please come back home tonight". */
+function renderBuild(over: Partial<GameScreenProps> = {}) {
+  return renderGame({ mode: 'montar', lines: BUILD_LINES, blanks: [WHOLE_0], ...over });
+}
+
+/** One tile of the Monte o verso question. */
+function tile(name: string) {
+  return within(screen.getByRole('group', { name: 'Coloque as palavras na ordem' })).getByRole('button', { name });
+}
+
+/** Taps the tiles with these words, one after the other. */
+function placeWords(words: readonly string[]) {
+  for (const word of words) fireEvent.click(tile(word));
+}
+
+/** The words in the row of the line being built, in order. */
+function placedRow() {
+  return within(screen.getByTestId('montar-row'))
+    .queryAllByRole('listitem')
+    .map((item) => item.textContent);
 }
 
 function field() {
@@ -546,6 +579,169 @@ describe('GameScreen: the typing area cannot be loaded', () => {
     expect(field()).toBeEnabled();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getByText('Let It Be · The Beatles')).toBeInTheDocument();
+  });
+});
+
+describe('GameScreen: Monte o verso', () => {
+  it('shows the tiles of the line in play in the order the song seed gives, and keeps the line itself hidden', () => {
+    renderBuild({ blanks: [WHOLE_0, WHOLE_1] });
+
+    const group = screen.getByRole('group', { name: 'Coloque as palavras na ordem' });
+    expect(within(group).getAllByRole('button').map((button) => button.textContent)).toEqual(
+      makeTiles(BUILD_WORDS, tileSeed(ID, 0)),
+    );
+    expect(screen.getByText('Modo Monte o verso')).toBeInTheDocument();
+    // Neither the line in play nor the line after it, which is a puzzle too, gives its words away.
+    expect(screen.getByTestId('line-current')).toHaveTextContent('verso escondido');
+    expect(screen.getByTestId('line-current')).not.toHaveTextContent(/please|come|back|home|tonight/i);
+    expect(screen.getByTestId('line-next')).not.toHaveTextContent(/keep|porch|light/i);
+    expect(makeDistractors).not.toHaveBeenCalled();
+  });
+
+  it('puts a right tile in the row with no sound, no reaction and no answer yet', () => {
+    const onEnd = renderBuild();
+
+    fireEvent.click(tile('Please'));
+
+    expect(placedRow()).toEqual(['Please']);
+    expect(tile('Please')).toBeDisabled();
+    expect(playHit).not.toHaveBeenCalled();
+    expect(playMiss).not.toHaveBeenCalled();
+    expect(dj()).toHaveAttribute('data-expression', 'idle');
+    expect(screen.getByText('x0')).toBeInTheDocument();
+    act(() => fake.emitState('ended'));
+    // The clip ran out with the line still open, so the game waits for it.
+    expect(onEnd).not.toHaveBeenCalled();
+  });
+
+  it('settles the line as right when the row is full: hit sound, DJ Bop, and the line shown with its checks', () => {
+    const onEnd = renderBuild();
+
+    placeWords(BUILD_WORDS);
+
+    expect(playHit).toHaveBeenCalledExactlyOnceWith(1);
+    expect(playMiss).not.toHaveBeenCalled();
+    expect(dj()).toHaveAttribute('data-expression', 'acertou');
+    expect(screen.getByText('x1')).toBeInTheDocument();
+    // The row is lime with a check, and no tile takes another tap.
+    const solvedRow = screen.getByTestId('montar-row');
+    expect(solvedRow).toHaveClass('border-lime');
+    expect(solvedRow.querySelector('[data-icon="check"]')).not.toBeNull();
+    const tilesLeft = within(screen.getByRole('group', { name: 'Coloque as palavras na ordem' })).getAllByRole('button');
+    for (const button of tilesLeft) expect(button).toBeDisabled();
+    // The line shows now, each word as a right one.
+    const current = within(screen.getByTestId('line-current'));
+    expect(current.getByRole('button', { name: 'Please, acertou' })).toHaveClass('bg-lime');
+    expect(screen.getByTestId('line-current')).toHaveTextContent('Please come back home tonight');
+    expect(document.body.textContent).not.toMatch(/acertou|errou/i);
+
+    act(() => fake.emitState('ended'));
+    expect(onEnd.mock.calls[0][1]).toEqual([{ blankId: WHOLE_0.id, kind: 'first', correct: true, beforeLineEnd: true }]);
+  });
+
+  it('marks the line wrong when a tile is not the next word, clears the row, and plays the line again', () => {
+    const onEnd = renderBuild();
+    playTo(3850);
+    placeWords(['Please', 'come']);
+    expect(placedRow()).toEqual(['Please', 'come']);
+    const before = fake.calls.length;
+
+    // "back" comes next, not "tonight".
+    fireEvent.click(tile('tonight'));
+
+    expect(placedRow()).toEqual([]);
+    const miss = tile('tonight, errou');
+    expect(miss).toHaveClass('bg-error');
+    expect(miss.querySelector('[data-icon="cross"]')).not.toBeNull();
+    expect(document.body.textContent).not.toMatch(/acertou|errou/i);
+    expect(fake.calls.slice(before)).toEqual(['seek:0', 'play']);
+    expect(playMiss).toHaveBeenCalledOnce();
+    expect(playHit).not.toHaveBeenCalled();
+    expect(dj()).toHaveAttribute('data-expression', 'errou');
+    expect(screen.getByText('x0')).toBeInTheDocument();
+    // Every tile is free again, and the line stays hidden.
+    expect(tile('Please')).toBeEnabled();
+    expect(screen.getByTestId('line-current')).toHaveTextContent('verso escondido');
+
+    // The next try counts as a retry.
+    placeWords(BUILD_WORDS);
+    act(() => fake.emitState('ended'));
+    expect(onEnd.mock.calls[0][1]).toEqual([
+      { blankId: WHOLE_0.id, kind: 'first', correct: false, beforeLineEnd: true },
+      { blankId: WHOLE_0.id, kind: 'retry', correct: true, beforeLineEnd: true },
+    ]);
+  });
+
+  it('Dica places the next right tile by itself, and the answer counts as helped', () => {
+    const onEnd = renderBuild();
+    const hint = screen.getByRole('button', { name: 'Dica' });
+
+    fireEvent.click(hint);
+
+    expect(placedRow()).toEqual(['Please']);
+    expect(tile('Please')).toBeDisabled();
+    // One hint per line, and the tile it placed makes no sound.
+    expect(hint).toBeDisabled();
+    expect(playHit).not.toHaveBeenCalled();
+
+    placeWords(BUILD_WORDS.slice(1));
+    act(() => fake.emitState('ended'));
+    expect(onEnd.mock.calls[0][1]).toEqual([{ blankId: WHOLE_0.id, kind: 'helped', correct: true, beforeLineEnd: true }]);
+  });
+
+  it('Dica on the last word finishes the line, with the sound and DJ Bop of a line that is right', () => {
+    renderBuild();
+    placeWords(BUILD_WORDS.slice(0, -1));
+    expect(playHit).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dica' }));
+
+    expect(placedRow()).toEqual(BUILD_WORDS);
+    expect(playHit).toHaveBeenCalledOnce();
+    expect(dj()).toHaveAttribute('data-expression', 'acertou');
+  });
+
+  it('plays no sound at all while "Sons" is off', () => {
+    saveSettings(localStorage, { ...DEFAULT_SETTINGS, sounds: false });
+    renderBuild();
+
+    fireEvent.click(tile('tonight'));
+    placeWords(BUILD_WORDS);
+
+    expect(playMiss).not.toHaveBeenCalled();
+    expect(playHit).not.toHaveBeenCalled();
+    expect(dj()).toHaveAttribute('data-expression', 'acertou');
+  });
+
+  it('"Não entendi a ordem" is there and opens nothing for now', () => {
+    renderBuild();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Não entendi a ordem' }));
+
+    expect(screen.getByRole('group', { name: 'Coloque as palavras na ordem' })).toBeInTheDocument();
+  });
+
+  it('moves on to the next line with a new row and its own tiles, and brings a solved line back as it was', () => {
+    renderBuild({ blanks: [WHOLE_0, WHOLE_1] });
+    placeWords(BUILD_WORDS);
+
+    playTo(4500);
+
+    expect(placedRow()).toEqual([]);
+    expect(screen.getByTestId('line-current')).toHaveTextContent('verso escondido');
+    expect(screen.getByTestId('line-previous')).toHaveTextContent('Please come back home tonight');
+    const group = screen.getByRole('group', { name: 'Coloque as palavras na ordem' });
+    expect(within(group).getAllByRole('button').map((button) => button.textContent)).toEqual(
+      makeTiles(tokenize(BUILD_LINES[1].text), tileSeed(ID, 1)),
+    );
+
+    // Back on the first line: it is still right.
+    act(() => {
+      fake.seekTo(1000);
+      vi.advanceTimersByTime(100);
+    });
+    expect(placedRow()).toEqual(BUILD_WORDS);
+    expect(screen.getByTestId('montar-row')).toHaveClass('border-lime');
   });
 });
 
@@ -1005,6 +1201,107 @@ describe('LyricPanel', () => {
   it('keeps every button at least 44 px tall', () => {
     renderPanel({ status: { [LET.id]: 'wrong' } });
     for (const button of screen.getAllByRole('button')) expect(button).toHaveClass('min-h-11');
+  });
+
+  describe('a line that is a puzzle (Monte o verso, ruling R52)', () => {
+    const WHOLE_LINES = { lines: BUILD_LINES, blanks: [WHOLE_0, WHOLE_1] };
+
+    it('never shows the words of a line whose blank is not right yet, in play or around it', () => {
+      for (const state of ['pending', 'skipped', 'wrong'] as const) {
+        const { unmount } = render(
+          <LyricPanel
+            {...WHOLE_LINES}
+            current={0}
+            status={{ [WHOLE_0.id]: state, [WHOLE_1.id]: 'pending' }}
+            inPlayId={WHOLE_0.id}
+            showTranslation={false}
+            onTranslate={vi.fn()}
+            onExplain={vi.fn()}
+          />,
+        );
+
+        const current = screen.getByTestId('line-current');
+        expect(current).toHaveTextContent('verso escondido');
+        expect(current).not.toHaveTextContent(/please|come|back|home|tonight/i);
+        expect(within(current).queryAllByRole('button')).toHaveLength(0);
+        expect(screen.getByTestId('line-next')).toHaveTextContent('verso escondido');
+        expect(screen.getByTestId('line-next')).not.toHaveTextContent(/keep|porch|light/i);
+        unmount();
+      }
+    });
+
+    it('hides the line before the one in play too, until it is right', () => {
+      renderPanel({
+        ...WHOLE_LINES,
+        current: 1,
+        status: { [WHOLE_0.id]: 'wrong', [WHOLE_1.id]: 'pending' },
+      });
+
+      expect(screen.getByTestId('line-previous')).not.toHaveTextContent(/please|come|back|home|tonight/i);
+      expect(screen.getByTestId('line-previous')).toHaveTextContent('verso escondido');
+    });
+
+    it('draws the line in play as one dashed lime bar, and the lines around it as small dashed bars', () => {
+      renderPanel({ ...WHOLE_LINES, status: { [WHOLE_0.id]: 'pending', [WHOLE_1.id]: 'pending' }, inPlayId: WHOLE_0.id });
+
+      const own = within(screen.getByTestId('line-current')).getByText('verso escondido').parentElement!;
+      expect(own).toHaveClass('border-dashed', 'border-lime', 'w-full');
+      expect(own).not.toHaveClass('bg-card');
+      const around = within(screen.getByTestId('line-next')).getByText('verso escondido').parentElement!;
+      expect(around).toHaveClass('border-dashed', 'border-faint');
+      expect(around).not.toHaveClass('w-full');
+    });
+
+    it('shows the line once its blank is right, each word a right one with a check, and a word can be explained', () => {
+      const { onExplain } = renderPanel({
+        ...WHOLE_LINES,
+        status: { [WHOLE_0.id]: 'correct', [WHOLE_1.id]: 'pending' },
+        inPlayId: WHOLE_0.id,
+      });
+
+      const current = screen.getByTestId('line-current');
+      expect(current).toHaveTextContent('Please come back home tonight');
+      const words = within(current).getAllByRole('button');
+      expect(words.map((word) => word.getAttribute('aria-label'))).toEqual([
+        'Please, acertou',
+        'come, acertou',
+        'back, acertou',
+        'home, acertou',
+        'tonight, acertou',
+      ]);
+      for (const word of words) {
+        expect(word).toHaveClass('bg-lime', 'text-bg', 'min-h-11');
+        expect(word.querySelector('[data-icon="check"]')).not.toBeNull();
+      }
+      expect(document.body.textContent).not.toMatch(/acertou|errou/i);
+      expect(current).not.toHaveTextContent('verso escondido');
+      fireEvent.click(words[1]);
+      expect(onExplain).toHaveBeenCalledExactlyOnceWith('come');
+    });
+
+    it('shows a right line around the line in play as plain text, with no check', () => {
+      renderPanel({
+        ...WHOLE_LINES,
+        current: 1,
+        status: { [WHOLE_0.id]: 'correct', [WHOLE_1.id]: 'pending' },
+      });
+
+      expect(screen.getByTestId('line-previous')).toHaveTextContent('Please come back home tonight');
+      expect(screen.getByTestId('line-previous').querySelector('[data-icon]')).toBeNull();
+      expect(within(screen.getByTestId('line-previous')).queryAllByRole('button')).toHaveLength(0);
+    });
+
+    it('shows a line with no puzzle as it is, whatever the other lines are', () => {
+      renderPanel({
+        lines: [BUILD_LINES[0], LINES[1], LINES[2]],
+        blanks: [WHOLE_0],
+        current: 1,
+        status: { [WHOLE_0.id]: 'pending' },
+      });
+
+      expect(screen.getByTestId('line-current')).toHaveTextContent('I gave you everything I had');
+      expect(screen.getByTestId('line-previous')).toHaveTextContent('verso escondido');
+    });
   });
 });
 
