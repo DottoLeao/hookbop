@@ -4,6 +4,9 @@ import type { LyricsLookup, LyricsQuery, LyricsSource } from './source';
 const API_URL = 'https://lrclib.net/api';
 const DEFAULT_TIMEOUT_MS = 6000;
 
+/** How the app introduces itself to LRCLIB, as its API asks. */
+export const LRCLIB_CLIENT = 'Hookbop/0.1 (+https://hookbop.app)';
+
 /** What one LRCLIB call came back with. `candidates` is empty only when the service sent an empty list. */
 type Answer =
   | { kind: 'candidates'; candidates: LrclibCandidate[] }

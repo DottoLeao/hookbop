@@ -240,28 +240,31 @@ select is(public.redeem_invite('CODE-C', 'Bia again'), 'already_member',
 reset role;
 
 -- ---------------------------------------------------------------------------
--- videos: members read, insert and update; non-members see nothing
+-- videos: members read; only the service key writes (0004, ruling R81); non-members see nothing
 -- ---------------------------------------------------------------------------
 
-set local role authenticated;
-set local request.jwt.claims = '{"sub":"a0000000-0000-0000-0000-000000000001","email":"owner@example.com"}';
+-- The server writes videos with the service key, which bypasses RLS like the superuser does here.
+insert into public.videos (youtube_id, title, channel, duration_s, status)
+values ('vid00000001', 'Song', 'Band', 200, 'ok'), ('vid00000002', 'Other', 'Band', 180, 'no_lyrics');
 
-select lives_ok(
-  $$insert into public.videos (youtube_id, title, channel, duration_s, status)
-    values ('vid00000001', 'Song', 'Band', 200, 'ok'), ('vid00000002', 'Other', 'Band', 180, 'no_lyrics')$$,
-  'a member can add videos');
 select throws_ok(
   $$insert into public.videos (youtube_id, status) values ('vid00000003', 'broken')$$,
   '23514', null,
   'videos.status only accepts ok or no_lyrics');
 
+set local role authenticated;
 set local request.jwt.claims = '{"sub":"a0000000-0000-0000-0000-000000000002","email":"ana@example.com"}';
 
 select is((select count(*) from public.videos), 2::bigint,
   'a member can read videos');
-select lives_ok(
-  $$update public.videos set title = 'Song (edited)' where youtube_id = 'vid00000001'$$,
-  'a member can update videos');
+select throws_ok(
+  $$insert into public.videos (youtube_id, title, channel, duration_s, status) values ('vid00000005', 'Planted', 'Band', 200, 'ok')$$,
+  '42501', null,
+  'a member cannot add videos (ruling R81)');
+select throws_ok(
+  $$update public.videos set lyrics_lrc = '[00:01.00]planted' where youtube_id = 'vid00000001'$$,
+  '42501', null,
+  'a member cannot update videos, so no member can rewrite the lyrics for everyone (ruling R81)');
 
 set local request.jwt.claims = '{"sub":"a0000000-0000-0000-0000-000000000009","email":"eve@example.com"}';
 
@@ -271,9 +274,10 @@ select throws_ok(
   $$insert into public.videos (youtube_id, status) values ('vid00000004', 'ok')$$,
   '42501', null,
   'a non-member cannot add videos');
-select lives_ok(
+select throws_ok(
   $$update public.videos set title = 'hacked'$$,
-  'a non-member update runs but matches no row');
+  '42501', null,
+  'a non-member cannot update videos');
 
 set local request.jwt.claims = '{"sub":"a0000000-0000-0000-0000-000000000004","email":"cris@example.com"}';
 
@@ -282,8 +286,8 @@ select is((select count(*) from public.videos), 0::bigint,
 
 reset role;
 
-select is((select title from public.videos where youtube_id = 'vid00000001'), 'Song (edited)',
-  'the member edit stuck and the non-member edit did not');
+select is((select title || ' ' || coalesce(lyrics_lrc, '-') from public.videos where youtube_id = 'vid00000001'), 'Song -',
+  'no edit from a browser session reached the row');
 
 -- ---------------------------------------------------------------------------
 -- set_offset_vote
@@ -302,8 +306,8 @@ select is(public.set_offset_vote('vid00000001', 25500), 25750,
 
 set local request.jwt.claims = '{"sub":"a0000000-0000-0000-0000-000000000003","email":"bia@example.com"}';
 
-select is(public.set_offset_vote('vid00000001', 40000), 26000,
-  'after votes 26000, 25500 and 40000 the median is 26000');
+select is(public.set_offset_vote('vid00000001', 30000), 26000,
+  'after votes 26000, 25500 and 30000 the median is 26000');
 
 reset role;
 
@@ -313,8 +317,8 @@ select is((select offset_ms from public.videos where youtube_id = 'vid00000001')
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"a0000000-0000-0000-0000-000000000001","email":"owner@example.com"}';
 
-select is(public.set_offset_vote('vid00000001', 30000), 30000,
-  'a member who votes again replaces their vote (30000, 25500, 40000)');
+select is(public.set_offset_vote('vid00000001', 29000), 29000,
+  'a member who votes again replaces their vote (29000, 25500, 30000)');
 
 reset role;
 

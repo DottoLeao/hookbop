@@ -41,9 +41,10 @@ export function toRecord(row: VideoColumns): VideoRecord | null {
 }
 
 /**
- * The `videos` table as a song store. Every member may read, add and update videos, so any
- * member's client works; the song screen passes the browser client. The record's camelCase
- * names become the table's snake_case columns here and nowhere else.
+ * The `videos` table as a song store. Members may only read videos (migration 0004, ruling R81), so
+ * `upsertVideo` needs the service client: `POST /api/song` passes `createServiceSupabase()`, once it has
+ * checked who is asking. The record's camelCase names become the table's snake_case columns here and
+ * nowhere else.
  * `upsertVideo` never writes the offset: it belongs to `set_offset_vote`, so `offsetMs` is read but not saved.
  */
 export function createSupabaseSongStore(client: Client): SongStore {

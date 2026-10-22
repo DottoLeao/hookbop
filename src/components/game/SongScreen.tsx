@@ -11,23 +11,18 @@ import { selectTileLines } from '@/lib/game/tiles';
 import { cleanTitle } from '@/lib/lyrics/cleanTitle';
 import { linesOfVideo } from '@/lib/lyrics/linesOfVideo';
 import { applyOffset } from '@/lib/lyrics/lrc';
-import { createLrclibSource } from '@/lib/lyrics/lrclib';
-import { resolveSong, type SongResolution, type SongStore, type VideoRecord } from '@/lib/lyrics/resolveSong';
+import type { SongResolution, VideoRecord } from '@/lib/lyrics/resolveSong';
 import type { PlayerAdapter, PlayerError } from '@/lib/player/adapter';
 import { createYouTubeAdapter, PlayerLoadError } from '@/lib/player/youtubeAdapter';
+import { postSong } from '@/lib/song/postSong';
 import { createBrowserSupabase } from '@/lib/supabase/client';
 import { applyDoubleXp, createSupabasePlaysDb, savePlay } from '@/lib/supabase/plays';
-import { createSupabaseSongStore } from '@/lib/supabase/songStore';
 import type { AnswerRecord, Blank, Difficulty, LyricLine, Mode, PlaySummary } from '@/lib/types';
-import { fetchVideoMeta } from '@/lib/youtube/fetchVideoMeta';
 import { CalibrationSheet } from './CalibrationSheet';
 import { EndScreen } from './EndScreen';
 import { GameScreen } from './GameScreen';
 import { ModePicker } from './ModePicker';
 import { useGameSave, type SavePlay } from './useGameSave';
-
-/** How the app introduces itself to LRCLIB, as its API asks. */
-const LRCLIB_CLIENT = 'Hookbop/0.1 (+https://hookbop.app)';
 
 /** YouTube may report a duration of 0 until it has the video's details, so it is read again this often... */
 const DURATION_POLL_MS = 100;
@@ -51,10 +46,12 @@ function rememberFirstFinish() {
 
 /** What the song screen reaches outside itself for. Tests pass fakes; the app uses `browserDeps`. */
 export interface SongScreenDeps {
-  /** Finds the lyrics and what the app remembers about the video, reading and saving through `store`. */
-  resolve: (youtubeId: string, videoDurationS: number, store: SongStore) => Promise<SongResolution>;
-  /** Where videos are remembered. The screen hands `resolve` a read-only view of it when the duration is unknown. */
-  store: SongStore;
+  /**
+   * Finds the lyrics and what the app remembers about the video, on the server (`POST /api/song`, ruling R81), which
+   * alone writes the shared video rows. `durationS` is null when the player could not tell how long the video is: the
+   * server then saves nothing (ruling R42).
+   */
+  resolve: (youtubeId: string, durationS: number | null) => Promise<SongResolution>;
   /** Starts the player on `el`. YouTube replaces `el` with its iframe. */
   createAdapter: (el: HTMLElement, youtubeId: string) => Promise<PlayerAdapter>;
   /** Records this player's offset vote and gives back the new median, in ms. */
@@ -72,22 +69,9 @@ export interface SongScreenDeps {
 const defaultNow = () => performance.now();
 const defaultSleep = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
 
-/** The `videos` table through the signed-in member's browser client, made on first use (never during SSR). */
-const browserStore: SongStore = {
-  getVideo: (id) => createSupabaseSongStore(createBrowserSupabase()).getVideo(id),
-  upsertVideo: (video) => createSupabaseSongStore(createBrowserSupabase()).upsertVideo(video),
-};
-
-/** The real thing: Supabase, YouTube and LRCLIB. */
+/** The real thing: the app's own server (which asks YouTube and LRCLIB), Supabase and the YouTube player. */
 const browserDeps: SongScreenDeps = {
-  resolve: (youtubeId, videoDurationS, store) =>
-    resolveSong(youtubeId, videoDurationS, {
-      store,
-      meta: fetchVideoMeta,
-      lyrics: createLrclibSource({ fetch: window.fetch, client: LRCLIB_CLIENT }),
-      now: () => new Date(),
-    }),
-  store: browserStore,
+  resolve: postSong,
   createAdapter: (el, youtubeId) => createYouTubeAdapter(el, youtubeId),
   saveOffsetVote: async (youtubeId, offsetMs) => {
     const { data, error } = await createBrowserSupabase().rpc('set_offset_vote', {
@@ -107,20 +91,6 @@ const browserDeps: SongScreenDeps = {
   now: defaultNow,
   sleep: defaultSleep,
 };
-
-/**
- * The store as seen by a device that could not read the video's duration: it reads, but saves nothing.
- * A lookup made with a duration of 0 can pick the wrong lyrics, and it must not end up in the row every
- * member shares.
- */
-function readOnlyStore(store: SongStore): SongStore {
-  return {
-    getVideo: (id) => store.getVideo(id),
-    upsertVideo: async (video) => {
-      console.warn('The video duration is unknown, so this lookup is not saved.', video.youtubeId);
-    },
-  };
-}
 
 /** The player's duration in ms, read again every 100 ms while it is 0, for at most 3 s. 0 if it never came. */
 async function waitForDurationMs(
@@ -247,7 +217,7 @@ function PasteAnother({ className }: { className: string }) {
  * in every state, so the clip is never torn down between loading, calibrating, picking and playing.
  */
 export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: string; deps?: SongScreenDeps }) {
-  const { resolve, store, createAdapter, saveOffsetVote, doubleXp } = deps;
+  const { resolve, createAdapter, saveOffsetVote, doubleXp } = deps;
   const now = deps.now ?? defaultNow;
   const sleep = deps.sleep ?? defaultSleep;
 
@@ -342,10 +312,10 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
 
       let resolution: SongResolution;
       try {
-        resolution = await resolve(youtubeId, durationMs / 1000, durationKnown ? store : readOnlyStore(store));
+        resolution = await resolve(youtubeId, durationKnown ? durationMs / 1000 : null);
       } catch (error) {
         if (closed) return;
-        // The store or the video details failed: as far as the player can tell, the lyrics are slow.
+        // The server, the network or the video details failed: as far as the player can tell, the lyrics are slow.
         console.warn('Could not resolve the song.', error);
         setPhase({ kind: 'lyrics_unavailable' });
         return;
@@ -365,7 +335,7 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
     return () => {
       closed = true;
     };
-  }, [adapter, resolve, store, sleep, youtubeId, now, lyricsAttempt]);
+  }, [adapter, resolve, sleep, youtubeId, now, lyricsAttempt]);
 
   function retryPlayer() {
     setAdapter(null);

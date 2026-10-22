@@ -1,3 +1,4 @@
+import { readJsonBody } from '@/lib/http/readJsonBody';
 import type { HelpStore } from '@/lib/supabase/helpStore';
 import { getHelp, type HelpDeps } from './helpService';
 import { ModelError } from './modelError';
@@ -25,36 +26,6 @@ function answer(body: object, status: number): Response {
 const invalid = () => answer({ error: 'invalid' }, 400);
 
 /**
- * The JSON body, or null when it is not JSON or is bigger than 4 KB. A body that says it is bigger is not read at all,
- * and one that says nothing (or says less) is read only up to the 4 KB: it is never held whole first.
- */
-async function readBody(request: Request): Promise<unknown> {
-  if (Number(request.headers.get('content-length')) > MAX_BODY_BYTES || !request.body) return null;
-
-  const reader = request.body.getReader();
-  const decoder = new TextDecoder();
-  let text = '';
-  let bytes = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    bytes += value.byteLength;
-    if (bytes > MAX_BODY_BYTES) {
-      await reader.cancel();
-      return null;
-    }
-    text += decoder.decode(value, { stream: true });
-  }
-  text += decoder.decode();
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
-
-/**
  * `POST /api/help`: "Não entendi" and "Traduzir verso" for a line of a song in the app. The body is a `HelpRequest`.
  *
  * - 200 `{ content }`.
@@ -73,7 +44,7 @@ export async function handleHelpRequest(request: Request, deps: HelpHandlerDeps)
     if (!userId) return answer({ error: 'unauthenticated' }, 401);
     if (!(await deps.isMember())) return answer({ error: 'not_member' }, 403);
 
-    const parsed = parseHelpRequest(await readBody(request));
+    const parsed = parseHelpRequest(await readJsonBody(request, MAX_BODY_BYTES));
     const asked = parsed && normalizeHelpRequest(parsed);
     if (!asked) return invalid();
 

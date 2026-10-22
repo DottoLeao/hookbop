@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import { selectBlanks } from '@/lib/game/blanks';
 import { selectTileLines } from '@/lib/game/tiles';
 import { applyOffset, parseLrc } from '@/lib/lyrics/lrc';
-import type { SongResolution, SongStore, VideoRecord } from '@/lib/lyrics/resolveSong';
+import type { SongResolution, VideoRecord } from '@/lib/lyrics/resolveSong';
 import type { PlayerAdapter } from '@/lib/player/adapter';
 import { FakePlayerAdapter } from '@/lib/player/fakeAdapter';
 import { PlayerLoadError } from '@/lib/player/youtubeAdapter';
@@ -77,7 +77,6 @@ let fake: FakePlayerAdapter;
 interface MockDeps {
   createAdapter: Mock<SongScreenDeps['createAdapter']>;
   resolve: Mock<SongScreenDeps['resolve']>;
-  store: { getVideo: Mock<SongStore['getVideo']>; upsertVideo: Mock<SongStore['upsertVideo']> };
   saveOffsetVote: Mock<SongScreenDeps['saveOffsetVote']>;
   savePlay: Mock<SongScreenDeps['savePlay']>;
   doubleXp: Mock<SongScreenDeps['doubleXp']>;
@@ -89,10 +88,6 @@ function makeDeps(over: Partial<MockDeps> = {}): MockDeps {
   return {
     createAdapter: vi.fn<SongScreenDeps['createAdapter']>().mockResolvedValue(fake),
     resolve: vi.fn<SongScreenDeps['resolve']>().mockResolvedValue(READY),
-    store: {
-      getVideo: vi.fn<SongStore['getVideo']>().mockResolvedValue(null),
-      upsertVideo: vi.fn<SongStore['upsertVideo']>().mockResolvedValue(undefined),
-    },
     saveOffsetVote: vi.fn<SongScreenDeps['saveOffsetVote']>().mockResolvedValue(0),
     savePlay: vi.fn<SongScreenDeps['savePlay']>().mockResolvedValue({ playId: 'play-1', xp: 120 }),
     doubleXp: vi.fn<SongScreenDeps['doubleXp']>().mockResolvedValue({ xp: 240 }),
@@ -156,7 +151,7 @@ describe('SongScreen: loading', () => {
     expect(el).not.toBe(box);
     expect(box.contains(el)).toBe(true);
 
-    await waitFor(() => expect(deps.resolve).toHaveBeenCalledExactlyOnceWith(ID, 213, deps.store));
+    await waitFor(() => expect(deps.resolve).toHaveBeenCalledExactlyOnceWith(ID, 213));
     expect(deps.sleep).not.toHaveBeenCalled();
   });
 
@@ -182,34 +177,21 @@ describe('SongScreen: the video duration (ruling R42)', () => {
     const deps = makeDeps();
     render(<SongScreen youtubeId={ID} deps={deps} />);
 
-    await waitFor(() => expect(deps.resolve).toHaveBeenCalledExactlyOnceWith(ID, 213, deps.store));
+    await waitFor(() => expect(deps.resolve).toHaveBeenCalledExactlyOnceWith(ID, 213));
     expect(deps.sleep).toHaveBeenCalledTimes(2);
     expect(deps.sleep).toHaveBeenCalledWith(100);
   });
 
-  it('gives up after 3 s and resolves with 0 s through a store that never saves', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('gives up after 3 s and asks the server with no duration, which then saves nothing (ruling R42)', async () => {
     vi.spyOn(fake, 'getDurationMs').mockReturnValue(0);
-    const saved = { ...VIDEO, durationS: 0 };
     const deps = makeDeps();
-    deps.store.getVideo.mockResolvedValue(VIDEO);
-    deps.resolve.mockImplementation(async (_id, _durationS, store) => {
-      expect(await store.getVideo(ID)).toBe(VIDEO);
-      await store.upsertVideo(saved);
-      return NEEDS_CALIBRATION;
-    });
+    deps.resolve.mockResolvedValue(NEEDS_CALIBRATION);
     render(<SongScreen youtubeId={ID} deps={deps} />);
 
-    // No calibration for a duration nobody knows: straight to the modes.
+    // No calibration for a duration nobody knows: straight to the modes, whatever the answer says.
     expect(await screen.findByRole('button', { name: 'Jogar' })).toBeInTheDocument();
     expect(deps.sleep).toHaveBeenCalledTimes(30);
-    expect(deps.resolve).toHaveBeenCalledOnce();
-    const [id, durationS, store] = deps.resolve.mock.calls[0];
-    expect([id, durationS]).toEqual([ID, 0]);
-    expect(store).not.toBe(deps.store);
-    expect(deps.store.getVideo).toHaveBeenCalledExactlyOnceWith(ID);
-    expect(deps.store.upsertVideo).not.toHaveBeenCalled();
-    expect(warn).toHaveBeenCalled();
+    expect(deps.resolve).toHaveBeenCalledExactlyOnceWith(ID, null);
     expect(screen.queryByRole('button', { name: 'Começou!' })).not.toBeInTheDocument();
   });
 
@@ -242,7 +224,7 @@ describe('SongScreen: lyrics service slow or down (Review Focus 1)', () => {
 
     expect(await screen.findByRole('button', { name: 'Jogar' })).toBeInTheDocument();
     expect(deps.resolve).toHaveBeenCalledTimes(2);
-    expect(deps.resolve).toHaveBeenLastCalledWith(ID, 213, deps.store);
+    expect(deps.resolve).toHaveBeenLastCalledWith(ID, 213);
     expect(deps.createAdapter).toHaveBeenCalledOnce();
   });
 

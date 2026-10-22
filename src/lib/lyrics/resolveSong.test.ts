@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { resolveSong, type SongStore, type VideoMeta, type VideoRecord } from './resolveSong';
+import { readOnlyStore, resolveSong, type SongStore, type VideoMeta, type VideoRecord } from './resolveSong';
 import type { LyricsLookup, LyricsQuery, LyricsResult, LyricsSource } from './source';
 
 const DAY_MS = 24 * 3600 * 1000;
@@ -384,5 +384,28 @@ describe('resolveSong, failures', () => {
     world.upsertVideo.mockRejectedValueOnce(new Error('network down'));
 
     await expect(world.resolve()).rejects.toThrow('network down');
+  });
+});
+
+describe('readOnlyStore', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('reads through the store it wraps', async () => {
+    const world = arrange({ stored: okVideo() });
+
+    expect(await readOnlyStore({ getVideo: world.getVideo, upsertVideo: world.upsertVideo }).getVideo(ID)).toEqual(okVideo());
+    expect(world.getVideo).toHaveBeenCalledExactlyOnceWith(ID);
+  });
+
+  it('saves nothing, and says so in the log (ruling R42)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const world = arrange();
+
+    await readOnlyStore({ getVideo: world.getVideo, upsertVideo: world.upsertVideo }).upsertVideo(okVideo());
+
+    expect(world.upsertVideo).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledOnce();
   });
 });

@@ -26,6 +26,19 @@ export interface SongStore {
   upsertVideo(v: VideoRecord): Promise<void>;
 }
 
+/**
+ * The store as seen by a lookup made without the video's duration (ruling R42): it reads, but saves nothing. A lookup
+ * made with a duration of 0 can pick the wrong lyrics, and it must not end up in the row every member shares.
+ */
+export function readOnlyStore(store: SongStore): SongStore {
+  return {
+    getVideo: (id) => store.getVideo(id),
+    upsertVideo: async (video) => {
+      console.warn('The video duration is unknown, so this lookup is not saved.', video.youtubeId);
+    },
+  };
+}
+
 export type VideoMeta = { title: string; channel: string };
 
 export type SongResolution =
