@@ -23,6 +23,8 @@ export type SaveStatus =
 export interface EndScreenProps {
   mode: Mode;
   summary: PlaySummary;
+  /** How many blanks were answered with a hint (`helpedBlanks`): "com ajuda", which scored nothing (spec §8). */
+  helped: number;
   save: SaveStatus;
   /** How "Dobrar o XP" is unlocked in this phase (`getEntitlements(...).double_xp`). */
   doubleXp: Entitlement;
@@ -100,6 +102,7 @@ const control = `flex w-full items-center justify-center rounded-button px-4 tex
 export function EndScreen({
   mode,
   summary,
+  helped,
   save,
   doubleXp,
   onDoubleXp,
@@ -167,6 +170,7 @@ export function EndScreen({
           <p className="text-body text-muted">
             {t('fim.blanks', { certas: summary.firstTryCorrect, total: summary.totalBlanks })}
           </p>
+          {helped > 0 && <p className="text-label text-muted">{t('fim.helped', { n: helped })}</p>}
         </div>
       )}
 

@@ -7,6 +7,7 @@ import { t } from '@/i18n/t';
 import { currentUserId } from '@/lib/auth/currentUser';
 import { getEntitlements } from '@/lib/entitlements';
 import { selectBlanks } from '@/lib/game/blanks';
+import { helpedBlanks } from '@/lib/game/scoring';
 import { selectTileLines } from '@/lib/game/tiles';
 import { cleanTitle } from '@/lib/lyrics/cleanTitle';
 import { linesOfVideo } from '@/lib/lyrics/linesOfVideo';
@@ -132,6 +133,8 @@ type Phase =
       mode: Mode;
       difficulty: Difficulty;
       summary: PlaySummary;
+      /** How many blanks were answered with a hint (`helpedBlanks`). */
+      helped: number;
     };
 
 function phaseFor(resolution: SongResolution, adapter: PlayerAdapter): Phase {
@@ -384,7 +387,7 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
       timeToReadyMs: finishedGamesRef.current === 0 ? timeToReadyMs : null,
     });
     finishedGamesRef.current += 1;
-    setPhase({ kind: 'end', adapter: player, video, lines, mode, difficulty, summary });
+    setPhase({ kind: 'end', adapter: player, video, lines, mode, difficulty, summary, helped: helpedBlanks(records) });
   }
 
   function content(): ReactNode {
@@ -489,11 +492,12 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
         );
 
       case 'end': {
-        const { adapter: player, video, lines, mode, difficulty, summary } = phase;
+        const { adapter: player, video, lines, mode, difficulty, summary, helped } = phase;
         return (
           <EndScreen
             mode={mode}
             summary={summary}
+            helped={helped}
             save={gameSave.save}
             doubleXp={entitlements.double_xp}
             onDoubleXp={doubleXp}

@@ -1,6 +1,6 @@
 // The word lists are the package's own JSON files, read one by one. The package entry point reads every level and
 // dialect from disk with `fs`, so it cannot run in the browser and would pull in all of the lists.
-// This module holds the levels 10 to 35 only. The levels 40 and 50 (~680 KB) are in `realWords.ts`, which only the
+// This module holds the levels 10 to 35 only. The levels 40 and 50 (about 258 KB) are in `realWords.ts`, which only the
 // typing mode's typo check loads, so the choice mode does not carry them.
 import level10 from 'wordlist-english/english-words-10.json';
 import level20 from 'wordlist-english/english-words-20.json';

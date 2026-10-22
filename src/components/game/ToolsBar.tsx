@@ -57,7 +57,10 @@ const tool = `${toolBase} whitespace-nowrap`;
  */
 export function ToolsBar(props: ToolsBarProps) {
   const { onSlow, onRepeat, slow, action, onHint, hintPerk, hintDisabled } = props;
-  const hintLook = hintPerk === 'free' ? 'disabled:border-border disabled:text-faint' : '';
+  // A free hint with nothing to help with (it was just used, most often) is only marked unavailable, with a guard on
+  // the tap, and not `disabled`: a disabled button drops the focus the player had just put on it (as ruling R58).
+  const hintUnavailable = hintPerk === 'free' && hintDisabled === true;
+  const hintLook = hintPerk === 'free' ? 'aria-disabled:border-border aria-disabled:text-faint' : '';
   return (
     <div className="mt-auto flex gap-2">
       <button
@@ -83,8 +86,12 @@ export function ToolsBar(props: ToolsBarProps) {
       {!action && hintPerk !== 'off' && (
         <button
           type="button"
-          onClick={onHint}
-          disabled={hintPerk !== 'free' || hintDisabled}
+          onClick={() => {
+            if (!hintUnavailable) onHint?.();
+          }}
+          // Behind an ad there are no ads yet, so that spot stays off for good (ruling R46).
+          disabled={hintPerk !== 'free'}
+          aria-disabled={hintUnavailable || undefined}
           className={`${tool} flex-[1.1] border-[1.5px] border-dashed border-lime text-lime ${hintLook}`}
         >
           {t(hintPerk === 'free' ? 'jogo.hint' : 'jogo.hintAd')}

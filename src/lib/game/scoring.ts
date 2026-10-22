@@ -58,6 +58,14 @@ export function recordAnswer(s: ScoreState, r: AnswerRecord, mode: Mode): ScoreS
   };
 }
 
+/**
+ * How many blanks were answered "com ajuda" (spec §8): those with an answer given after a hint, each blank once,
+ * whether that answer was right or not. They score nothing, and the end of the song says how many there were.
+ */
+export function helpedBlanks(records: readonly AnswerRecord[]): number {
+  return new Set(records.filter((r) => r.kind === 'helped').map((r) => r.blankId)).size;
+}
+
 /** The end-of-song numbers. `pct` is the share of blanks answered right on the first try, 0 when there are none. */
 export function summarize(s: ScoreState): PlaySummary {
   const pct = s.totalBlanks === 0 ? 0 : Math.round((s.firstTryCorrect / s.totalBlanks) * 100);

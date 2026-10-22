@@ -577,6 +577,14 @@ const RECORDS: AnswerRecord[] = [
   { blankId: 'b2', kind: 'first', correct: false, beforeLineEnd: false },
 ];
 
+/** A game with two blanks answered after a hint, one of them twice. */
+const HELPED_RECORDS: AnswerRecord[] = [
+  ...RECORDS,
+  { blankId: 'b3', kind: 'helped', correct: false, beforeLineEnd: true },
+  { blankId: 'b3', kind: 'helped', correct: true, beforeLineEnd: true },
+  { blankId: 'b4', kind: 'helped', correct: true, beforeLineEnd: false },
+];
+
 /** The game on screen reports its end. */
 async function finishGame(summary = SUMMARY, records = RECORDS) {
   await act(async () => gameProps().onEnd(summary, records));
@@ -647,6 +655,16 @@ describe('SongScreen: the end of a song', () => {
     localStorage.clear();
   });
 
+  it('says how many blanks the game took with a hint (spec §8, "com ajuda")', async () => {
+    render(<SongScreen youtubeId={ID} deps={makeDeps()} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+    pick('Escolha');
+
+    await finishGame(SUMMARY, HELPED_RECORDS);
+
+    expect(screen.getByText('2 com ajuda')).toBeInTheDocument();
+  });
+
   it('takes the place of the game with the result, and the player stays where it is', async () => {
     const deps = makeDeps();
     render(<SongScreen youtubeId={ID} deps={deps} />);
@@ -661,6 +679,7 @@ describe('SongScreen: the end of a song', () => {
     expect(screen.queryByTestId('game-screen')).not.toBeInTheDocument();
     expect(screen.getByRole('img', { name: '92% de acerto' })).toBeInTheDocument();
     expect(screen.getByText('11 de 12 lacunas certas')).toBeInTheDocument();
+    expect(screen.queryByText(/com ajuda/)).not.toBeInTheDocument();
     expect(screen.getByText('Mandou bem!')).toBeInTheDocument();
     expect(screen.getByTestId('player')).toBe(player);
     expect(player.firstElementChild).toBe(playerHost);

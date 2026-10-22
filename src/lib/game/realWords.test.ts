@@ -57,7 +57,7 @@ describe('where the big word lists are loaded (ruling R51)', () => {
     .map((file) => ({ file: file.replaceAll('\\', '/'), text: readFileSync(join(root, file), 'utf8') }));
   const importing = (needle: string) => sources.filter(({ text }) => text.includes(needle)).map(({ file }) => file);
 
-  it('keeps the levels 40 and 50 (~680 KB) in realWords.ts alone, out of the code the choice mode loads', () => {
+  it('keeps the levels 40 and 50 (about 258 KB) in realWords.ts alone, out of the code the choice mode loads', () => {
     expect(importing('english-words-40')).toEqual(['lib/game/realWords.ts']);
     expect(importing('english-words-50')).toEqual(['lib/game/realWords.ts']);
   });

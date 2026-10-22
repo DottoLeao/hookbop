@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AnswerRecord } from '@/lib/types';
-import { comboMultiplier, createScore, recordAnswer, repeatMultiplier, summarize } from './scoring';
+import { comboMultiplier, createScore, helpedBlanks, recordAnswer, repeatMultiplier, summarize } from './scoring';
 
 function answer(blankId: string, kind: AnswerRecord['kind'], correct: boolean, beforeLineEnd = false): AnswerRecord {
   return { blankId, kind, correct, beforeLineEnd };
@@ -168,6 +168,33 @@ describe('summarize', () => {
     for (let i = 0; i < 3; i++) s = recordAnswer(s, answer(`${i}:0`, 'first', true), 'escolha');
     s = recordAnswer(s, answer('3:0', 'first', false), 'escolha');
     expect(summarize(s)).toEqual({ totalBlanks: 5, firstTryCorrect: 3, pct: 60, maxCombo: 3, xp: 30 });
+  });
+});
+
+describe('helpedBlanks', () => {
+  const answer = (blankId: string, kind: AnswerRecord['kind'], correct = true): AnswerRecord => ({
+    blankId,
+    kind,
+    correct,
+    beforeLineEnd: true,
+  });
+
+  it('counts the blanks answered with a hint, each once, right or wrong (spec §8, "com ajuda")', () => {
+    const records = [
+      answer('a', 'first'),
+      answer('b', 'helped', false),
+      answer('b', 'helped'),
+      answer('c', 'first', false),
+      answer('c', 'helped'),
+      answer('d', 'retry'),
+    ];
+
+    expect(helpedBlanks(records)).toBe(2);
+  });
+
+  it('is 0 with no hint at all', () => {
+    expect(helpedBlanks([answer('a', 'first'), answer('a', 'retry')])).toBe(0);
+    expect(helpedBlanks([])).toBe(0);
   });
 });
 

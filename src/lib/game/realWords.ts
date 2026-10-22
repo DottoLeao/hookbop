@@ -1,7 +1,7 @@
 // The word lists are the package's own JSON files, read one by one. The package entry point reads every level and
 // dialect from disk with `fs`, so it cannot run in the browser and would pull in all of the lists.
 //
-// Only `typo.ts` imports this module. The levels 40 and 50 weigh ~680 KB, and they are needed by the typing mode
+// Only `typo.ts` imports this module. The levels 40 and 50 weigh about 258 KB, and they are needed by the typing mode
 // alone, so they must not be reachable from the code the choice mode and the game screen load up front: that is why
 // this lives apart from `words.ts` (which the distractors use, with the levels 10 to 35 only).
 import level10 from 'wordlist-english/english-words-10.json';

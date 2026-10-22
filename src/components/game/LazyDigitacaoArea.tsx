@@ -6,6 +6,7 @@ import {
   Suspense,
   useState,
   type ComponentType,
+  type LazyExoticComponent,
   type ReactNode,
 } from 'react';
 import { t } from '@/i18n/t';
@@ -17,10 +18,35 @@ export type AreaLoader = () => Promise<{ default: ComponentType<DigitacaoAreaPro
 
 /**
  * The typing area is loaded when a typing round needs it, not with the game screen: it brings the typo check and the
- * English word list (levels 40 and 50 weigh ~680 KB) that only this mode uses.
+ * English word list (levels 40 and 50 weigh about 258 KB) that only this mode uses.
  */
 const loadDigitacaoArea: AreaLoader = () =>
   import('./DigitacaoArea').then((module) => ({ default: module.DigitacaoArea }));
+
+type LazyArea = LazyExoticComponent<ComponentType<DigitacaoAreaProps>>;
+
+/**
+ * The lazy component of each loader, kept for the whole visit as `React.lazy` expects: once the code is there, an area
+ * mounted again (the next round, a blank after a line with none) draws at once instead of showing the loading room
+ * while a new lazy component waits for the same code. The tests give loaders of their own, hence one per loader.
+ */
+const lazyAreas = new WeakMap<AreaLoader, LazyArea>();
+
+function lazyAreaFor(load: AreaLoader): LazyArea {
+  let area = lazyAreas.get(load);
+  if (!area) {
+    area = lazy(load);
+    lazyAreas.set(load, area);
+  }
+  return area;
+}
+
+/** A new lazy component in place of one whose load failed: a `React.lazy` that failed stays failed for good. */
+function reloadAreaFor(load: AreaLoader): LazyArea {
+  const area = lazy(load);
+  lazyAreas.set(load, area);
+  return area;
+}
 
 /**
  * Starts getting the typing area's code now, so it is already there at the first blank. Nothing comes of a failure
@@ -67,10 +93,10 @@ interface LazyDigitacaoAreaProps extends DigitacaoAreaProps {
 /**
  * The typing area, loaded on demand (`React.lazy` in a `Suspense`, ruling R49) and safe to lose: when the code does not
  * load, a short line and "Tentar de novo" take its place, and only that. The button asks for the code again with a new
- * lazy component, because a `React.lazy` whose load failed stays failed for good.
+ * lazy component, which then stands in for the failed one for every area after it.
  */
 export function LazyDigitacaoArea({ load = loadDigitacaoArea, ...area }: LazyDigitacaoAreaProps) {
-  const [Area, setArea] = useState(() => lazy(load));
+  const [Area, setArea] = useState(() => lazyAreaFor(load));
 
   return (
     <LoadBoundary
@@ -80,7 +106,7 @@ export function LazyDigitacaoArea({ load = loadDigitacaoArea, ...area }: LazyDig
           <button
             type="button"
             onClick={() => {
-              setArea(() => lazy(load));
+              setArea(() => reloadAreaFor(load));
               retry();
             }}
             className="min-h-11 shrink-0 rounded-button bg-lime px-3.5 text-body font-bold text-bg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime"

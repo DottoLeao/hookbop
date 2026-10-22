@@ -80,6 +80,7 @@ export const ptBR = {
   'fim.ring': '{pct}% de acerto',
   'fim.ringValue': '{pct}%',
   'fim.blanks': '{certas} de {total} lacunas certas',
+  'fim.helped': '{n} com ajuda',
   'fim.maxCombo': 'combo máximo',
   'fim.xp': 'XP',
   'fim.xpValue': '+{n}',
@@ -109,6 +110,7 @@ export const ptBR = {
   'jogo.hiddenLine': 'verso escondido',
   // Uma lacuna certa na letra: o resultado só no nome acessível, nunca na tela.
   'jogo.hit': '{palavra}, acertou',
+  'jogo.miss': '{palavra}, errou',
   'jogo.translate': 'Traduzir verso',
   'jogo.explain': 'Não entendi',
   'jogo.slow': '0.75x',

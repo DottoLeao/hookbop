@@ -438,8 +438,11 @@ describe('GameScreen: Escolha', () => {
     const greyed = [option('late'), option('lead')].filter((button) => button.hasAttribute('disabled'));
     expect(greyed).toHaveLength(1);
     expect(option('let')).toBeEnabled();
-    // One hint per blank.
-    expect(hint).toBeDisabled();
+    // One hint per blank. The button stays in the tab order, so a keyboard user does not lose their place (as R58).
+    expect(hint).toHaveAttribute('aria-disabled', 'true');
+    expect(hint).toBeEnabled();
+    fireEvent.click(hint);
+    expect([option('late'), option('lead')].filter((button) => button.hasAttribute('disabled'))).toHaveLength(1);
 
     fireEvent.click(option('let'));
     act(() => fake.emitState('ended'));
@@ -597,7 +600,7 @@ describe('GameScreen: Digitação', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Dica' }));
     expect(field()).toHaveAttribute('placeholder', 'g');
-    expect(screen.getByRole('button', { name: 'Dica' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Dica' })).toHaveAttribute('aria-disabled', 'true');
 
     type('get');
     act(() => fake.emitState('ended'));
@@ -831,7 +834,9 @@ describe('GameScreen: Monte o verso', () => {
     expect(placedRow()).toEqual(['Please']);
     expect(isBlocked(tile('Please'))).toBe(true);
     // One hint per line, and the tile it placed makes no sound.
-    expect(hint).toBeDisabled();
+    expect(hint).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(hint);
+    expect(placedRow()).toEqual(['Please']);
     expect(playHit).not.toHaveBeenCalled();
 
     placeWords(BUILD_WORDS.slice(1));
@@ -995,8 +1000,11 @@ describe('GameScreen: one blank in play', () => {
 
     expect(option('asking')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'late, errou' })).not.toBeInTheDocument();
-    const [slotA, slotB] = slots();
-    expect(slotA).toHaveClass('border-dashed');
+    // The missed one is marked as missed, in red with ✕; the next one is the open "sua vez" slot.
+    const missed = within(screen.getByTestId('line-current')).getByText('lacuna, errou').parentElement!;
+    expect(missed).toHaveClass('bg-error');
+    const [slotB] = slots();
+    expect(slots()).toHaveLength(1);
     expect(slotB).not.toHaveClass('border-dashed');
     expect(slotB).toHaveClass('border-lime', 'bg-card');
   });
@@ -1659,6 +1667,32 @@ describe('LyricPanel', () => {
 
     expect(onExplain).toHaveBeenCalledExactlyOnceWith('drive', 0, expect.any(HTMLButtonElement));
     expect(within(screen.getByTestId('line-next')).queryAllByRole('button')).toHaveLength(0);
+  });
+
+  describe('a missed blank', () => {
+    const DRIVE: Blank = { id: '0:4', lineIndex: 0, tokenIndex: 4, answer: 'drive' };
+
+    it('is drawn red with ✕ once it is no longer in play, so it reads as missed and not as still open', () => {
+      renderPanel({ blanks: [LET, DRIVE], status: { [LET.id]: 'wrong', [DRIVE.id]: 'pending' }, inPlayId: DRIVE.id });
+
+      const line = screen.getByTestId('line-current');
+      const missed = within(line).getByText('lacuna, errou').parentElement!;
+      expect(missed).toHaveClass('bg-error', 'text-bg', 'rounded-blank');
+      expect(missed.querySelector('[data-icon="cross"]')).not.toBeNull();
+      // The answer is not shown, and no word says "errou" on screen.
+      expect(line).not.toHaveTextContent('let');
+      expect(visibleText()).not.toMatch(/acertou|errou/i);
+      // The blank in play is still the solid "sua vez" slot.
+      expect(within(line).getAllByText('lacuna')).toHaveLength(1);
+    });
+
+    it('stays an open slot while it is the blank in play, since it can still be answered', () => {
+      renderPanel({ status: { [LET.id]: 'wrong' }, inPlayId: LET.id });
+
+      const line = screen.getByTestId('line-current');
+      expect(within(line).queryByText('lacuna, errou')).not.toBeInTheDocument();
+      expect(within(line).getByText('lacuna').parentElement).toHaveClass('border-lime', 'bg-card');
+    });
   });
 
   describe('no spoilers from help (ruling R83)', () => {
@@ -2405,13 +2439,33 @@ describe('ToolsBar', () => {
     expect(onHint).toHaveBeenCalledOnce();
   });
 
+  it('a free hint with nothing to help with greys out but keeps the focus: aria-disabled, and a tap does nothing', () => {
+    const onHint = vi.fn();
+    render(<ToolsBar onSlow={vi.fn()} onRepeat={vi.fn()} onHint={onHint} hintPerk="free" hintDisabled slow={false} />);
+
+    const hint = screen.getByRole('button', { name: 'Dica' });
+    hint.focus();
+    expect(hint).toHaveAttribute('aria-disabled', 'true');
+    expect(hint).toBeEnabled();
+    expect(hint).toHaveClass('aria-disabled:border-border', 'aria-disabled:text-faint');
+    fireEvent.click(hint);
+    expect(onHint).not.toHaveBeenCalled();
+    expect(hint).toHaveFocus();
+  });
+
+  it('a free hint that can be used carries no aria-disabled', () => {
+    renderTools('free');
+
+    expect(screen.getByRole('button', { name: 'Dica' })).not.toHaveAttribute('aria-disabled');
+  });
+
   it('a hint behind an ad shows the ad spot but gives nothing until ads exist', () => {
     const { onHint } = renderTools('ad');
 
     const hint = screen.getByRole('button', { name: 'Dica · anúncio' });
     // The ad spot keeps its lime dashed border (ruling R46), never the grey of a tool that is off.
     expect(hint).toHaveClass('border-dashed', 'border-lime');
-    expect(hint.className).not.toMatch(/disabled:border-border/);
+    expect(hint.className).not.toMatch(/disabled:border-border|aria-disabled:border-border/);
     expect(hint).toBeDisabled();
     fireEvent.click(hint);
     expect(onHint).not.toHaveBeenCalled();

@@ -26,6 +26,7 @@ function setup(over: Partial<EndScreenProps> = {}) {
   const props: EndScreenProps = {
     mode: 'escolha',
     summary: SUMMARY,
+    helped: 0,
     save: SAVED,
     doubleXp: 'free',
     onDoubleXp: vi.fn((playId: string) => applyDoubleXp(db, playId)),
@@ -49,6 +50,18 @@ describe('EndScreen: the result', () => {
     expect(screen.getByText('11 de 12 lacunas certas')).toBeInTheDocument();
     expect(screen.getByText('Mandou bem!')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'DJ Bop' })).toBeInTheDocument();
+  });
+
+  it('says how many blanks were answered with a hint, which count for nothing (spec §8)', () => {
+    setup({ helped: 2 });
+
+    expect(screen.getByText('2 com ajuda')).toBeInTheDocument();
+  });
+
+  it('says nothing about help when no hint was used', () => {
+    setup({ helped: 0 });
+
+    expect(screen.queryByText(/com ajuda/)).not.toBeInTheDocument();
   });
 
   it('writes the percentage in the middle of the ring', () => {
@@ -370,6 +383,7 @@ describe('EndScreen: the first finish', () => {
         <EndScreen
           mode="escolha"
           summary={SUMMARY}
+          helped={0}
           save={SAVED}
           doubleXp="free"
           onDoubleXp={async () => ({ xp: 0 })}

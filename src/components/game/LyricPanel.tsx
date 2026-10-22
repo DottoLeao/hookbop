@@ -80,6 +80,20 @@ function Slot({ inPlay = false, small, whole = false }: { inPlay?: boolean; smal
   );
 }
 
+/**
+ * A blank of the line in play that was missed and is no longer the one to answer: red with ✕, the size of a slot, so
+ * it reads as missed and not as still open. The right word is not shown (nor any word: a word in red would read as a
+ * wrong word), and the result is for screen readers only.
+ */
+function Missed() {
+  return (
+    <span className="inline-flex h-[34px] w-18 items-center justify-center rounded-blank bg-error align-middle text-bg">
+      <ResultIcon hit={false} />
+      <span className="sr-only">{t('jogo.miss', { palavra: t('jogo.blank') })}</span>
+    </span>
+  );
+}
+
 interface LineTextProps {
   text: string;
   blanks: Blank[];
@@ -147,6 +161,7 @@ function LineText({ text, blanks, status, inPlay = false, onExplain, inPlayId, c
     if (!('word' in piece)) return <Fragment key={i}>{piece.text}</Fragment>;
     const blank = blanks.find((b) => b.tokenIndex === piece.index);
     if (blank && status[blank.id] !== 'correct') {
+      if (inPlay && status[blank.id] === 'wrong' && blank.id !== inPlayId) return <Missed key={i} />;
       return <Slot key={i} inPlay={blank.id === inPlayId} small={!inPlay} />;
     }
     if (!inPlay) return <Fragment key={i}>{piece.text}</Fragment>;

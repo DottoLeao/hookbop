@@ -63,6 +63,20 @@ describe('LazyDigitacaoArea', () => {
     expect(consoleError).not.toHaveBeenCalled();
   });
 
+  it('keeps the loaded area for good: an area mounted again draws at once and asks for no code', async () => {
+    const load = vi.fn<AreaLoader>(loaded);
+    const first = renderLazy(load);
+    await settle();
+    expect(screen.getByText('campo da palavra get')).toBeInTheDocument();
+    first.unmount();
+
+    renderLazy(load);
+
+    expect(screen.getByText('campo da palavra get')).toBeInTheDocument();
+    expect(screen.queryByTestId('digitacao-loading')).not.toBeInTheDocument();
+    expect(load).toHaveBeenCalledOnce();
+  });
+
   it('passes the area what the game gives it, with a new area for each blank', async () => {
     const seen: DigitacaoAreaProps[] = [];
     function Recorder(props: DigitacaoAreaProps) {
