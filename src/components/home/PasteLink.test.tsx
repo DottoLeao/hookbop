@@ -105,6 +105,19 @@ describe('PasteLink', () => {
     expect(screen.queryByText(INVALID)).not.toBeInTheDocument();
   });
 
+  it('opens with the message already there when the home page comes from a share that was not a video (?erro=link)', () => {
+    render(<PasteLink initialInvalid />);
+    const field = screen.getByLabelText('Link do YouTube');
+
+    expect(screen.getByRole('alert')).toHaveTextContent(INVALID);
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+
+    // It goes away like the other one: when the text changes.
+    paste('https://youtu.be/dQw4w9WgXcQ');
+
+    expect(screen.queryByText(INVALID)).not.toBeInTheDocument();
+  });
+
   it('makes the field and the button easy to touch', () => {
     render(<PasteLink />);
 

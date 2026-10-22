@@ -13,7 +13,7 @@ describe('isPublicPath', () => {
     expect(isPublicPath(path)).toBe(true);
   });
 
-  it.each(['/', '/jogar/dQw4w9WgXcQ', '/convidar', '/admin', '/api/help'])(
+  it.each(['/', '/jogar/dQw4w9WgXcQ', '/compartilhar', '/convidar', '/admin', '/api/help'])(
     'keeps %s for members only',
     (path) => {
       expect(isPublicPath(path)).toBe(false);

@@ -28,6 +28,12 @@ export const ptBR = {
   'home.admin': 'Admin',
   'home.licenses': 'Licenças de terceiros',
 
+  // Convite para instalar o app, na tela inicial depois da primeira música terminada.
+  'install.title': 'Quer o Hookbop na tela inicial?',
+  'install.iosHint': 'Toque em Compartilhar e depois em Adicionar à Tela de Início',
+  'install.accept': 'Instalar',
+  'install.dismiss': 'Agora não',
+
   // Tela da música (/jogar/[youtubeId]): carregar, erros, calibrar e escolher o modo.
   'jogar.back': 'Voltar',
   'jogar.loading': 'Procurando a letra...',

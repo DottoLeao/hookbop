@@ -4,7 +4,18 @@ import { isActiveOwner, listActiveMembers } from '@/lib/supabase/members';
 import { recentSongs } from '@/lib/supabase/plays';
 import { createServerSupabase } from '@/lib/supabase/server';
 import { HomeLinks } from './HomeLinks';
+import { PasteLink } from './PasteLink';
 import { SongList, SongListUnavailable } from './SongList';
+
+/**
+ * The paste box, with its message already there when the home page comes from a share that held no video (`?erro=link`,
+ * see src/app/compartilhar/route.ts). The query is request-time data, so this sits behind Suspense, and until it is
+ * read the page shows the same box without the message, from the static shell.
+ */
+export async function PasteLinkWithShareError({ searchParams }: { searchParams: Promise<{ erro?: string | string[] }> }) {
+  const { erro } = await searchParams;
+  return <PasteLink initialInvalid={erro === 'link'} />;
+}
 
 /**
  * The songs the gang played. Reading them is request-time work, so the home page puts this behind Suspense. When it

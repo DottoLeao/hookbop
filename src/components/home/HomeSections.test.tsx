@@ -4,12 +4,14 @@ import { currentUserId } from '@/lib/auth/currentUser';
 import type { VideoRecord } from '@/lib/lyrics/resolveSong';
 import { listActiveMembers, type Member } from '@/lib/supabase/members';
 import { recentSongs } from '@/lib/supabase/plays';
-import { GangSongs, HomeShortcuts } from './HomeSections';
+import { GangSongs, HomeShortcuts, PasteLinkWithShareError } from './HomeSections';
 
 // The sections read the signed-in member's data on the server; here the reads are fakes.
 const SUPABASE = { fake: 'client' };
 vi.mock('@/lib/supabase/server', () => ({ createServerSupabase: vi.fn(async () => SUPABASE) }));
 vi.mock('@/lib/supabase/plays', () => ({ recentSongs: vi.fn() }));
+// The paste box is a client component that navigates.
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('@/lib/auth/currentUser', () => ({ currentUserId: vi.fn() }));
 vi.mock('@/lib/supabase/members', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/supabase/members')>()),
@@ -139,5 +141,25 @@ describe('HomeShortcuts', () => {
     user.resolve('owner-1');
     render(await rendering);
     expect(screen.getByRole('link', { name: 'Admin' })).toBeInTheDocument();
+  });
+});
+
+describe('PasteLinkWithShareError', () => {
+  it('opens the paste box with the message when the home page comes from a share with no video (?erro=link)', async () => {
+    render(await PasteLinkWithShareError({ searchParams: Promise.resolve({ erro: 'link' }) }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Esse link não parece do YouTube.');
+    expect(screen.getByLabelText('Link do YouTube')).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it.each([
+    ['no query', {}],
+    ['another value', { erro: 'outro' }],
+    ['the flag twice', { erro: ['link', 'link'] }],
+  ])('opens the paste box quietly with %s', async (_name, query) => {
+    render(await PasteLinkWithShareError({ searchParams: Promise.resolve(query) }));
+
+    expect(screen.getByLabelText('Link do YouTube')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });

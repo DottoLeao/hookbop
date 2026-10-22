@@ -10,11 +10,14 @@ import { parseYouTubeId } from '@/lib/youtube/parseUrl';
  * The box of the home page: paste a YouTube link, tap "Jogar", and the song screen opens. Anything that is not a link to
  * one video (a playlist, another site, plain text) gets a quiet message instead of a trip to a screen with nothing on it.
  * The field and the button are 48 px tall, and the text 16 px, which keeps a phone from zooming into the field.
+ *
+ * `initialInvalid` opens it with that message already there: the home page uses it when a share from the YouTube app
+ * did not hold a video (`/?erro=link`, see src/app/compartilhar/route.ts).
  */
-export function PasteLink() {
+export function PasteLink({ initialInvalid = false }: { initialInvalid?: boolean }) {
   const router = useRouter();
   const [text, setText] = useState('');
-  const [invalid, setInvalid] = useState(false);
+  const [invalid, setInvalid] = useState(initialInvalid);
   const id = useId();
   const errorId = `${id}-error`;
 
