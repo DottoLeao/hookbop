@@ -1,10 +1,11 @@
 'use client';
 
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { t } from '@/i18n/t';
-import { activeLineIndex } from '@/lib/lyrics/lrc';
+import { lastStartedLineIndex } from '@/lib/lyrics/startedLine';
 import type { LyricLine } from '@/lib/types';
-import { focusRing, pieces, tappableShape } from './lineWords';
+import { pieces, tappableShape } from './lineWords';
+import { focusRing } from './styles';
 
 interface KaraokeViewProps {
   lines: LyricLine[];
@@ -30,13 +31,12 @@ interface KaraokeViewProps {
 }
 
 /**
- * The line to show as current: the one playing at `timeMs` or, when none is (a break in the music between two lines,
- * or the end of the song), the last one that started, as the singer left it. -1 only before the first line starts.
+ * The list is as tall as the screen allows and no taller, so the page never has to scroll and the player stays in
+ * view; on a very short screen it keeps 12 rem, about three lines. 27 rem is everything else on the screen, from the
+ * top: the header (3.75 rem), the 16:9 player (13.7 rem on a 390 px phone, 15.75 at the widest the column gets), the
+ * progress bar (0.25), the tools (2.75), the bottom padding (1) and the four 1 rem gaps between those pieces (4).
  */
-function currentLineIndex(lines: LyricLine[], timeMs: number): number {
-  const playing = activeLineIndex(lines, timeMs);
-  return playing !== -1 ? playing : lines.findLastIndex((line) => line.startMs <= timeMs);
-}
+const LIST_HEIGHT = 'max-h-[calc(100dvh-27rem)] min-h-48 flex-1';
 
 function prefersReducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -48,6 +48,7 @@ function prefersReducedMotion(): boolean {
  * be tapped to have it explained. The lines before it are muted and those after it are plain, and none of them can be
  * tapped. There are no blanks, no combo and no points.
  *
+ * The current line is the last one that started, so it stays through a break in the music and after the last line.
  * Only the current line and the next one are translated, each at most once for the whole session (a line the song
  * comes back to, or hiding and showing the translations again, asks for nothing twice). Before the first line starts,
  * only the first line is. A refusal is never asked again, so a service that is down is asked twice a line, not
@@ -55,7 +56,12 @@ function prefersReducedMotion(): boolean {
  *
  * The list scrolls inside its own box, which is the only thing that moves: the current line is centered with
  * `scrollTo` on the list. `scrollIntoView` would also scroll the page to center the line in the window, and push the
- * player off the screen.
+ * player off the screen. The list sweeps only when the song moves on to the next line; every other time it is put back
+ * in place at once.
+ *
+ * The words of the current line are the only buttons, so when the song moves on, the one that had the keyboard focus
+ * goes away and the focus would fall to the page. The view then puts it on the first word of the new line, or on the
+ * list when that line has none, unless the focus is somewhere else by then.
  */
 export function KaraokeView({
   lines,
@@ -65,11 +71,15 @@ export function KaraokeView({
   showTranslations = true,
   visible = true,
 }: KaraokeViewProps) {
-  const current = currentLineIndex(lines, timeMs);
+  const current = lastStartedLineIndex(lines, timeMs);
   const [translations, setTranslations] = useState<Record<number, string>>({});
   // The lines that were asked for, whatever the answer was.
   const requested = useRef(new Set<number>());
   const listRef = useRef<HTMLOListElement>(null);
+  // The keyboard focus was on a word the last time it moved, so it is the song moving on that takes it away.
+  const focusOnWord = useRef(false);
+  // What the list was centered on the last time, to tell the song moving on from every other reason to center again.
+  const centered = useRef<{ line: number; visible: boolean } | null>(null);
 
   useEffect(() => {
     if (!showTranslations) return;
@@ -83,27 +93,51 @@ export function KaraokeView({
     }
   }, [current, showTranslations, lines.length, fetchTranslation]);
 
+  // A word that had the focus is gone with its line. When that left the focus on the page (and nowhere else: never
+  // take it from anything the player moved it to), it goes to the new line, without scrolling anything.
+  useLayoutEffect(() => {
+    if (!focusOnWord.current) return;
+    const focused = document.activeElement;
+    if (focused && focused !== document.body) return;
+    const list = listRef.current;
+    const target = list?.children[current]?.querySelector('button') ?? list;
+    target?.focus({ preventScroll: true });
+  }, [current]);
+
   // The current line is centered in the list when it changes. Also when the translations are hidden or shown, as every
   // line then changes its height, and when the list is shown again after being hidden, as that loses its scroll.
   useEffect(() => {
+    const before = centered.current;
+    centered.current = { line: current, visible };
     const list = listRef.current;
     const line = list?.children[current];
     if (!list || !line || !visible) return;
+    const songMovedOn = before !== null && before.visible && current === before.line + 1;
     const aboveLine = line.getBoundingClientRect().top - list.getBoundingClientRect().top;
     const roomAround = list.clientHeight - line.getBoundingClientRect().height;
     list.scrollTo({
       top: list.scrollTop + aboveLine - roomAround / 2,
-      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+      behavior: songMovedOn && !prefersReducedMotion() ? 'smooth' : 'auto',
     });
   }, [current, showTranslations, visible]);
 
   return (
     <ol
       ref={listRef}
+      // The reset that takes the bullets off makes WebKit drop the list semantics, unless the role says them.
+      role="list"
       aria-label={t('karaoke.lyrics')}
       // Scrollable, so the keyboard has to be able to reach it.
       tabIndex={0}
-      className={`flex max-h-[calc(100dvh-27rem)] min-h-48 flex-1 flex-col gap-3 overflow-y-auto rounded-button ${focusRing}`}
+      onFocus={(event) => {
+        focusOnWord.current = event.target instanceof HTMLButtonElement;
+      }}
+      // A blur with nothing to take the focus is also what a word going away looks like in some browsers, so only a
+      // blur that hands the focus to another element counts as the player leaving the words.
+      onBlur={(event) => {
+        if (event.relatedTarget) focusOnWord.current = false;
+      }}
+      className={`flex ${LIST_HEIGHT} flex-col gap-3 overflow-y-auto rounded-button ${focusRing}`}
     >
       {lines.map((line, i) => {
         const isCurrent = i === current;

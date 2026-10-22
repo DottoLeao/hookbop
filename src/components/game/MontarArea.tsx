@@ -5,6 +5,7 @@ import { t } from '@/i18n/t';
 import { isNextTileCorrect, makeTiles, tileSeed } from '@/lib/game/tiles';
 import type { Blank } from '@/lib/types';
 import { ResultIcon } from './ResultIcon';
+import { focusRing } from './styles';
 
 interface MontarAreaProps {
   /** The blank for the whole line (its `tokenIndex` is -1). */
@@ -43,8 +44,6 @@ function usedTiles(tiles: readonly string[], placed: readonly string[]): Set<num
   }
   return used;
 }
-
-const focusRing = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime';
 
 /** A word in the row: at least as wide as an empty slot (56 px), so a slot never takes more room than its word. */
 const chip = 'inline-flex h-10 min-w-14 items-center justify-center rounded-blank px-3.5 text-button font-bold';

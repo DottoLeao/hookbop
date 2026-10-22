@@ -1660,6 +1660,19 @@ describe('GameScreen: Karaokê', () => {
     expect(localStorage.getItem('hb_settings')).toBeNull();
   });
 
+  it('hands each click of the switch to the lyrics, which then lay the current line out again', () => {
+    renderKaraoke();
+    scrollTo.mockClear();
+
+    // The lyrics cannot show a translation yet (ruling R56), but a change of the switch always centers the line again,
+    // so it is a change the view has seen. If the screen kept the switch to itself, nothing would be seen here.
+    fireEvent.click(screen.getByRole('button', { name: 'Esconder tradução' }));
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar tradução' }));
+    expect(scrollTo).toHaveBeenCalledTimes(2);
+  });
+
   it('starts with the translations shown, whatever "Mostrar tradução sempre" says', () => {
     saveSettings(localStorage, { ...DEFAULT_SETTINGS, alwaysShowTranslation: false });
     renderKaraoke();
@@ -1808,6 +1821,14 @@ describe('ToolsBar', () => {
         'Esconder tradução',
       ]);
       for (const button of screen.getAllByRole('button')) expect(button).toHaveClass('min-h-11');
+    });
+
+    it('gives the action the widest share of the row, so its label fits on one line on most phones', () => {
+      renderAction();
+
+      const share = (name: string) => Number(/flex-\[([\d.]+)\]/.exec(screen.getByRole('button', { name }).className)?.[1]);
+      expect(share('Esconder tradução')).toBeGreaterThan(share('Repetir verso'));
+      expect(share('Esconder tradução')).toBeGreaterThan(share('0.75x'));
     });
 
     it('lets a long label wrap onto a second line, so it fits on a 320 px phone', () => {

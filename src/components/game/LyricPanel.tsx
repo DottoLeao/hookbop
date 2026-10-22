@@ -5,8 +5,9 @@ import { t } from '@/i18n/t';
 import type { BlankStatus } from '@/lib/game/reducer';
 import type { Blank, LyricLine } from '@/lib/types';
 import { CorrectedWord } from './CorrectedWord';
-import { focusRing, pieces, tappable } from './lineWords';
+import { pieces, tappable } from './lineWords';
 import { ResultIcon } from './ResultIcon';
+import { focusRing } from './styles';
 
 interface LyricPanelProps {
   lines: LyricLine[];

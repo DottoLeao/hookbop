@@ -11,6 +11,7 @@ import { awaitsAnswer, gameReducer, initGame, summaryOf, type GameEvent, type Ga
 import { playHit, playMiss } from '@/lib/game/sfx';
 import { cleanTitle } from '@/lib/lyrics/cleanTitle';
 import type { VideoRecord } from '@/lib/lyrics/resolveSong';
+import { lastStartedLineIndex } from '@/lib/lyrics/startedLine';
 import type { PlayerAdapter } from '@/lib/player/adapter';
 import { usePlayerTime } from '@/lib/player/usePlayerTime';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from '@/lib/settings';
@@ -79,7 +80,7 @@ function waitingBlank(game: GameState): Blank | undefined {
 function currentLineIndex(game: GameState): number {
   const waiting = waitingBlank(game);
   if (waiting) return waiting.lineIndex;
-  return Math.max(0, game.lines.findLastIndex((line) => line.startMs <= game.lastTickMs));
+  return Math.max(0, lastStartedLineIndex(game.lines, game.lastTickMs));
 }
 
 /**

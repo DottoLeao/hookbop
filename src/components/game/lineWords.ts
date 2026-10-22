@@ -1,5 +1,6 @@
 import { tokenize } from '@/lib/game/blanks';
 import { foldApostrophes } from '@/lib/game/text';
+import { focusOutline } from './styles';
 
 /** A word of the line, numbered as `tokenize` numbers it (a blank's tokenIndex), or what sits between two words. */
 export type Piece = { word: string; index: number; text: string } | { text: string };
@@ -22,17 +23,12 @@ export function pieces(text: string): Piece[] {
   return out;
 }
 
-const outline = 'focus-visible:outline-2 focus-visible:outline-offset-2';
-
-/** The focus ring of a control on the dark page. */
-export const focusRing = `${outline} focus-visible:outline-lime`;
-
 /**
  * What a word that can be tapped looks like, except for the color of its focus ring (lime on the dark page, but
  * invisible on a lime line, where it has to be `focus-visible:outline-bg`): at least 44 px tall, even inside a line of
  * text.
  */
-export const tappableShape = `inline-flex min-h-11 items-center rounded-blank align-middle ${outline}`;
+export const tappableShape = `inline-flex min-h-11 items-center rounded-blank align-middle ${focusOutline}`;
 
 /** An answered blank or a word that can be tapped on the dark page. */
 export const tappable = `${tappableShape} focus-visible:outline-lime`;

@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LyricLine } from '@/lib/types';
 import { KaraokeView } from './KaraokeView';
@@ -376,11 +377,140 @@ describe('KaraokeView', () => {
     });
   });
 
-  it('shows no combo and no points', async () => {
+  it('is a list for assistive technology, whatever the CSS reset does to lists', () => {
     renderKaraoke(15000);
+
+    // Tailwind's reset takes the bullets off, and WebKit then drops the list semantics, unless the role says them.
+    expect(lineList()).toHaveAttribute('role', 'list');
+  });
+
+  it('asks for each translation once even when React runs its effects twice (StrictMode)', async () => {
+    fetchTranslation = vi.fn(async (lineIndex: number) => `Tradução ${lineIndex}`);
+    onExplain = vi.fn();
+    props = { lines: LINES, timeMs: 15000, fetchTranslation, onExplain };
+    view = render(
+      <StrictMode>
+        <KaraokeView {...props} />
+      </StrictMode>,
+    );
     await settle();
 
-    expect(document.body.textContent).not.toMatch(/combo|ponto|xp|x\d/i);
+    expect(askedFor()).toEqual([3, 4]);
+  });
+});
+
+describe('KaraokeView: the keyboard on a word when the song moves on', () => {
+  /** A line of notes with no words in it, between two sung lines. */
+  const WITH_BREAK: LyricLine[] = [
+    { index: 0, startMs: 2000, endMs: 6000, text: 'Paper boats on a river of light' },
+    { index: 1, startMs: 6000, endMs: 10000, text: '♪ ♪ ♪' },
+    { index: 2, startMs: 10000, endMs: 14000, text: 'Hold the line till the morning comes' },
+  ];
+
+  const word = (row: number, name: string) => within(rows()[row]).getByRole('button', { name });
+  const firstWord = (row: number) => within(rows()[row]).getAllByRole('button')[0];
+
+  /** The view with a button of the page beside it, which `update` does not know about. */
+  function renderBeside(timeMs: number) {
+    fetchTranslation = vi.fn(async (lineIndex: number) => `Tradução ${lineIndex}`);
+    onExplain = vi.fn();
+    props = { lines: LINES, timeMs, fetchTranslation, onExplain };
+    const ui = (at: number) => (
+      <>
+        <button type="button">Fora</button>
+        <KaraokeView {...props} timeMs={at} />
+      </>
+    );
+    view = render(ui(timeMs));
+    return { outside: screen.getByRole('button', { name: 'Fora' }), moveTo: (at: number) => view.rerender(ui(at)) };
+  }
+
+  it('moves the focus to the first word of the new current line when the word that had it goes away', () => {
+    renderKaraoke(15000);
+    act(() => word(3, 'worry').focus());
+    expect(document.activeElement).toBe(word(3, 'worry'));
+
+    update({ timeMs: 18100 });
+    expect(document.activeElement).toBe(firstWord(4));
+    expect(document.activeElement).toHaveTextContent('Dancing');
+
+    // And again on the next line: the keyboard stays with the song.
+    update({ timeMs: 22100 });
+    expect(document.activeElement).toBe(firstWord(5));
+  });
+
+  it('moves the focus without scrolling anything', () => {
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+    renderKaraoke(15000);
+    act(() => word(3, 'worry').focus());
+
+    update({ timeMs: 18100 });
+
+    expect(focus).toHaveBeenLastCalledWith({ preventScroll: true });
+    expect(document.activeElement).toBe(firstWord(4));
+  });
+
+  it('moves the focus to the list when the new current line has no word to put it on', () => {
+    renderKaraoke(4000, { lines: WITH_BREAK });
+    act(() => word(0, 'boats').focus());
+
+    update({ timeMs: 7000 });
+
+    expect(rows()[1]).toHaveAttribute('aria-current', 'true');
+    expect(within(rows()[1]).queryAllByRole('button')).toHaveLength(0);
+    expect(document.activeElement).toBe(lineList());
+    expect(lineList()).toHaveAccessibleName('Letra');
+  });
+
+  it('does not touch the focus when it was never on a word', () => {
+    renderKaraoke(15000);
+
+    update({ timeMs: 18100 });
+
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('never takes the focus from something else, a button of the page that was given it', () => {
+    const { outside, moveTo } = renderBeside(15000);
+    act(() => word(3, 'worry').focus());
+    // The word loses the focus to the page (as it does when it goes away), and then something else is given it.
+    act(() => word(3, 'worry').blur());
+    act(() => outside.focus());
+
+    moveTo(18100);
+
+    expect(document.activeElement).toBe(outside);
+  });
+
+  it('does not take the focus from a button the player tabbed to', () => {
+    const { outside, moveTo } = renderBeside(15000);
+    act(() => word(3, 'worry').focus());
+    act(() => outside.focus());
+
+    moveTo(18100);
+
+    expect(document.activeElement).toBe(outside);
+  });
+
+  it('does not take the focus back once the player left the words, even if it then falls to the page', () => {
+    const { outside, moveTo } = renderBeside(15000);
+    act(() => word(3, 'worry').focus());
+    act(() => outside.focus());
+    act(() => outside.blur());
+    expect(document.activeElement).toBe(document.body);
+
+    moveTo(18100);
+
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('leaves the focus alone while the same line goes on', () => {
+    renderKaraoke(15000);
+    act(() => word(3, 'worry').focus());
+
+    update({ timeMs: 16000 });
+
+    expect(document.activeElement).toBe(word(3, 'worry'));
   });
 });
 
@@ -403,16 +533,50 @@ describe('KaraokeView: following the song', () => {
 
     // 50 (scrolled) + 300 (the line is 300 px under the top of the list) - 120 (half of the room left around it).
     expect(scrollTo.mock.instances[0]).toBe(lineList());
-    expect(scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 230, behavior: 'smooth' });
+    expect(scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 230, behavior: 'auto' });
     expect(scrollIntoView).not.toHaveBeenCalled();
     expect(window.scrollTo).not.toHaveBeenCalled();
   });
 
-  it('scrolls without animation when the player prefers reduced motion', () => {
+  it('sweeps the list smoothly only when the song moves on to the next line', () => {
+    layOut();
+    renderKaraoke(15000);
+    scrollTo.mockClear();
+
+    update({ timeMs: 18100 });
+
+    expect(scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 230, behavior: 'smooth' });
+  });
+
+  it('counts the first line starting, after the intro, as the song moving on', () => {
+    renderKaraoke(500);
+    expect(scrollTo).not.toHaveBeenCalled();
+
+    update({ timeMs: 2500 });
+
+    expect(scrollTo).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ behavior: 'smooth' }));
+  });
+
+  it('does not animate when the player prefers reduced motion, not even for the next line', () => {
     reducedMotion = true;
     renderKaraoke(15000);
+    scrollTo.mockClear();
+
+    update({ timeMs: 18100 });
 
     expect(scrollTo).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ behavior: 'auto' }));
+  });
+
+  it('puts the list back in place at once, with no sweep, for a seek: a jump forward or a rewind', () => {
+    renderKaraoke(15000);
+    scrollTo.mockClear();
+
+    update({ timeMs: 23000 });
+    expect(scrollTo).toHaveBeenLastCalledWith(expect.objectContaining({ behavior: 'auto' }));
+
+    update({ timeMs: 15000 });
+    expect(scrollTo).toHaveBeenLastCalledWith(expect.objectContaining({ behavior: 'auto' }));
+    expect(scrollTo).toHaveBeenCalledTimes(2);
   });
 
   it('scrolls once for each new current line, and not while the same line goes on', () => {
@@ -427,42 +591,38 @@ describe('KaraokeView: following the song', () => {
     expect(scrollTo).toHaveBeenCalledTimes(2);
   });
 
-  it('scrolls back when the song goes back to an earlier line', () => {
-    renderKaraoke(19000);
-    scrollTo.mockClear();
-
-    update({ timeMs: 14500 });
-
-    expect(scrollTo).toHaveBeenCalledOnce();
-  });
-
   it('does not scroll before the first line starts', () => {
     renderKaraoke(500);
 
     expect(scrollTo).not.toHaveBeenCalled();
   });
 
-  it('centers the line again when the translations are hidden or shown, as every line changes its height', async () => {
+  it('centers the line again at once, with no sweep, when the translations are hidden or shown', async () => {
     renderKaraoke(15000);
     await settle();
     scrollTo.mockClear();
 
     update({ showTranslations: false });
     expect(scrollTo).toHaveBeenCalledTimes(1);
+    expect(scrollTo).toHaveBeenLastCalledWith(expect.objectContaining({ behavior: 'auto' }));
 
     update({ showTranslations: true });
     expect(scrollTo).toHaveBeenCalledTimes(2);
+    expect(scrollTo).toHaveBeenLastCalledWith(expect.objectContaining({ behavior: 'auto' }));
   });
 
-  it('centers the line again when it is shown after being hidden, as hiding a list loses its scroll', () => {
+  it('centers the line again at once when it is shown after being hidden, even if the song moved on meanwhile', () => {
     renderKaraoke(15000);
     scrollTo.mockClear();
 
     update({ visible: false });
     expect(scrollTo).not.toHaveBeenCalled();
+    update({ visible: false, timeMs: 18100 });
+    expect(scrollTo).not.toHaveBeenCalled();
 
     update({ visible: true });
-    expect(scrollTo).toHaveBeenCalledOnce();
+    expect(scrollTo).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ behavior: 'auto' }));
+    expect(currentLines()).toEqual([rows()[4]]);
   });
 
   it('can be reached with the keyboard, to scroll the lyrics', () => {
