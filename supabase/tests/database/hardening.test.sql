@@ -1,4 +1,4 @@
--- pgTAP tests for supabase/migrations/0004_hardening.sql (rulings R81 and R82)
+-- pgTAP tests for supabase/migrations/0004_hardening.sql (rulings R81 and R82) and 0005_offset_range.sql (ruling R87)
 -- Run with: npx supabase test db
 --
 -- One transaction, rolled back at the end. Users are simulated the way PostgREST does it: switch to the
@@ -6,7 +6,7 @@
 
 begin;
 
-select plan(37);
+select plan(38);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (superuser)
@@ -50,24 +50,26 @@ select policies_are('public', 'videos', array['members read videos'],
   'videos keeps only the read policy');
 
 -- ---------------------------------------------------------------------------
--- set_offset_vote: at most 30 s either way (ruling R82)
+-- set_offset_vote: at most 120 s either way (ruling R82 set 30 s, ruling R87 widened it in 0005)
 -- ---------------------------------------------------------------------------
 
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"d0000000-0000-0000-0000-000000000003","email":"ana@example.com"}';
 
-select is(public.set_offset_vote('vidhard0001', 30000), 30000,
-  'a vote of +30 s is taken');
-select is(public.set_offset_vote('vidhard0001', -30000), -30000,
-  'so is a vote of -30 s');
+select is(public.set_offset_vote('vidhard0001', 45000), 45000,
+  'a vote past the old 30 s limit, as a long intro needs, is taken');
+select is(public.set_offset_vote('vidhard0001', 120000), 120000,
+  'a vote of +120 s is taken');
+select is(public.set_offset_vote('vidhard0001', -120000), -120000,
+  'so is a vote of -120 s');
 select throws_ok(
-  $$select public.set_offset_vote('vidhard0001', 30001)$$,
+  $$select public.set_offset_vote('vidhard0001', 120001)$$,
   '22023', null,
-  'a vote past +30 s is refused');
+  'a vote past +120 s is refused');
 select throws_ok(
-  $$select public.set_offset_vote('vidhard0001', -30001)$$,
+  $$select public.set_offset_vote('vidhard0001', -120001)$$,
   '22023', null,
-  'a vote past -30 s is refused');
+  'a vote past -120 s is refused');
 select throws_ok(
   $$select public.set_offset_vote('vidhard0001', 2147483647)$$,
   '22023', null,
@@ -79,9 +81,9 @@ select throws_ok(
 
 reset role;
 
-select is((select offset_ms from public.videos where youtube_id = 'vidhard0001'), -30000,
+select is((select offset_ms from public.videos where youtube_id = 'vidhard0001'), -120000,
   'a refused vote leaves the offset as it was');
-select is((select offset_ms from public.video_offset_votes where youtube_id = 'vidhard0001'), -30000,
+select is((select offset_ms from public.video_offset_votes where youtube_id = 'vidhard0001'), -120000,
   'and leaves the vote as it was');
 
 -- ---------------------------------------------------------------------------
