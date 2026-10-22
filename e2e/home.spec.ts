@@ -22,8 +22,10 @@ test.describe('home page', () => {
     await signIn(page, maria.email);
     await expect(page).toHaveURL(/\/$/);
 
-    // The page has one heading, the name of the app, for screen readers.
+    // The page has one heading, the name of the app, for screen readers. The logo next to it is only decoration, so the
+    // name is read once.
     await expect(page.getByRole('heading', { level: 1, name: 'Hookbop' })).toBeAttached();
+    await expect(page.getByRole('img', { name: 'hookbop' })).toHaveCount(0);
 
     // The songs, newest play first, each once, and none of the video without lyrics or the one whose YouTube data is
     // more than 30 days old (it comes back when somebody opens it, which fetches the data again).

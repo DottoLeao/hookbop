@@ -13,9 +13,9 @@ export default function Home({ searchParams }: { searchParams: Promise<{ erro?: 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-6 px-4 py-6">
       <header className="flex justify-center py-2">
-        {/* The logo is an image, so the page's heading is written next to it for screen readers. */}
+        {/* The heading says the name to screen readers, so the logo next to it is only decoration: read once. */}
         <h1 className="sr-only">{t('home.title')}</h1>
-        <Logo size={48} />
+        <Logo size={48} decorative />
       </header>
       <Suspense fallback={<PasteLink />}>
         <PasteLinkWithShareError searchParams={searchParams} />

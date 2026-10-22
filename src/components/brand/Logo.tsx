@@ -1,6 +1,11 @@
 interface LogoProps {
   /** Wordmark font size in px. The canvas draws it at 80. */
   size: number;
+  /**
+   * Only decoration, hidden from screen readers: for a page whose heading already says the name, so it is announced
+   * once. Otherwise the logo is an image named "hookbop".
+   */
+  decorative?: boolean;
 }
 
 // Option 2 of design/canvas/Logo.dc.html: two vinyl discs stand in for the "oo".
@@ -20,11 +25,11 @@ function Disc() {
   );
 }
 
-export function Logo({ size }: LogoProps) {
+export function Logo({ size, decorative = false }: LogoProps) {
+  const a11y = decorative ? { 'aria-hidden': true } : { role: 'img', 'aria-label': 'hookbop' };
   return (
     <div
-      role="img"
-      aria-label="hookbop"
+      {...a11y}
       className="inline-flex items-end font-heading font-bold leading-none tracking-[-0.03em]"
       style={{ fontSize: size }}
     >
