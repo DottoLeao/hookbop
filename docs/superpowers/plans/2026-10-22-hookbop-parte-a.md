@@ -634,9 +634,9 @@ export function resolveSong(youtubeId: string, videoDurationS: number,
 
 - [ ] **Step 1: Teste que falha**
   - Com a mesma entrada, o resultado é igual.
-  - A linha "Please don't let me down again" escolhe `answer: 'let'`, porque phrasal verb tem prioridade.
+  - A linha "Tonight we'll let the ladder down slowly" escolhe `answer: 'let'`, porque phrasal verb tem prioridade.
   - "I'm gonna make it tonight" escolhe `'gonna'`.
-  - "Oh yeah I love the way you move" nunca escolhe oh, yeah, i, the ou you.
+  - "Oh yeah I paint the sky you drew" nunca escolhe oh, yeah, i, the ou you.
   - Em "Dancing with Maria tonight", "Maria" nunca é escolhida, porque palavra com maiúscula no meio da linha é nome próprio.
   - Linhas com menos de 1200 ms ou mais de 15000 ms nunca recebem lacuna.
   - Com 30 linhas elegíveis, `facil` dá 10 ±1 lacunas, `medio` dá 15 ±1 e `dificil` dá pelo menos 30.
@@ -669,10 +669,10 @@ export function resolveSong(youtubeId: string, videoDurationS: number,
 
 ```ts
 expect(damerau('get', 'gte')).toBe(1); expect(damerau('get', 'got')).toBe(1); expect(damerau('let', 'late')).toBe(2);
-const d = makeDistractors('let', ['please', "don't", 'let', 'me', 'down'], 's1');
+const d = makeDistractors('let', ['grandpa', "won't", 'let', 'me', 'drive'], 's1');
 expect(new Set(d).size).toBe(2);
 for (const w of d) { expect(w).not.toBe('let'); expect(isRealWord(w)).toBe(true);
-  expect(['lets', "let's", 'letting', 'me', 'down']).not.toContain(w); }
+  expect(['lets', "let's", 'letting', 'me', 'drive']).not.toContain(w); }
 expect(makeDistractors('let', [], 's1')).toEqual(makeDistractors('let', [], 's1'));
 expect(makeDistractors('gonna', [], 's2')).toHaveLength(2);
 ```
@@ -737,8 +737,8 @@ expect(matchTyped('', 'get').result).toBe('wrong');
 - [ ] **Step 1: Teste que falha**
 
 ```ts
-const tk = tokenize('Please, don\'t let me down!');
-expect(tk).toEqual(['Please', "don't", 'let', 'me', 'down']);
+const tk = tokenize('Grandpa, won\'t let me drive!');
+expect(tk).toEqual(['Grandpa', "won't", 'let', 'me', 'drive']);
 const t = makeTiles(tk, 's'); expect([...t].sort()).toEqual([...tk].sort()); expect(t).not.toEqual(tk);
 expect(isNextTileCorrect(['go', 'go', 'now'], 0, 'go')).toBe(true);
 expect(isNextTileCorrect(['go', 'go', 'now'], 1, 'go')).toBe(true);
@@ -829,7 +829,7 @@ export function gameReducer(s: GameState, e: GameEvent): GameState;   // a cada 
 export function summaryOf(s: GameState): PlaySummary;
 ```
 
-- [ ] **Step 1: Teste que falha.** Use 3 linhas: `[0–4000] "Please don't let me down"`, `[4000–8000]`, `[8000–12000]`, com a lacuna `0:2 'let'`.
+- [ ] **Step 1: Teste que falha.** Use 3 linhas: `[0–4000] "Grandpa won't let me drive"`, `[4000–8000]`, `[8000–12000]`, com a lacuna `0:2 'let'`.
   1. `TICK 3850` (falta menos de 150 ms para o fim da linha da lacuna pendente) gera `commands = [{type:'pause'}]` e `phase` passa a `'waiting'`.
   2. `ANSWER correct` com `atMs: 3900` grava `{kind:'first', correct:true, beforeLineEnd:true}`, gera `commands = [{type:'play'}]` e volta `phase` para `'playing'`.
   3. Num jogo novo, `ANSWER wrong` com `autoRepeat` ligado gera `commands = [{type:'seek', ms:0}, {type:'play'}]` e status `'wrong'`. Um novo `ANSWER correct` na mesma lacuna grava `kind: 'retry'`, e o XP não muda.
@@ -839,9 +839,9 @@ export function summaryOf(s: GameState): PlaySummary;
   7. `PLAYER_STATE ended` passa `phase` para `'ended'`, e `summaryOf` devolve a porcentagem certa.
   8. No modo `karaoke`, nenhum `TICK` gera pausa.
   9. No modo `montar`, com a lacuna `0:-1`:
-     - colocar `TILE` "Please", "don't", "let", "me", "down" na ordem certa deixa a linha `'correct'`, com `kind: 'first'`;
+     - colocar `TILE` "Grandpa", "won't", "let", "me", "drive" na ordem certa deixa a linha `'correct'`, com `kind: 'first'`;
      - num jogo novo, um `TILE` errado deixa a linha `'wrong'` e repete o verso;
-     - num jogo novo, `HINT` coloca sozinho a próxima peça certa (`tilesPlaced['0:-1']` passa a ser `['Please']`), e ao completar a linha o registro tem `kind: 'helped'`.
+     - num jogo novo, `HINT` coloca sozinho a próxima peça certa (`tilesPlaced['0:-1']` passa a ser `['Grandpa']`), e ao completar a linha o registro tem `kind: 'helped'`.
   10. `REPEAT_LINE` com o tempo em 5000 gera `seek` para o início da linha 1, ou seja, 4000.
   11. `SET_RATE` gera `{type:'rate', rate}`.
 - [ ] **Step 2:** Rode `npx vitest run src/lib/game/reducer.test.ts`. Esperado: FAIL.
@@ -1000,7 +1000,7 @@ export function getHelp(userId: string, r: HelpRequest, deps: HelpDeps, nowMs: n
 
 - [ ] **Step 1: Teste que falha (helpService, com dependências falsas)**
   - Com cache, o resultado vem do cache e `callModel` não é chamado.
-  - Sem cache, `callModel(EXPLAIN_SYSTEM, 'Verso: Please don\'t let me down\nDestaque: let')` é chamado, e depois `saveCached` e `logRequest`.
+  - Sem cache, `callModel(EXPLAIN_SYSTEM, 'Verso: Grandpa won\'t let me drive\nDestaque: let')` é chamado, e depois `saveCached` e `logRequest`.
   - Com `countRecent` igual a 60 na última hora, o resultado é 429.
   - Com `lineText` de mais de 300 caracteres, o resultado é 400.
   - O `HelpSheet` mostra o DJ Bop, o texto devolvido e o botão "Valeu".
