@@ -79,6 +79,15 @@ describe('GET /auth/callback', () => {
       expect(rpc).not.toHaveBeenCalled();
     });
 
+    it('says the link did not work when Supabase reports an expired or used e-mail link', async () => {
+      const { exchangeCodeForSession } = arrange();
+
+      const response = await callback('?error=access_denied&error_code=otp_expired&error_description=expired');
+
+      expect(destination(response)).toBe('/entrar?erro=link');
+      expect(exchangeCodeForSession).not.toHaveBeenCalled();
+    });
+
     it('goes back to sign-in when Google reports an error instead of a code', async () => {
       arrange();
 
@@ -87,12 +96,13 @@ describe('GET /auth/callback', () => {
       expect(destination(response)).toBe('/entrar');
     });
 
-    it('goes back to sign-in, keeping the invite, when the code does not work', async () => {
+    it('goes back to sign-in saying the link did not work, keeping the invite, when the code does not work', async () => {
+      // An expired code, one already used, or a link opened in another browser than the one that asked for it.
       const { rpc } = arrange({ exchangeError: { message: 'invalid flow state' } });
 
       const response = await callback('?code=bad', 'CODE123');
 
-      expect(destination(response)).toBe('/entrar');
+      expect(destination(response)).toBe('/entrar?erro=link');
       expect(rpc).not.toHaveBeenCalled();
       expect(response.headers.get('set-cookie')).toBeNull();
     });

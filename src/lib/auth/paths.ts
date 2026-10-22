@@ -29,6 +29,21 @@ export function loginPath(estado?: string): string {
   return estado ? `${LOGIN_PATH}?estado=${encodeURIComponent(estado)}` : LOGIN_PATH;
 }
 
+/**
+ * Why the sign-in page says something went wrong, as carried by `/entrar?erro=`: `link` for a sign-in link that did
+ * not work (expired, used, or opened in another browser), `servico` for a membership check that could not be made.
+ */
+export const LOGIN_ERRORS = ['link', 'servico'] as const;
+export type LoginError = (typeof LOGIN_ERRORS)[number];
+
+export function isLoginError(value: unknown): value is LoginError {
+  return typeof value === 'string' && (LOGIN_ERRORS as readonly string[]).includes(value);
+}
+
+export function loginErrorPath(erro: LoginError): string {
+  return `${LOGIN_PATH}?erro=${erro}`;
+}
+
 /** Where to send someone once redeem_invite has answered. */
 export function pathAfterRedeem(result: string): string {
   return result === 'ok' || result === 'already_member' ? '/' : loginPath(result);

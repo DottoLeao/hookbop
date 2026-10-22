@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isLoginState, isPublicPath, loginPath, pathAfterRedeem } from './paths';
+import { isLoginError, isLoginState, isPublicPath, loginErrorPath, loginPath, pathAfterRedeem } from './paths';
 
 describe('isPublicPath', () => {
   it.each([
@@ -30,6 +30,21 @@ describe('isPublicPath', () => {
   it('does not let a public prefix climb out to a private page', () => {
     expect(isPublicPath('/icons/../admin')).toBe(false);
     expect(isPublicPath('/convite/../convidar')).toBe(false);
+  });
+});
+
+describe('loginErrorPath and isLoginError', () => {
+  it('carries the error on ?erro=', () => {
+    expect(loginErrorPath('link')).toBe('/entrar?erro=link');
+    expect(loginErrorPath('servico')).toBe('/entrar?erro=servico');
+  });
+
+  it('knows only the errors the sign-in page has a message for', () => {
+    expect(isLoginError('link')).toBe(true);
+    expect(isLoginError('servico')).toBe(true);
+    expect(isLoginError('qualquer-coisa')).toBe(false);
+    expect(isLoginError(['link'])).toBe(false);
+    expect(isLoginError(undefined)).toBe(false);
   });
 });
 

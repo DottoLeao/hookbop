@@ -44,6 +44,19 @@ test.describe('sign-in page', () => {
     });
   }
 
+  const errors = {
+    link: 'Esse link não rolou. Pede um novo aqui.',
+    servico: 'Não rolou conferir seu acesso. Tenta de novo?',
+  };
+  for (const [erro, message] of Object.entries(errors)) {
+    test(`?erro=${erro} says "${message}"`, async ({ page }) => {
+      await page.goto(`/entrar?erro=${erro}`);
+
+      await expect(page.getByRole('status')).toHaveText(message);
+      await expect(page.getByRole('button', { name: 'Receber link por e-mail' })).toBeVisible();
+    });
+  }
+
   test('?estado with an unknown value shows no message', async ({ page }) => {
     await page.goto('/entrar?estado=qualquer-coisa');
 
@@ -109,7 +122,8 @@ test.describe('e-mail link', () => {
     const otherPage = await other.newPage();
     await otherPage.goto(link);
 
-    await expect(otherPage).toHaveURL(/\/entrar$/);
+    await expect(otherPage).toHaveURL(/\/entrar\?erro=link$/);
+    await expect(otherPage.getByText('Esse link não rolou. Pede um novo aqui.')).toBeVisible();
     await expect(otherPage.getByRole('button', { name: 'Entrar com Google' })).toBeVisible();
     await other.close();
   });

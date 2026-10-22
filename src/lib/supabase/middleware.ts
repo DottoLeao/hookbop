@@ -11,8 +11,13 @@ interface RefreshedCookie {
 
 export interface SessionState {
   signedIn: boolean;
-  /** Only looked up when `checkMembership` is on; false otherwise. */
+  /** Only looked up when `checkMembership` is on; false otherwise, and false when the check failed. */
   isMember: boolean;
+  /**
+   * The membership could not be checked (is_member answered with an error, or could not be reached). Then nothing is
+   * known about the person, and they must not be told they have no invite.
+   */
+  membershipFailed: boolean;
   /**
    * Puts the refreshed session cookies (and the headers that keep them out of
    * shared caches) on the response being returned, whether it passes the
@@ -54,14 +59,21 @@ export async function updateSession(
   const signedIn = Boolean(data?.claims.sub);
 
   let isMember = false;
+  let membershipFailed = false;
   if (signedIn && checkMembership) {
-    const { data: member } = await supabase.rpc('is_member');
-    isMember = member === true;
+    try {
+      const { data: member, error } = await supabase.rpc('is_member');
+      if (error) membershipFailed = true;
+      else isMember = member === true;
+    } catch {
+      membershipFailed = true;
+    }
   }
 
   return {
     signedIn,
     isMember,
+    membershipFailed,
     apply(response) {
       for (const { name, value, options } of refreshedCookies) response.cookies.set(name, value, options);
       for (const [name, value] of Object.entries(headers)) response.headers.set(name, value);

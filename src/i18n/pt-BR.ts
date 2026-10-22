@@ -174,6 +174,9 @@ export const ptBR = {
   'entrar.estado.full': 'A galera tá cheia por enquanto.',
   'entrar.estado.removed': 'Seu acesso foi pausado.',
   'entrar.estado.not_found': 'Esse convite não existe.',
+  // Why sign-in did not go through (`/entrar?erro=`): a link that did not work, or a check that could not be made.
+  'entrar.erro.link': 'Esse link não rolou. Pede um novo aqui.',
+  'entrar.erro.servico': 'Não rolou conferir seu acesso. Tenta de novo?',
 
   'convite.notFound': 'Esse convite não existe.',
   'convite.used': 'Pede um convite pra quem te mandou.',
