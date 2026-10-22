@@ -71,6 +71,10 @@ export type InviteLookup =
  * What the invite page may know about a code: its state and, while it is still open, the name
  * of who sent it. Nothing else leaves this function. Needs the service client, because
  * the person opening the link has no session and no right to read the table.
+ *
+ * An open invite whose sender was removed is "not found", as redeem_invite treats it (migration 0004): the link
+ * cannot be redeemed, and the name of a member who is gone is not shown to a visitor. A used invite stays "used"
+ * whoever sent it, since redeem_invite checks that first.
  */
 export async function lookupInvite(admin: Client, code: string): Promise<InviteLookup> {
   // Anything that could not have been issued is "not found" without bothering the database.
@@ -78,13 +82,14 @@ export async function lookupInvite(admin: Client, code: string): Promise<InviteL
 
   const { data, error } = await admin
     .from('invites')
-    .select('used_by, used_at, inviter:profiles!invites_created_by_fkey(display_name)')
+    .select('used_by, used_at, inviter:profiles!invites_created_by_fkey(display_name, removed_at)')
     .eq('code', code)
     .maybeSingle();
   // A failed read is not a missing invite: let it surface instead of telling a friend their link is dead.
   if (error) throw new Error(`Could not read the invite: ${error.message}`);
   if (!data) return { state: 'not_found' };
   if (data.used_by !== null || data.used_at !== null) return { state: 'used' };
+  if (data.inviter.removed_at !== null) return { state: 'not_found' };
 
   return { state: 'valid', inviterName: data.inviter.display_name };
 }

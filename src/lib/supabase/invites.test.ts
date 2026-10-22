@@ -167,13 +167,50 @@ describe('lookupInvite', () => {
 
   it('says a valid invite is valid and names who sent it', async () => {
     const { admin, from, eq } = adminWith({
-      data: { used_by: null, used_at: null, inviter: { display_name: 'Maria' } },
+      data: { used_by: null, used_at: null, inviter: { display_name: 'Maria', removed_at: null } },
       error: null,
     });
 
     expect(await lookupInvite(admin, 'ABCDEFGH23')).toEqual({ state: 'valid', inviterName: 'Maria' });
     expect(from).toHaveBeenCalledWith('invites');
     expect(eq).toHaveBeenCalledWith('code', 'ABCDEFGH23');
+  });
+
+  it('reads whether the inviter was removed, along with the name', async () => {
+    const { admin, select } = adminWith({
+      data: { used_by: null, used_at: null, inviter: { display_name: 'Maria', removed_at: null } },
+      error: null,
+    });
+
+    await lookupInvite(admin, 'ABCDEFGH23');
+
+    expect(select).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('(display_name, removed_at)'));
+  });
+
+  it('says an open invite whose inviter was removed is not found, like redeem_invite does, and shows no name', async () => {
+    const { admin } = adminWith({
+      data: { used_by: null, used_at: null, inviter: { display_name: 'Maria', removed_at: '2026-10-21T09:00:00Z' } },
+      error: null,
+    });
+
+    const lookup = await lookupInvite(admin, 'ABCDEFGH23');
+
+    expect(lookup).toEqual({ state: 'not_found' });
+    expect(JSON.stringify(lookup)).not.toContain('Maria');
+  });
+
+  it('still says used for an invite that was used, even when its inviter has since been removed', async () => {
+    // redeem_invite checks "used" before the inviter, so the page tells the same story as the redeem.
+    const { admin } = adminWith({
+      data: {
+        used_by: 'user-2',
+        used_at: '2026-10-22T10:00:00Z',
+        inviter: { display_name: 'Maria', removed_at: '2026-10-23T09:00:00Z' },
+      },
+      error: null,
+    });
+
+    expect(await lookupInvite(admin, 'ABCDEFGH23')).toEqual({ state: 'used' });
   });
 
   it('says an invite that someone already used is used, without naming anyone', async () => {
