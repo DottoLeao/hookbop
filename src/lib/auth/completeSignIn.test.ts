@@ -81,19 +81,34 @@ describe('completeSignIn', () => {
     });
   });
 
-  it('keeps the cookie when redeem_invite fails, so signing in again can retry', async () => {
+  it('keeps the cookie when redeem_invite fails, so signing in again can retry, and the sign-in page says why', async () => {
     const { supabase } = clientAnswering({
       ensure_owner: notOwner,
       redeem_invite: { data: null, error: { message: 'connection reset' } },
     });
 
-    expect(await completeSignIn(supabase, MARIA, 'CODE123')).toEqual({ path: '/entrar', clearInviteCookie: false });
+    expect(await completeSignIn(supabase, MARIA, 'CODE123')).toEqual({
+      path: '/entrar?erro=servico',
+      clearInviteCookie: false,
+    });
   });
 
-  it('keeps the cookie and stops when ensure_owner fails', async () => {
+  it('keeps the cookie and stops when ensure_owner fails, and the sign-in page says why', async () => {
     const { supabase, rpc } = clientAnswering({ ensure_owner: { data: null, error: { message: 'boom' } } });
 
-    expect(await completeSignIn(supabase, MARIA, 'CODE123')).toEqual({ path: '/entrar', clearInviteCookie: false });
+    expect(await completeSignIn(supabase, MARIA, 'CODE123')).toEqual({
+      path: '/entrar?erro=servico',
+      clearInviteCookie: false,
+    });
     expect(rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it('says the same when ensure_owner fails for someone who came without an invite', async () => {
+    const { supabase } = clientAnswering({ ensure_owner: { data: null, error: { message: 'boom' } } });
+
+    expect(await completeSignIn(supabase, MARIA, undefined)).toEqual({
+      path: '/entrar?erro=servico',
+      clearInviteCookie: false,
+    });
   });
 });

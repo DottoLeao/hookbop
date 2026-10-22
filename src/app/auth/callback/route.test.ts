@@ -191,12 +191,12 @@ describe('GET /auth/callback', () => {
       expect(response.headers.get('set-cookie')).toMatch(/hb_invite=;.*(Max-Age=0|Expires=Thu, 01 Jan 1970)/i);
     });
 
-    it('keeps the hb_invite cookie when the redeem call itself fails, so signing in again can retry', async () => {
+    it('keeps the hb_invite cookie when the redeem call itself fails, so signing in again can retry, and says why', async () => {
       arrange({ redeemError: { message: 'connection reset' } });
 
       const response = await callback('?code=abc', 'CODE123');
 
-      expect(destination(response)).toBe('/entrar');
+      expect(destination(response)).toBe('/entrar?erro=servico');
       expect(response.headers.get('set-cookie')).toBeNull();
     });
   });
@@ -213,12 +213,12 @@ describe('GET /auth/callback', () => {
     });
   });
 
-  it('goes back to sign-in, keeping the invite, when ensure_owner fails', async () => {
+  it('goes back to sign-in, keeping the invite, when ensure_owner fails, and says why', async () => {
     const { rpc } = arrange({ ownerError: { message: 'boom' } });
 
     const response = await callback('?code=abc', 'CODE123');
 
-    expect(destination(response)).toBe('/entrar');
+    expect(destination(response)).toBe('/entrar?erro=servico');
     expect(redeemCalls(rpc)).toHaveLength(0);
     expect(response.headers.get('set-cookie')).toBeNull();
   });
