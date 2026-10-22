@@ -43,10 +43,7 @@ describe('randomUuid', () => {
       throw new TypeError('no');
     });
     for (const fill of [0x00, 0xff]) {
-      vi.spyOn(crypto, 'getRandomValues').mockImplementationOnce(<T extends ArrayBufferView | null>(array: T) => {
-        new Uint8Array((array as unknown as Uint8Array).buffer).fill(fill);
-        return array;
-      });
+      vi.spyOn(crypto, 'getRandomValues').mockImplementationOnce(((array: Uint8Array) => array.fill(fill)) as typeof crypto.getRandomValues);
 
       expect(randomUuid()).toMatch(V4);
     }
