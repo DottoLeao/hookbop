@@ -111,6 +111,8 @@ describe('callModel', () => {
 
       expect(failure).toBeInstanceOf(ModelError);
       expect((failure as ModelError).declined).toBe(true);
+      // The model did answer, so the budget it took is kept (ruling R75).
+      expect((failure as ModelError).answered).toBe(true);
     },
   );
 
@@ -123,6 +125,7 @@ describe('callModel', () => {
 
       expect(failure).toBeInstanceOf(ModelError);
       expect((failure as ModelError).declined).toBe(false);
+      expect((failure as ModelError).answered).toBe(true);
     },
   );
 
@@ -133,6 +136,7 @@ describe('callModel', () => {
 
     expect(failure).toBeInstanceOf(ModelError);
     expect((failure as ModelError).declined).toBe(false);
+    expect((failure as ModelError).answered).toBe(true);
   });
 
   it.each([
@@ -150,6 +154,8 @@ describe('callModel', () => {
     expect((failure as ModelError).message).toMatch(message);
     expect((failure as ModelError).cause).toBe(thrown);
     expect((failure as ModelError).declined).toBe(false);
+    // No answer came, so the budget is given back (ruling R75).
+    expect((failure as ModelError).answered).toBe(false);
   });
 
   it('reads its key only on the server: listed in .env.example with no value, and never as a NEXT_PUBLIC variable', () => {

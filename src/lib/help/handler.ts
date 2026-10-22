@@ -33,8 +33,10 @@ const invalid = () => answer({ error: 'invalid' }, 400);
  * - 400 for a body that is not a request, or that breaks the rules of a request (checked before the database is read),
  *   or that does not match the stored lyrics (ruling R61).
  * - 429 when the member's hourly budget for that kind of help is used up.
- * - 422 when the model refused or ran out of room: asking again would not change it (ruling R74).
- * - 503 when the model or the database fails, or the session cannot be read. Never saved, and the budget is given back.
+ * - 422 when the model refused or ran out of room: asking again would not change it (ruling R74). The request stays
+ *   counted, since the model answered (ruling R75).
+ * - 503 when the model or the database fails, or the session cannot be read. Never saved; the budget is given back
+ *   when no answer came (ruling R75).
  *
  * The reason for a failure goes to the server log only. Every answer, failures included, has `Cache-Control: no-store`.
  */

@@ -279,7 +279,8 @@ describe('handleHelpRequest', () => {
     expect(status).toBe(422);
     expect(body).toEqual({ error: 'declined' });
     expect(response.headers.get('Cache-Control')).toBe('no-store');
-    expect(store.release).toHaveBeenCalledExactlyOnceWith(41);
+    // The model answered, so the request it cost stays counted (ruling R75).
+    expect(store.release).not.toHaveBeenCalled();
     expect(store.saveCached).not.toHaveBeenCalled();
     warn.mockRestore();
   });

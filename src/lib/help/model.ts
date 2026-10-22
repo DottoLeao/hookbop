@@ -39,7 +39,8 @@ function reasonOf(error: unknown): string {
  *
  * Anything but a finished answer with text in it is a ModelError, which must never reach the cache. A refusal or an
  * answer cut short (`max_tokens`) is `declined`: asking again would not change it. A call that failed or ran past the
- * 20 s, an answer that stopped for another reason, or one with no text may work the next time.
+ * 20 s, an answer that stopped for another reason, or one with no text may work the next time. Every failure that
+ * comes after the model answered is `answered`, so the request it cost stays counted (ruling R75).
  */
 export async function callModel(system: string, user: string): Promise<string> {
   let response: Anthropic.Message;
@@ -63,13 +64,13 @@ export async function callModel(system: string, user: string): Promise<string> {
   if (stopReason === 'refusal' || stopReason === 'max_tokens') {
     throw new ModelError(`The model stopped with ${stopReason}`, { declined: true });
   }
-  if (stopReason !== 'end_turn') throw new ModelError(`The model stopped with ${stopReason}`);
+  if (stopReason !== 'end_turn') throw new ModelError(`The model stopped with ${stopReason}`, { answered: true });
 
   const text = response.content
     .filter((block) => block.type === 'text')
     .map((block) => block.text)
     .join('')
     .trim();
-  if (!text) throw new ModelError('The model answered with no text');
+  if (!text) throw new ModelError('The model answered with no text', { answered: true });
   return text;
 }

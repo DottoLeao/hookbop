@@ -1,3 +1,4 @@
+import { ModelError } from './modelError';
 import { explainUserMessage, systemFor, translateUserMessage } from './prompts';
 import { normalizeHelpRequest, targetAsWritten } from './validate';
 
@@ -30,7 +31,7 @@ export interface HelpDeps {
   saveCached(r: HelpRequest, content: string): Promise<void>;
   /** Takes one request of the member's hourly budget for that kind: its id, or null when none is left. */
   reserve(userId: string, kind: HelpKind): Promise<number | null>;
-  /** Gives a reservation back, when the model gave no answer. */
+  /** Gives a reservation back, when the model gave no answer at all (ruling R75). */
   release(id: number): Promise<void>;
   callModel(system: string, user: string): Promise<string>;
 }
@@ -73,7 +74,9 @@ async function fromSameText(deps: HelpDeps, r: HelpRequest, lineIndexes: readonl
  * 3. so does the help already given for another line with the same text (`sameTextLines`, a chorus sung again),
  *    which is then saved for this line too;
  * 4. one request of the member's budget for that kind is reserved (429 when none is left);
- * 5. the model is asked: when it fails, the reservation is given back and the failure goes on;
+ * 5. the model is asked. When no answer came (the call could not be made, timed out or was aborted), the reservation
+ *    is given back; when the model answered with nothing usable (a refusal, an answer cut short or with no text), it
+ *    is kept, since that call was made and billed (ruling R75). Either way the failure goes on;
  * 6. its answer is saved for every member.
  */
 export async function getHelp(
@@ -101,9 +104,11 @@ export async function getHelp(
   try {
     content = await deps.callModel(systemFor(request.kind), userMessage(request));
   } catch (error) {
-    await deps.release(reservation).catch((releaseError: unknown) => {
-      console.warn('Could not give the help request back.', releaseError);
-    });
+    if (!(error instanceof ModelError && error.answered)) {
+      await deps.release(reservation).catch((releaseError: unknown) => {
+        console.warn('Could not give the help request back.', releaseError);
+      });
+    }
     throw error;
   }
 

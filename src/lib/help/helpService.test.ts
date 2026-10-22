@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { getHelp, HELP_BUDGET_PER_HOUR, type HelpDeps, type HelpRequest } from './helpService';
+import { ModelError } from './modelError';
 import { EXPLAIN_SYSTEM, TRANSLATE_SYSTEM } from './prompts';
 
 const USER = 'user-1';
@@ -123,12 +124,26 @@ describe('getHelp', () => {
     expect(deps.callModel).not.toHaveBeenCalled();
   });
 
-  it('gives the reservation back when the model fails, saves nothing, and lets the failure through', async () => {
-    const failure = new Error('model down');
+  it.each([
+    ['the model could not be reached, timed out or was aborted', new ModelError('The model service could not be reached')],
+    ['the call failed in some other way', new Error('model down')],
+  ])('gives the reservation back when %s, saves nothing, and lets the failure through (ruling R75)', async (_name, failure) => {
     const deps = fakeDeps({ callModel: vi.fn(async () => Promise.reject(failure)) });
 
     await expect(getHelp(USER, ASK, deps)).rejects.toBe(failure);
     expect(deps.release).toHaveBeenCalledExactlyOnceWith(RESERVATION);
+    expect(deps.saveCached).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['refused', new ModelError('The model stopped with refusal', { declined: true })],
+    ['ran out of room', new ModelError('The model stopped with max_tokens', { declined: true })],
+    ['came back with no text', new ModelError('The model answered with no text', { answered: true })],
+  ])('keeps the reservation when the model answered but %s, so a line that never works cannot be asked forever (ruling R75)', async (_name, failure) => {
+    const deps = fakeDeps({ callModel: vi.fn(async () => Promise.reject(failure)) });
+
+    await expect(getHelp(USER, ASK, deps)).rejects.toBe(failure);
+    expect(deps.release).not.toHaveBeenCalled();
     expect(deps.saveCached).not.toHaveBeenCalled();
   });
 
