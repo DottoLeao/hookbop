@@ -2,8 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { t } from '@/i18n/t';
-import { matchTyped, normalizeTyped } from '@/lib/game/typo';
-import { isRealWord } from '@/lib/game/words';
+import { matchTyped, normalizeTyped, warmUpWordList } from '@/lib/game/typo';
 import type { Blank } from '@/lib/types';
 import { CorrectedWord } from './CorrectedWord';
 import { ResultIcon } from './ResultIcon';
@@ -14,7 +13,7 @@ const WARM_UP_DELAY_MS = 300;
 /** The longest the word list waits for an idle moment. */
 const WARM_UP_TIMEOUT_MS = 2000;
 
-interface DigitacaoAreaProps {
+export interface DigitacaoAreaProps {
   blank: Blank;
   /** A hint was used on the blank: the first letter of the answer shows as the example text in the field. */
   hinted?: boolean;
@@ -38,7 +37,9 @@ function firstLetter(answer: string): string | undefined {
  * of one letter is forgiven (`matchTyped`) and the corrected word shows with the fixed letters marked.
  *  - A right answer turns the field lime with ✓ and read-only.
  *  - A wrong one turns it red with ✕ and selects the text, so a new try replaces it. The same wrong word sent again
- *    is not counted twice.
+ *    (the same once capitals, spaces and final punctuation are put aside) is not counted twice.
+ *  - A hint asked for after a miss clears the wrong word, so the first letter shows as the example text, and puts the
+ *    focus back in the field (the tap on "Dica" took it).
  * The result is said only to screen readers (a status line that is `sr-only`), never as text on screen.
  *
  * Send goes through the form, not a key event: the "done" key of some Android keyboards sends no Enter keydown.
@@ -52,20 +53,29 @@ export function DigitacaoArea({ blank, hinted = false, solved = false, corrected
   const [typed, setTyped] = useState('');
   const [phase, setPhase] = useState<Phase>('typing');
   const [fixed, setFixed] = useState<readonly number[]>(corrected);
+  // The last wrong word, as it is compared: sending it again is not a new try.
+  const lastWrongRef = useRef<string | null>(null);
   const right = solved || phase === 'right';
   const wrong = !right && phase === 'wrong';
+
+  // A hint asked for after a miss: the wrong word is still in the field, and would hide the example text. Clear it.
+  const [hintSeen, setHintSeen] = useState(hinted);
+  if (hinted !== hintSeen) {
+    setHintSeen(hinted);
+    if (hinted && wrong) {
+      setTyped('');
+      setPhase('typing');
+    }
+  }
 
   // The word list takes ~100 ms to build the first time it is asked, so it is built while the player is not typing
   // yet, not on their first Enter.
   useEffect(() => {
-    const warmUp = () => {
-      isRealWord('a');
-    };
     if (typeof requestIdleCallback === 'function') {
-      const idle = requestIdleCallback(warmUp, { timeout: WARM_UP_TIMEOUT_MS });
+      const idle = requestIdleCallback(warmUpWordList, { timeout: WARM_UP_TIMEOUT_MS });
       return () => cancelIdleCallback(idle);
     }
-    const timer = setTimeout(warmUp, WARM_UP_DELAY_MS);
+    const timer = setTimeout(warmUpWordList, WARM_UP_DELAY_MS);
     return () => clearTimeout(timer);
   }, []);
 
@@ -77,6 +87,15 @@ export function DigitacaoArea({ blank, hinted = false, solved = false, corrected
     if (active === null || active === document.body) inputRef.current?.focus({ preventScroll: true });
   }, [solved]);
 
+  // The tap on "Dica" took the focus (and closed the phone keyboard). It goes back to the field: the player is about to
+  // type. Only for a hint asked for now, not for an area that appears already hinted.
+  const wasHintedRef = useRef(hinted);
+  useEffect(() => {
+    const wasHinted = wasHintedRef.current;
+    wasHintedRef.current = hinted;
+    if (hinted && !wasHinted && !solved) inputRef.current?.focus({ preventScroll: true });
+  }, [hinted, solved]);
+
   function change(event: ChangeEvent<HTMLInputElement>) {
     if (right) return;
     setTyped(event.target.value);
@@ -87,14 +106,18 @@ export function DigitacaoArea({ blank, hinted = false, solved = false, corrected
     event.preventDefault();
     // Nothing to answer: no word (nothing but spaces, invisible characters or final punctuation), the blank is
     // already right, or the input method has not finished the word.
-    if (right || composingRef.current || normalizeTyped(typed) === '') return;
-    if (wrong) {
+    const word = normalizeTyped(typed);
+    if (right || composingRef.current || word === '') return;
+    if (word === lastWrongRef.current) {
+      // The same wrong word again: not a new try. The field says it is still wrong, with the text ready to replace.
+      setPhase('wrong');
       inputRef.current?.select();
       return;
     }
 
     const { result, correctedIndices } = matchTyped(typed, blank.answer);
     if (result === 'wrong') {
+      lastWrongRef.current = word;
       setPhase('wrong');
       inputRef.current?.select();
       onAnswer(false, []);
@@ -158,7 +181,7 @@ export function DigitacaoArea({ blank, hinted = false, solved = false, corrected
           className={
             right
               ? 'sr-only'
-              : `h-full min-w-0 flex-1 bg-transparent text-button font-semibold outline-none placeholder:text-faint ${
+              : `h-full min-w-0 flex-1 bg-transparent text-button font-semibold outline-none placeholder:text-muted ${
                   wrong ? 'selection:bg-bg selection:text-error' : ''
                 }`
           }

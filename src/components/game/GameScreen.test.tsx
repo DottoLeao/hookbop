@@ -110,6 +110,43 @@ async function renderTyping(over: Partial<GameScreenProps> = {}) {
   return onEnd;
 }
 
+/**
+ * A game screen that is new to this test (the modules are loaded again), so nothing an earlier test loaded or kept
+ * can change what this one sees: its typing area has to be asked for now. Typing round, by default.
+ */
+async function renderFreshGame(over: Partial<GameScreenProps> = {}) {
+  vi.resetModules();
+  const { GameScreen: Fresh } = await import('./GameScreen');
+  render(
+    <Fresh
+      adapter={fake}
+      mode="digitacao"
+      difficulty="medio"
+      lines={TYPING_LINES}
+      blanks={[GET]}
+      video={VIDEO}
+      timeToReadyMs={1200}
+      onEnd={vi.fn()}
+      {...over}
+    />,
+  );
+  act(() => vi.advanceTimersByTime(300));
+}
+
+/**
+ * Lets the code that was asked for with `import()` arrive, and what it sets going. Each round gives the real world a
+ * turn (a mocked module that loads the real one in its factory is not seen by `dynamicImportSettled`) and React its
+ * updates; it stops once `arrived` says so. (`findBy` waits on timers, which are fake in this file.)
+ */
+async function settleImports(arrived: () => boolean = () => true) {
+  for (let round = 0; round < 200; round++) {
+    await act(async () => {
+      await vi.dynamicImportSettled();
+    });
+    if (arrived()) return;
+  }
+}
+
 function field() {
   return screen.getByLabelText<HTMLInputElement>('Digite a palavra que falta');
 }
@@ -298,23 +335,50 @@ describe('GameScreen: Escolha', () => {
 });
 
 describe('GameScreen: Digitação', () => {
-  // This test comes first on purpose: the typing area is loaded the first time it is needed, and only that first
-  // time shows the placeholder.
+  afterEach(() => {
+    vi.doUnmock('./DigitacaoArea');
+    vi.resetModules();
+  });
+
   it('keeps the room of the typing area while it loads, then shows the field in place of the options', async () => {
-    renderGame({ mode: 'digitacao', lines: TYPING_LINES, blanks: [GET] });
+    await renderFreshGame();
 
     expect(screen.getByTestId('digitacao-loading')).toBeInTheDocument();
     expect(screen.queryByLabelText('Digite a palavra que falta')).not.toBeInTheDocument();
 
-    await act(async () => {
-      await vi.dynamicImportSettled();
-    });
+    await settleImports();
 
     expect(screen.queryByTestId('digitacao-loading')).not.toBeInTheDocument();
     expect(field()).toBeEnabled();
     expect(screen.queryByRole('group', { name: 'Escolha a palavra que falta' })).not.toBeInTheDocument();
-    expect(makeDistractors).not.toHaveBeenCalled();
     expect(screen.getByText('Modo Digitação')).toBeInTheDocument();
+  });
+
+  it('starts getting the typing area as soon as a typing round is up, before any blank is in play', async () => {
+    const asked = vi.fn();
+    vi.doMock('./DigitacaoArea', async (importOriginal) => {
+      asked();
+      return importOriginal();
+    });
+
+    await renderFreshGame({ blanks: [] });
+    await settleImports();
+
+    expect(asked).toHaveBeenCalledOnce();
+    expect(screen.queryByLabelText('Digite a palavra que falta')).not.toBeInTheDocument();
+  });
+
+  it('does not ask for the typing area in the other modes', async () => {
+    const asked = vi.fn();
+    vi.doMock('./DigitacaoArea', async (importOriginal) => {
+      asked();
+      return importOriginal();
+    });
+
+    await renderFreshGame({ mode: 'escolha', lines: LINES, blanks: [LET] });
+    await settleImports();
+
+    expect(asked).not.toHaveBeenCalled();
   });
 
   it('forgives a typo: the lyric shows the word with the fixed letters marked, and the answer counts', async () => {
@@ -339,13 +403,14 @@ describe('GameScreen: Digitação', () => {
     expect(onEnd.mock.calls[0][1]).toEqual([{ blankId: GET.id, kind: 'first', correct: true, beforeLineEnd: true }]);
   });
 
-  it('shows an exact word in the lyric with nothing marked', async () => {
+  it('shows an exact word in the lyric with a check and nothing marked', async () => {
     await renderTyping();
 
     type('Get');
 
-    const word = within(screen.getByTestId('line-current')).getByRole('button', { name: 'get' });
+    const word = within(screen.getByTestId('line-current')).getByRole('button', { name: 'get, acertou' });
     expect(word).toHaveClass('bg-lime');
+    expect(word.querySelector('[data-icon="check"]')).not.toBeNull();
     expect(document.querySelector('[data-corrected]')).toBeNull();
   });
 
@@ -370,6 +435,32 @@ describe('GameScreen: Digitação', () => {
     expect(onEnd.mock.calls[0][1]).toEqual([
       { blankId: GET.id, kind: 'first', correct: false, beforeLineEnd: true },
       { blankId: GET.id, kind: 'retry', correct: true, beforeLineEnd: true },
+    ]);
+  });
+
+  it('after a miss, Dica empties the field and shows the first letter, and gives the focus back to it', async () => {
+    const onEnd = await renderTyping();
+    type('got');
+    expect(fieldBox()).toHaveClass('bg-error');
+    const hint = screen.getByRole('button', { name: 'Dica' });
+    // The tap on the button takes the focus from the field.
+    hint.focus();
+    expect(field()).not.toHaveFocus();
+
+    fireEvent.click(hint);
+
+    expect(field()).toHaveValue('');
+    expect(field()).toHaveAttribute('placeholder', 'g');
+    expect(fieldBox()).not.toHaveClass('bg-error');
+    expect(fieldBox().querySelector('[data-icon]')).toBeNull();
+    expect(field()).toHaveFocus();
+
+    // The next try counts as helped.
+    type('get');
+    act(() => fake.emitState('ended'));
+    expect(onEnd.mock.calls[0][1]).toEqual([
+      { blankId: GET.id, kind: 'first', correct: false, beforeLineEnd: true },
+      { blankId: GET.id, kind: 'helped', correct: true, beforeLineEnd: true },
     ]);
   });
 
@@ -416,6 +507,45 @@ describe('GameScreen: Digitação', () => {
 
     expect(screen.getByTestId('line-current')).toHaveTextContent("I can't lacuna you off my mind");
     expect(makeDistractors).not.toHaveBeenCalled();
+  });
+});
+
+describe('GameScreen: the typing area cannot be loaded', () => {
+  afterEach(() => {
+    vi.doUnmock('./DigitacaoArea');
+    vi.resetModules();
+  });
+
+  it('keeps the game going around a short line and "Tentar de novo", which brings the field back', async () => {
+    // React logs a failure that an error boundary caught; this test makes the load fail on purpose.
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    let failing = true;
+    vi.doMock('./DigitacaoArea', async (importOriginal) => {
+      if (failing) throw new Error('Failed to fetch dynamically imported module');
+      return importOriginal();
+    });
+    const destroy = vi.spyOn(fake, 'destroy');
+
+    await renderFreshGame();
+    await settleImports();
+
+    expect(screen.getByRole('alert')).toHaveTextContent('O campo de digitar não carregou.');
+    expect(screen.queryByLabelText('Digite a palavra que falta')).not.toBeInTheDocument();
+    // The player, the header, the lyrics and the tools are all still there, and work.
+    expect(screen.getByText('Let It Be · The Beatles')).toBeInTheDocument();
+    expect(screen.getByTestId('line-current')).toHaveTextContent("I can't lacuna you off my mind");
+    const before = fake.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: 'Repetir verso' }));
+    expect(fake.calls.slice(before)).toEqual(['seek:0', 'play']);
+    expect(destroy).not.toHaveBeenCalled();
+
+    failing = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Tentar de novo' }));
+    await settleImports(() => screen.queryByLabelText('Digite a palavra que falta') !== null);
+
+    expect(field()).toBeEnabled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByText('Let It Be · The Beatles')).toBeInTheDocument();
   });
 });
 
@@ -795,7 +925,7 @@ describe('LyricPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Não entendi' }));
     expect(onExplain).toHaveBeenLastCalledWith('let');
 
-    fireEvent.click(within(screen.getByTestId('line-current')).getByRole('button', { name: 'let' }));
+    fireEvent.click(within(screen.getByTestId('line-current')).getByRole('button', { name: 'let, acertou' }));
     expect(onExplain).toHaveBeenCalledTimes(2);
     expect(onExplain).toHaveBeenLastCalledWith('let');
   });
@@ -815,12 +945,49 @@ describe('LyricPanel', () => {
     expect(onExplain).toHaveBeenCalledExactlyOnceWith('let');
   });
 
-  it('marks nothing on a blank that was right as typed, or when there are no corrections', () => {
-    renderPanel({ status: { [LET.id]: 'correct' }, corrected: {} });
+  it('shows every right blank with a check and its result for screen readers, with no letters marked unless fixed', () => {
+    const { onExplain } = renderPanel({ status: { [LET.id]: 'correct' }, corrected: {} });
 
-    const word = within(screen.getByTestId('line-current')).getByRole('button', { name: 'let' });
+    const word = within(screen.getByTestId('line-current')).getByRole('button', { name: 'let, acertou' });
+    expect(word).toHaveClass('bg-lime', 'text-bg', 'min-h-11');
+    expect(word).toHaveTextContent('let');
+    expect(word.querySelector('[data-icon="check"]')).not.toBeNull();
     expect(fixedLettersIn(word)).toEqual([]);
-    expect(word.querySelector('[data-icon]')).toBeNull();
+    // The result is the accessible name, not text on screen.
+    expect(document.body.textContent).not.toMatch(/acertou|errou/i);
+    fireEvent.click(word);
+    expect(onExplain).toHaveBeenCalledExactlyOnceWith('let');
+  });
+
+  it('draws two right words on one line the same way, whether one of them was fixed or not (ruling R55)', () => {
+    const DOWN: Blank = { id: '0:4', lineIndex: 0, tokenIndex: 4, answer: 'down' };
+    renderPanel({
+      blanks: [LET, DOWN],
+      status: { [LET.id]: 'correct', [DOWN.id]: 'correct' },
+      corrected: { [LET.id]: [1, 2] },
+    });
+
+    const line = within(screen.getByTestId('line-current'));
+    const fixedWord = line.getByRole('button', { name: 'let, corrigido automaticamente' });
+    const plainWord = line.getByRole('button', { name: 'down, acertou' });
+    for (const word of [fixedWord, plainWord]) {
+      expect(word.querySelector('[data-icon="check"]')).not.toBeNull();
+    }
+    expect(plainWord.className).toBe(fixedWord.className);
+    expect(fixedLettersIn(fixedWord)).toEqual(['e', 't']);
+    expect(fixedLettersIn(plainWord)).toEqual([]);
+  });
+
+  it('shows a right blank in the muted lines around the line in play as plain text, with no check', () => {
+    renderPanel({
+      current: 1,
+      blanks: [LET, GAVE],
+      status: { [LET.id]: 'correct', [GAVE.id]: 'pending' },
+    });
+
+    expect(screen.getByTestId('line-previous')).toHaveTextContent("Please don't let me down");
+    expect(screen.getByTestId('line-previous').querySelector('[data-icon]')).toBeNull();
+    expect(within(screen.getByTestId('line-previous')).queryAllByRole('button')).toHaveLength(0);
   });
 
   it('marks the corrected letters only in the line in play, not in the muted lines around it', () => {

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { DjBop, type DjBopExpression } from '@/components/brand/DjBop';
 import { t } from '@/i18n/t';
@@ -15,6 +15,7 @@ import { usePlayerTime } from '@/lib/player/usePlayerTime';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from '@/lib/settings';
 import type { AnswerRecord, Blank, Command, Difficulty, LyricLine, Mode, PlaySummary } from '@/lib/types';
 import { EscolhaArea, escolhaOptions } from './EscolhaArea';
+import { LazyDigitacaoArea, preloadDigitacaoArea } from './LazyDigitacaoArea';
 import { LyricPanel } from './LyricPanel';
 import { SettingsSheet } from './SettingsSheet';
 import { ToolsBar } from './ToolsBar';
@@ -33,12 +34,6 @@ const REACTION_MS = 1000;
 
 /** DJ Bop makes his combo face each time the combo reaches a multiple of this. */
 const COMBO_CHEER = 5;
-
-/**
- * The typing area is loaded when a typing round needs it, not with the game screen: it brings the typo check and the
- * English word list (~100K words) that only this mode uses.
- */
-const DigitacaoArea = lazy(() => import('./DigitacaoArea').then((module) => ({ default: module.DigitacaoArea })));
 
 /** What the player can use in this phase, which is fixed when the app is built. */
 const entitlements = getEntitlements(process.env.NEXT_PUBLIC_APP_PHASE);
@@ -202,6 +197,11 @@ export function GameScreen({ adapter, mode, lines, blanks, video, onEnd, headerS
     if (storage) applySettings(loadSettings(storage));
   }, [applySettings]);
 
+  // A typing round starts getting the typing area's code as soon as the screen is up, so it is there by the first blank.
+  useEffect(() => {
+    if (mode === 'digitacao') preloadDigitacaoArea();
+  }, [mode]);
+
   useEffect(() => adapter.onState((state) => dispatch({ type: 'PLAYER_STATE', state })), [adapter, dispatch]);
 
   // "Jogar" starts the round from the top of the clip.
@@ -351,17 +351,13 @@ export function GameScreen({ adapter, mode, lines, blanks, video, onEnd, headerS
             />
           )}
           {blank && mode === 'digitacao' && (
-            // Room for the field while its code loads (the area's own height, 74 px), so the tools do not jump.
-            <Suspense fallback={<div data-testid="digitacao-loading" aria-hidden="true" className="h-18.5" />}>
-              <DigitacaoArea
-                key={blank.id}
-                blank={blank}
-                hinted={hinted}
-                solved={solved}
-                corrected={corrected[blank.id]}
-                onAnswer={(correct, correctedIndices) => answer(blank, correct, correctedIndices)}
-              />
-            </Suspense>
+            <LazyDigitacaoArea
+              blank={blank}
+              hinted={hinted}
+              solved={solved}
+              corrected={corrected[blank.id]}
+              onAnswer={(correct, correctedIndices) => answer(blank, correct, correctedIndices)}
+            />
           )}
           <ToolsBar
             slow={slow}

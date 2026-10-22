@@ -4,7 +4,7 @@ import blocklist from './data/blocklist.json';
 import homophones from './data/homophones.json';
 import { inflections, makeDistractors } from './distractors';
 import { damerau } from './editDistance';
-import { isRealWord } from './words';
+import { isRealWord } from './realWords';
 
 const SEEDS = Array.from({ length: 8 }, (_, i) => `seed-${i}`);
 

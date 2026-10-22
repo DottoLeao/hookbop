@@ -97,25 +97,30 @@ function LineText({ text, blanks, status, onExplain, inPlayId, corrected }: Line
       return <Slot key={i} inPlay={blank.id === inPlayId} small={!onExplain} />;
     }
     if (!onExplain) return <Fragment key={i}>{piece.text}</Fragment>;
-    const fixed = blank ? corrected?.[blank.id] : undefined;
-    if (blank && fixed && fixed.length > 0) {
-      // A word typed with a slip and set right: ✓, and the letters that were fixed with a wavy underline.
+    if (blank) {
+      // A right blank: lime with ✓, whatever the mode, so two right words on a line look alike. One typed with a slip
+      // also has the letters that were fixed under a wavy line, and says so to screen readers.
+      const fixed = corrected?.[blank.id] ?? [];
       return (
         <button
           key={i}
           type="button"
-          aria-label={t('digitacao.corrected', { palavra: piece.text })}
+          aria-label={t(fixed.length > 0 ? 'digitacao.corrected' : 'jogo.hit', { palavra: piece.text })}
           onClick={() => onExplain(piece.word)}
           className={`${tappable} gap-1 bg-lime px-2.5 text-bg`}
         >
           <ResultIcon hit />
-          <CorrectedWord word={piece.text} corrected={fixed} />
+          {fixed.length > 0 ? <CorrectedWord word={piece.text} corrected={fixed} /> : piece.text}
         </button>
       );
     }
-    const look = blank ? 'bg-lime px-2.5 text-bg' : 'px-0.5 hover:text-lime-light';
     return (
-      <button key={i} type="button" onClick={() => onExplain(piece.word)} className={`${tappable} ${look}`}>
+      <button
+        key={i}
+        type="button"
+        onClick={() => onExplain(piece.word)}
+        className={`${tappable} px-0.5 hover:text-lime-light`}
+      >
         {piece.text}
       </button>
     );

@@ -63,6 +63,8 @@ export const ptBR = {
   'jogo.settings': 'Configurações',
   'jogo.settingsDone': 'Pronto',
   'jogo.blank': 'lacuna',
+  // Uma lacuna certa na letra: o resultado só no nome acessível, nunca na tela.
+  'jogo.hit': '{palavra}, acertou',
   'jogo.translate': 'Traduzir verso',
   'jogo.explain': 'Não entendi',
   'jogo.slow': '0.75x',
@@ -83,6 +85,9 @@ export const ptBR = {
   'digitacao.hit': '{palavra}, acertou',
   'digitacao.miss': '{palavra}, errou',
   'digitacao.corrected': '{palavra}, corrigido automaticamente',
+  // Quando o código do campo não carrega. Sem culpar ninguém, e o jogo segue.
+  'digitacao.loadFailed': 'O campo de digitar não carregou.',
+  'digitacao.retry': 'Tentar de novo',
 
   'entrar.google': 'Entrar com Google',
   'entrar.email': 'Receber link por e-mail',

@@ -1,13 +1,13 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { isRealWord } from '@/lib/game/words';
+import { isRealWord } from '@/lib/game/realWords';
 import type { Blank } from '@/lib/types';
 import { DigitacaoArea } from './DigitacaoArea';
 
 // The word list is the real one, so "got" is a real word and "gte" is not. The spy only lets the tests see when it
 // is first asked, which the area does on its own once it is idle.
-vi.mock('@/lib/game/words', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/game/words')>();
+vi.mock('@/lib/game/realWords', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/game/realWords')>();
   return { ...actual, isRealWord: vi.fn(actual.isRealWord) };
 });
 
@@ -89,6 +89,91 @@ describe('DigitacaoArea: the field', () => {
 
     expect(field()).toHaveAttribute('placeholder', 'g');
     expect(screen.getByText('Digite a palavra que falta')).toBeVisible();
+  });
+
+  it('draws the hint in the muted color, which has the contrast the hint needs on the field', () => {
+    renderArea({ hinted: true });
+
+    expect(field()).toHaveClass('placeholder:text-muted');
+    expect(field()).not.toHaveClass('placeholder:text-faint');
+  });
+
+  describe('a hint asked for while the field is on the screen', () => {
+    /** The hint button, which took the focus when it was tapped. */
+    function tapHintButton() {
+      const button = document.createElement('button');
+      document.body.append(button);
+      button.focus();
+      return button;
+    }
+
+    it('after a miss, clears the wrong word so the first letter shows, and gives the field its focus back', () => {
+      const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+      const { onAnswer, rerender } = renderArea();
+      submit('got');
+      expect(box()).toHaveClass('bg-error');
+      const button = tapHintButton();
+      focus.mockClear();
+
+      rerender(<DigitacaoArea blank={BLANK} hinted onAnswer={onAnswer} />);
+
+      expect(field()).toHaveValue('');
+      expect(field()).toHaveAttribute('placeholder', 'g');
+      // Back to a field waiting for a new try: no red, no cross, nothing said.
+      expect(box()).not.toHaveClass('bg-error');
+      expect(box().querySelector('[data-icon]')).toBeNull();
+      expect(field()).not.toHaveAttribute('aria-invalid');
+      expect(screen.getByRole('status')).toBeEmptyDOMElement();
+      expect(field()).toHaveFocus();
+      expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+      // The hint is not an answer.
+      expect(onAnswer).toHaveBeenCalledOnce();
+      button.remove();
+      focus.mockRestore();
+    });
+
+    it('takes the next try after that, and it counts', () => {
+      const { onAnswer, rerender } = renderArea();
+      submit('got');
+      rerender(<DigitacaoArea blank={BLANK} hinted onAnswer={onAnswer} />);
+
+      submit('get');
+
+      expect(onAnswer).toHaveBeenCalledTimes(2);
+      expect(onAnswer).toHaveBeenLastCalledWith(true, []);
+      expect(box()).toHaveClass('bg-lime');
+    });
+
+    it('while the player is typing, keeps what was typed and gives the focus back', () => {
+      const { onAnswer, rerender } = renderArea();
+      fireEvent.change(field(), { target: { value: 'ge' } });
+      const button = tapHintButton();
+
+      rerender(<DigitacaoArea blank={BLANK} hinted onAnswer={onAnswer} />);
+
+      expect(field()).toHaveValue('ge');
+      expect(field()).toHaveFocus();
+      button.remove();
+    });
+
+    it('does not take the focus when the area appears already hinted and something else has it', () => {
+      const button = tapHintButton();
+
+      renderArea({ hinted: true });
+
+      expect(button).toHaveFocus();
+      button.remove();
+    });
+
+    it('does not take the focus for a blank that is already right', () => {
+      const { onAnswer, rerender } = renderArea({ solved: true });
+      const button = tapHintButton();
+
+      rerender(<DigitacaoArea blank={BLANK} solved hinted onAnswer={onAnswer} />);
+
+      expect(button).toHaveFocus();
+      button.remove();
+    });
   });
 
   it('with a hint, gives the first letter of an answer that starts with an apostrophe', () => {
@@ -198,6 +283,34 @@ describe('DigitacaoArea: a wrong answer', () => {
     expect(onAnswer).toHaveBeenCalledOnce();
     expect(box()).toHaveClass('bg-error');
     expect(field().selectionEnd).toBe(3);
+  });
+
+  it('judges a repeat by the word, not by the keys: other capitals or spaces are the same wrong word', () => {
+    const { onAnswer } = renderArea();
+    submit('got');
+
+    submit('got ');
+    submit(' GOT');
+    submit('got.');
+
+    expect(onAnswer).toHaveBeenCalledOnce();
+    // The field shows it is still wrong, and the text is ready to be replaced.
+    expect(box()).toHaveClass('bg-error');
+    expect(box().querySelector('[data-icon="cross"]')).not.toBeNull();
+    expect(field().selectionStart).toBe(0);
+    expect(field().selectionEnd).toBe(field().value.length);
+  });
+
+  it('counts a different wrong word, and the first one again once it is not the last', () => {
+    const { onAnswer } = renderArea();
+    submit('got');
+
+    submit('gut');
+    expect(onAnswer).toHaveBeenCalledTimes(2);
+    expect(onAnswer).toHaveBeenLastCalledWith(false, []);
+
+    submit('got');
+    expect(onAnswer).toHaveBeenCalledTimes(3);
   });
 
   it('does not forgive a word that is only a different real word', () => {

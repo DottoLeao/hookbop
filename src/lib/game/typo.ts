@@ -1,6 +1,6 @@
 import { damerau } from './editDistance';
 import { foldWord } from './text';
-import { isRealWord } from './words';
+import { isRealWord } from './realWords';
 
 /** An answer needs at least this many letters (apostrophes do not count) before a typo in it is forgiven. */
 const MIN_LETTERS_TO_FORGIVE = 3;
@@ -13,6 +13,14 @@ const MIN_LETTERS_TO_FORGIVE = 3;
  *  - soft hyphen (U+00AD) and Mongolian vowel separator (U+180E).
  */
 const INVISIBLE = /[\u00AD\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g;
+
+/**
+ * Builds the word list now, so the first `matchTyped` does not stall: the list has ~100K words and takes about 100 ms
+ * to build the first time it is asked for. Nothing happens on the later calls.
+ */
+export function warmUpWordList(): void {
+  isRealWord('a');
+}
 
 export interface TypedMatch {
   result: 'exact' | 'corrected' | 'wrong';
