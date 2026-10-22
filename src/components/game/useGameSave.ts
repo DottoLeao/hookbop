@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import type { PlayToSave, SavedPlay } from '@/lib/supabase/plays';
+import { randomUuid } from '@/lib/uuid';
 import type { SaveStatus } from './EndScreen';
 
 /** A finished game, as the song screen hands it over to be saved. Who is playing, when, and the play's id are added later. */
@@ -57,7 +58,7 @@ export function useGameSave(savePlay: SavePlay) {
   const begin = useCallback(
     (game: FinishedGame) => {
       if (gameRef.current) return;
-      gameRef.current = { ...game, playId: crypto.randomUUID() };
+      gameRef.current = { ...game, playId: randomUuid() };
       run(gameRef.current, false);
     },
     [run],

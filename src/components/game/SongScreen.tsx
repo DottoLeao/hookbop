@@ -16,6 +16,7 @@ import type { SongResolution, VideoRecord } from '@/lib/lyrics/resolveSong';
 import type { PlayerAdapter, PlayerError } from '@/lib/player/adapter';
 import { usePauseWhenHidden } from '@/lib/player/usePauseWhenHidden';
 import { createYouTubeAdapter, PlayerLoadError } from '@/lib/player/youtubeAdapter';
+import { FIRST_FINISH_KEY } from '@/lib/pwa/firstFinish';
 import { postSong } from '@/lib/song/postSong';
 import { createBrowserSupabase } from '@/lib/supabase/client';
 import { applyDoubleXp, createSupabasePlaysDb, savePlay } from '@/lib/supabase/plays';
@@ -33,9 +34,6 @@ const DURATION_WAIT_MS = 3000;
 
 /** What the player can use in this phase, which is fixed when the app is built. */
 const entitlements = getEntitlements(process.env.NEXT_PUBLIC_APP_PHASE);
-
-/** Set in the browser when a song is finished for the first time; the install prompt waits for it. */
-const FIRST_FINISH_KEY = 'hb_first_finish';
 
 /** The mark of a first finished song. Browser storage can be blocked, and then there is simply no mark. */
 function rememberFirstFinish() {

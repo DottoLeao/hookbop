@@ -8,6 +8,7 @@ import type { SongResolution, VideoRecord } from '@/lib/lyrics/resolveSong';
 import type { PlayerAdapter } from '@/lib/player/adapter';
 import { FakePlayerAdapter } from '@/lib/player/fakeAdapter';
 import { PlayerLoadError } from '@/lib/player/youtubeAdapter';
+import { FIRST_FINISH_KEY } from '@/lib/pwa/firstFinish';
 import type { AnswerRecord, PlaySummary } from '@/lib/types';
 import { GameScreen } from './GameScreen';
 import { SongScreen, type SongScreenDeps } from './SongScreen';
@@ -867,11 +868,11 @@ describe('SongScreen: the end of a song', () => {
     render(<SongScreen youtubeId={ID} deps={makeDeps()} />);
     await screen.findByRole('button', { name: 'Jogar' });
     pick('Escolha');
-    expect(localStorage.getItem('hb_first_finish')).toBeNull();
+    expect(localStorage.getItem(FIRST_FINISH_KEY)).toBeNull();
 
     await finishGame();
 
-    expect(localStorage.getItem('hb_first_finish')).toBe('1');
+    expect(localStorage.getItem(FIRST_FINISH_KEY)).toBe('1');
   });
 
   it('carries on when the browser will not keep it (site data blocked)', async () => {

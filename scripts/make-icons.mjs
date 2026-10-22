@@ -1,6 +1,7 @@
 // Renders the app icons in public/icons/ from the approved icon: option 2 of design/canvas/Icone.dc.html,
 // "Disco no limão" (a black record on lime). The PNG files are committed, so the app does not need sharp to run.
-// Run it again (npm run icons) only when the icon changes.
+// Run it again (npm run icons) only when the icon changes, and then bump CACHE_NAME in public/sw.js: the icons keep
+// their file names, so the service worker would otherwise go on serving the copies it already keeps.
 //
 //   icon-192.png, icon-512.png   the icon as designed, with its rounded corners (manifest purpose "any")
 //   icon-maskable-512.png        full bleed, for Android to cut into the shape of the phone (purpose "maskable")

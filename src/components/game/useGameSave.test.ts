@@ -49,6 +49,22 @@ describe('useGameSave', () => {
     await waitFor(() => expect(result.current.save).toEqual({ status: 'saved', playId: 'play-1', xp: 120 }));
   });
 
+  it('still saves, under a v4 id, where crypto.randomUUID throws (plain http, not a secure context)', async () => {
+    vi.spyOn(crypto, 'randomUUID').mockImplementation(() => {
+      throw new TypeError('crypto.randomUUID is not available in an insecure context');
+    });
+    const savePlay = vi.fn<SavePlay>().mockResolvedValue(SAVED);
+    const { result } = setup(savePlay);
+
+    act(() => result.current.begin(GAME));
+
+    expect(savePlay).toHaveBeenCalledWith(
+      { ...GAME, playId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/) },
+      false,
+    );
+    await waitFor(() => expect(result.current.save).toEqual({ status: 'saved', playId: 'play-1', xp: 120 }));
+  });
+
   it('saves a game once, however many times it is told it ended', async () => {
     const savePlay = vi.fn<SavePlay>().mockResolvedValue(SAVED);
     const { result } = setup(savePlay);

@@ -8,14 +8,19 @@
  *  - Only same-origin GET requests. Everything else is left to the browser: YouTube, youtube-nocookie, lrclib.net,
  *    Supabase and Google never pass through the cache.
  *  - Pages (navigations): network first. With no network, the copy of that page, else the copy of "/", else a 503.
- *  - /_next/static/* and /icons/*: cache first. Their names change when their content does.
+ *    Pages are kept even though Next.js sends the dynamic ones with Cache-Control: no-store (ruling R86): the spec asks
+ *    for the app to open with no network, and every member page is dynamic. What makes that safe is the list of what
+ *    is never kept, below, which leaves out every page that carries a session, an invite code or a one-time redirect.
+ *  - /_next/static/* and /icons/*: cache first. The names under /_next/static change when their content does. The
+ *    names under /icons do not: after running `npm run icons` (scripts/make-icons.mjs) again, bump CACHE_NAME below,
+ *    or the copies already kept go on being served.
  *  - Never kept: /api, /auth, /compartilhar, /convite, /convidar, /entrar and /admin. These carry sessions, invite
  *    codes and one-time redirects, and a copy of them could outlive the person who asked for them.
  *  - A response is only kept when it is a 200 from this site and not a redirect. */
 
 'use strict';
 
-// Bump the version to throw away everything kept by earlier versions of this file.
+// Bump the version to throw away everything kept by earlier versions of this file, and whenever the icons change.
 const CACHE_PREFIX = 'hookbop-';
 const CACHE_NAME = CACHE_PREFIX + 'v1';
 

@@ -93,6 +93,30 @@ test.describe('the install prompt', () => {
     await page.goto('/');
   }
 
+  /**
+   * Chrome sends the install offer by itself on an installable page. Here it is sent by hand, again and again until the
+   * app takes it: the app's listener calls preventDefault, so dispatchEvent gives false once it is listening. Then two
+   * frames go by, so React has drawn whatever the offer changed.
+   */
+  async function offerInstall(page: import('@playwright/test').Page) {
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const offer = new Event('beforeinstallprompt', { cancelable: true });
+          Object.assign(offer, {
+            prompt: () => {
+              (window as unknown as { installAsked: boolean }).installAsked = true;
+              return Promise.resolve();
+            },
+            userChoice: Promise.resolve({ outcome: 'accepted', platform: 'web' }),
+          });
+          return !window.dispatchEvent(offer);
+        }),
+      )
+      .toBe(true);
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+  }
+
   test('on Android it waits for the first song, then offers the browser install and opens it on "Instalar"', async ({
     page,
     seed,
@@ -100,27 +124,17 @@ test.describe('the install prompt', () => {
     const maria = await seed.member({ name: `Maria ${uniqueSuffix()}` });
     await signIn(page, maria.email);
     await expect(page.getByLabel('Link do YouTube')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Instalar' })).toHaveCount(0);
+    const instalar = page.getByRole('button', { name: 'Instalar' });
 
+    // The browser's offer is there, but no song was finished yet: no button.
+    await offerInstall(page);
+    await expect(instalar).toHaveCount(0);
+
+    // The reload loses the offer, so the browser makes it again.
     await finishedAFirstSong(page);
     await expect(page.getByLabel('Link do YouTube')).toBeVisible();
-
-    // Chrome sends the offer by itself on an installable page. Here it is sent by hand, until the page is listening.
-    const instalar = page.getByRole('button', { name: 'Instalar' });
-    await expect(async () => {
-      await page.evaluate(() => {
-        const offer = new Event('beforeinstallprompt', { cancelable: true });
-        Object.assign(offer, {
-          prompt: () => {
-            (window as unknown as { installAsked: boolean }).installAsked = true;
-            return Promise.resolve();
-          },
-          userChoice: Promise.resolve({ outcome: 'accepted', platform: 'web' }),
-        });
-        window.dispatchEvent(offer);
-      });
-      await expect(instalar).toBeVisible({ timeout: 500 });
-    }).toPass();
+    await offerInstall(page);
+    await expect(instalar).toBeVisible();
 
     await instalar.click();
 

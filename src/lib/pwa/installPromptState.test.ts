@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { FIRST_FINISH_KEY } from './firstFinish';
 import { dismissInstallPrompt, installPromptDue } from './installPromptState';
 
 beforeEach(() => {
@@ -15,12 +16,12 @@ describe('installPromptDue', () => {
   });
 
   it('is due once the first song is finished', () => {
-    localStorage.setItem('hb_first_finish', '1');
+    localStorage.setItem(FIRST_FINISH_KEY, '1');
     expect(installPromptDue()).toBe(true);
   });
 
   it('is not due again after "Agora não"', () => {
-    localStorage.setItem('hb_first_finish', '1');
+    localStorage.setItem(FIRST_FINISH_KEY, '1');
     dismissInstallPrompt();
 
     expect(localStorage.getItem('hb_install_dismissed')).toBe('1');
@@ -43,5 +44,11 @@ describe('dismissInstallPrompt', () => {
     });
 
     expect(() => dismissInstallPrompt()).not.toThrow();
+  });
+});
+
+describe('FIRST_FINISH_KEY', () => {
+  it('is the name the song screen writes and the e2e specs set', () => {
+    expect(FIRST_FINISH_KEY).toBe('hb_first_finish');
   });
 });

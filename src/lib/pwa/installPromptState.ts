@@ -1,5 +1,5 @@
-// Written by the song screen when the first song is finished (src/components/game/SongScreen.tsx).
-const FIRST_FINISH_KEY = 'hb_first_finish';
+import { FIRST_FINISH_KEY } from './firstFinish';
+
 const DISMISSED_KEY = 'hb_install_dismissed';
 
 /**
