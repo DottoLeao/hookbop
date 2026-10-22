@@ -17,8 +17,9 @@ revoke insert, update on public.videos from authenticated;
 -- ---------------------------------------------------------------------------
 -- Functions: defense in depth (ruling R82)
 -- ---------------------------------------------------------------------------
--- Each one is recreated whole from 0001 with one change. They stay security definer with an empty search_path and
--- fully qualified names, and their grants are restated at the end (create or replace keeps them anyway).
+-- Each one is recreated whole from 0001 with its changes: one for set_offset_vote and for ensure_owner, two for
+-- redeem_invite (see "New in 0004" above each). They stay security definer with an empty search_path and fully
+-- qualified names, and their grants are restated at the end (create or replace keeps them anyway).
 
 -- Records the caller's vote for a video's lyrics offset, then stores the median of all votes in videos.offset_ms and
 -- returns it. With an even number of votes the median is the mean of the two middle ones; the result is rounded to a
