@@ -5,7 +5,7 @@ import { gameReducer, initGame, summaryOf, type GameEvent, type GameState } from
 import { createScore, summarize } from './scoring';
 
 const LINES: LyricLine[] = [
-  { index: 0, startMs: 0, endMs: 4000, text: "Grandpa won't let me drive" },
+  { index: 0, startMs: 0, endMs: 4000, text: "Grandpa won't let geese drive" },
   { index: 1, startMs: 4000, endMs: 8000, text: 'Row the small boat home' },
   { index: 2, startMs: 8000, endMs: 12000, text: 'We sail with the tide' },
 ];
@@ -15,7 +15,7 @@ const DRIVE: Blank = { id: '0:4', lineIndex: 0, tokenIndex: 4, answer: 'drive' }
 const BOAT: Blank = { id: '1:3', lineIndex: 1, tokenIndex: 3, answer: 'boat' };
 const SAIL: Blank = { id: '2:1', lineIndex: 2, tokenIndex: 1, answer: 'sail' };
 const TIDE: Blank = { id: '2:4', lineIndex: 2, tokenIndex: 4, answer: 'tide' };
-const WHOLE_LINE: Blank = { id: '0:-1', lineIndex: 0, tokenIndex: -1, answer: "Grandpa won't let me drive" };
+const WHOLE_LINE: Blank = { id: '0:-1', lineIndex: 0, tokenIndex: -1, answer: "Grandpa won't let geese drive" };
 const WHOLE_LAST_LINE: Blank = { id: '2:-1', lineIndex: 2, tokenIndex: -1, answer: 'We sail with the tide' };
 
 interface Setup {
@@ -49,7 +49,7 @@ const hint = (blankId: string): GameEvent => ({ type: 'HINT', blankId });
 const player = (state: PlayerState): GameEvent => ({ type: 'PLAYER_STATE', state });
 const REPEAT: GameEvent = { type: 'REPEAT_LINE' };
 
-const LINE_TILES = ['Grandpa', "won't", 'let', 'me', 'drive'];
+const LINE_TILES = ['Grandpa', "won't", 'let', 'geese', 'drive'];
 
 function lastRecord(s: GameState) {
   return s.score.records.at(-1);
@@ -508,7 +508,7 @@ describe('hints outside montar', () => {
 
 describe('REPEAT_LINE', () => {
   const GAP_LINES: LyricLine[] = [
-    { index: 0, startMs: 2000, endMs: 4000, text: "Grandpa won't let me drive" },
+    { index: 0, startMs: 2000, endMs: 4000, text: "Grandpa won't let geese drive" },
     { index: 1, startMs: 6000, endMs: 9000, text: 'Row the small boat home' },
   ];
 
@@ -712,7 +712,7 @@ describe('purity', () => {
     [
       'montar',
       montar(),
-      [tick(3850), tile('Grandpa'), tile('let'), hint('0:-1'), tile("won't"), tile('let'), tile('me'), tile('drive')],
+      [tick(3850), tile('Grandpa'), tile('let'), hint('0:-1'), tile("won't"), tile('let'), tile('geese'), tile('drive')],
     ],
   ];
 

@@ -25,7 +25,7 @@ const ID = 'dQw4w9WgXcQ';
 const DURATION_MS = 60000;
 
 const LINES: LyricLine[] = [
-  { index: 0, startMs: 0, endMs: 4000, text: "Grandpa won't let me drive" },
+  { index: 0, startMs: 0, endMs: 4000, text: "Grandpa won't let geese drive" },
   { index: 1, startMs: 4000, endMs: 8000, text: 'She gave each kite a name' },
   { index: 2, startMs: 8000, endMs: 12000, text: 'Then every ferry horn sings across the bay' },
 ];
@@ -64,7 +64,7 @@ const ROUND: LyricLine[] = Array.from({ length: 5 }, (_, index) => ({
   index,
   startMs: index * 4000,
   endMs: (index + 1) * 4000,
-  text: "Grandpa won't let me drive",
+  text: "Grandpa won't let geese drive",
 }));
 const ROUND_BLANKS: Blank[] = ROUND.map((line) => ({ id: `${line.index}:2`, lineIndex: line.index, tokenIndex: 2, answer: 'let' }));
 
@@ -973,7 +973,7 @@ describe('GameScreen: Monte o verso', () => {
 });
 
 describe('GameScreen: one blank in play', () => {
-  const TWO_BLANK_LINES: LyricLine[] = [{ ...LINES[0], text: "Grandpa won't let me drive, I'm asking nicely" }, LINES[1], LINES[2]];
+  const TWO_BLANK_LINES: LyricLine[] = [{ ...LINES[0], text: "Grandpa won't let geese drive, I'm asking nicely" }, LINES[1], LINES[2]];
   const A: Blank = { id: '0:2', lineIndex: 0, tokenIndex: 2, answer: 'let' };
   const B: Blank = { id: '0:6', lineIndex: 0, tokenIndex: 6, answer: 'asking' };
 
@@ -1023,7 +1023,7 @@ describe('GameScreen: the screen follows the clock the game accepted', () => {
     fake = new StalePlayer(DURATION_MS);
     renderGame({ blanks: [LET, GAVE, FERRY] });
 
-    expect(screen.getByTestId('line-current')).toHaveTextContent("Grandpa won't lacuna me drive");
+    expect(screen.getByTestId('line-current')).toHaveTextContent("Grandpa won't lacuna geese drive");
     expect(distractorsAskedFor()).toEqual(['let']);
     // The bar shows where the game is, not the stale reading.
     expect(screen.getByTestId('progress').style.width).toBe('0%');
@@ -1254,7 +1254,7 @@ describe('GameScreen: lyrics', () => {
 
     const current = screen.getByTestId('line-current');
     expect(current).toHaveClass('font-heading');
-    expect(current).toHaveTextContent("Grandpa won't lacuna me drive");
+    expect(current).toHaveTextContent("Grandpa won't lacuna geese drive");
     const next = screen.getByTestId('line-next');
     expect(next).toHaveClass('text-muted');
     expect(next).toHaveTextContent('She lacuna each kite a name');
@@ -1267,7 +1267,7 @@ describe('GameScreen: lyrics', () => {
 
     playTo(4500);
 
-    expect(screen.getByTestId('line-previous')).toHaveTextContent("Grandpa won't let me drive");
+    expect(screen.getByTestId('line-previous')).toHaveTextContent("Grandpa won't let geese drive");
     expect(screen.getByTestId('line-previous')).toHaveClass('text-muted');
     expect(screen.getByTestId('line-current')).toHaveTextContent('She lacuna each kite a name');
     expect(screen.getByTestId('line-next')).toHaveTextContent('Then every ferry horn sings across the bay');
@@ -1669,7 +1669,7 @@ describe('LyricPanel', () => {
 
       const line = screen.getByTestId('line-current');
       expect(within(line).queryAllByRole('button')).toHaveLength(0);
-      expect(line).toHaveTextContent("Grandpa won't lacuna me drive");
+      expect(line).toHaveTextContent("Grandpa won't lacuna geese drive");
       expect(screen.queryByRole('button', { name: 'Não entendi' })).not.toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
       expect(onTranslate).toHaveBeenCalledExactlyOnceWith(0);
@@ -1839,7 +1839,7 @@ describe('LyricPanel', () => {
       status: { [LET.id]: 'correct', [GAVE.id]: 'pending' },
     });
 
-    expect(screen.getByTestId('line-previous')).toHaveTextContent("Grandpa won't let me drive");
+    expect(screen.getByTestId('line-previous')).toHaveTextContent("Grandpa won't let geese drive");
     expect(screen.getByTestId('line-previous').querySelector('[data-icon]')).toBeNull();
     expect(within(screen.getByTestId('line-previous')).queryAllByRole('button')).toHaveLength(0);
   });
@@ -1852,7 +1852,7 @@ describe('LyricPanel', () => {
       corrected: { [LET.id]: [1, 2] },
     });
 
-    expect(screen.getByTestId('line-previous')).toHaveTextContent("Grandpa won't let me drive");
+    expect(screen.getByTestId('line-previous')).toHaveTextContent("Grandpa won't let geese drive");
     expect(fixedLettersIn(screen.getByTestId('line-previous'))).toEqual([]);
   });
 
@@ -2032,7 +2032,7 @@ describe('LyricPanel', () => {
       it('still draws a line with words to blank around it: only a blank for the whole line is held by the area', () => {
         renderPanel({ current: 0, status: { [LET.id]: 'pending' }, inPlayId: LET.id });
 
-        expect(screen.getByTestId('line-current')).toHaveTextContent("Grandpa won't lacuna me drive");
+        expect(screen.getByTestId('line-current')).toHaveTextContent("Grandpa won't lacuna geese drive");
         expect(screen.getByTestId('line-next')).toBeInTheDocument();
       });
     });

@@ -114,7 +114,7 @@ describe('tokenize', () => {
   });
 
   it("keeps apostrophes inside a word and at the start of it, in the original case", () => {
-    expect(tokenize("Grandpa, won't let me drive!")).toEqual(['Grandpa', "won't", 'let', 'me', 'drive']);
+    expect(tokenize("Grandpa, won't let geese drive!")).toEqual(['Grandpa', "won't", 'let', 'geese', 'drive']);
     expect(tokenize("'Cause I'm Y'all's rock'n'roll")).toEqual(["'Cause", "I'm", "Y'all's", "rock'n'roll"]);
   });
 
@@ -200,7 +200,7 @@ describe('selectBlanks', () => {
     });
 
     it('does not treat the verb as a phrasal verb when the particle comes before it', () => {
-      const lines = [line(0, 'Down the street I let go')];
+      const lines = [line(0, 'Down the hallway grandma let bubbles float')];
       const answers = new Set(SEEDS.flatMap((seed) => selectBlanks(lines, 'dificil', seed).map((b) => b.answer)));
       // Without a particle after it, "let" is only an ordinary word, so it does not win every time.
       expect(answers.size).toBeGreaterThan(1);
@@ -217,7 +217,7 @@ describe('selectBlanks', () => {
 
     it('finds a contraction written with a capital or a leading apostrophe', () => {
       expect(selectBlanks([line(0, 'Gonna fly away tonight')], 'dificil', 's')[0].answer).toBe('Gonna');
-      expect(selectBlanks([line(0, "Baby I stay 'cause I care")], 'dificil', 's')[0].answer).toBe("'cause");
+      expect(selectBlanks([line(0, "Gravy waits 'cause the oven hums")], 'dificil', 's')[0].answer).toBe("'cause");
     });
 
     it('prefers a phrasal verb over a contraction', () => {
@@ -228,12 +228,12 @@ describe('selectBlanks', () => {
     });
 
     it('never picks an ad-lib or a stopword, only the content words', () => {
-      const lines = [line(0, 'Oh yeah I paint the sky you drew')];
+      const lines = [line(0, 'You knit the fog, oh yeah, I nap')];
       const banned = new Set(['oh', 'yeah', 'i', 'the', 'you']);
       for (const seed of SEEDS) {
         for (const blank of selectBlanks(lines, 'dificil', seed)) {
           expect(banned.has(blank.answer.toLowerCase())).toBe(false);
-          expect(['paint', 'sky', 'drew']).toContain(blank.answer);
+          expect(['knit', 'fog', 'nap']).toContain(blank.answer);
         }
       }
     });
@@ -299,11 +299,11 @@ describe('selectBlanks', () => {
       }
     });
 
-    it('never picks "through" in "Run through the fire"', () => {
-      const lines = [line(0, 'Run through the fire')];
+    it('never picks "through" in "Sprint through the custard"', () => {
+      const lines = [line(0, 'Sprint through the custard')];
       const answers = new Set(SEEDS.flatMap((seed) => selectBlanks(lines, 'dificil', seed).map((b) => b.answer)));
       expect(answers.has('through')).toBe(false);
-      expect([...answers].sort()).toEqual(['Run', 'fire']);
+      expect([...answers].sort()).toEqual(['Sprint', 'custard']);
     });
 
     it('still finds a phrasal verb whose particle is now a stopword', () => {
@@ -342,20 +342,20 @@ describe('selectBlanks', () => {
     });
 
     it("does not stop 'cause from being a contraction", () => {
-      expect(selectBlanks([line(0, "Stay 'cause I care")], 'dificil', 's').map((b) => b.answer)).toEqual(["'cause"]);
+      expect(selectBlanks([line(0, "Wobble 'cause I sneeze")], 'dificil', 's').map((b) => b.answer)).toEqual(["'cause"]);
     });
   });
 
   describe('lines in capitals', () => {
     it('gives an ALL CAPS line a blank, because capitals say nothing about names there', () => {
-      const lines = [line(0, 'I PAINT THE SKY YOU DREW')];
+      const lines = [line(0, 'YOU KNIT THE FOG, I NAP')];
       const answers = new Set<string>();
       for (const seed of SEEDS) {
         const picked = selectBlanks(lines, 'dificil', seed).map((b) => b.answer);
         expect(picked).toHaveLength(1);
         picked.forEach((answer) => answers.add(answer));
       }
-      expect([...answers].sort()).toEqual(['DREW', 'PAINT', 'SKY']);
+      expect([...answers].sort()).toEqual(['FOG', 'KNIT', 'NAP']);
     });
 
     it('compares stopwords and the lists without caring about case', () => {
@@ -377,9 +377,9 @@ describe('selectBlanks', () => {
     it('can pick a capitalized word in the middle of a Title Case line', () => {
       const answers = new Set<string>();
       for (const seed of SEEDS) {
-        selectBlanks([line(0, 'Chasing Your Heart Tonight')], 'dificil', seed).forEach((b) => answers.add(b.answer));
+        selectBlanks([line(0, 'Juggling Our Purple Teacups')], 'dificil', seed).forEach((b) => answers.add(b.answer));
       }
-      expect([...answers].sort()).toEqual(['Chasing', 'Heart', 'Tonight']);
+      expect([...answers].sort()).toEqual(['Juggling', 'Purple', 'Teacups']);
     });
 
     it('does not let a short lowercase word turn the name rule back on', () => {
@@ -391,10 +391,10 @@ describe('selectBlanks', () => {
     });
 
     it('gives the phrasal verb priority on a Title Case line too', () => {
-      // "Hold On To Your Heart Tonight": hold + on is a phrasal verb, so "Hold" wins over Heart and Tonight.
+      // "Turn Up The Kazoo Volume Tonight": turn + up is a phrasal verb, so "Turn" wins over Kazoo, Volume and Tonight.
       for (const seed of SEEDS) {
-        expect(selectBlanks([line(0, 'Hold On To Your Heart Tonight')], 'dificil', seed).map((b) => b.answer)).toEqual([
-          'Hold',
+        expect(selectBlanks([line(0, 'Turn Up The Kazoo Volume Tonight')], 'dificil', seed).map((b) => b.answer)).toEqual([
+          'Turn',
         ]);
       }
     });
@@ -411,7 +411,7 @@ describe('selectBlanks', () => {
   describe('hasBlankableWord', () => {
     it('is true when the line has a usable word, in any case', () => {
       expect(hasBlankableWord(tokenize('Dancing with Maria tonight'))).toBe(true);
-      expect(hasBlankableWord(tokenize('I PAINT THE SKY'))).toBe(true);
+      expect(hasBlankableWord(tokenize('YOU KNIT THE FOG'))).toBe(true);
     });
 
     it('is false for ad-libs, stopwords, short words and names alone', () => {

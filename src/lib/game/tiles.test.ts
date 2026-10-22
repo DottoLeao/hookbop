@@ -29,10 +29,10 @@ const INELIGIBLE_LINES = [
 const SEEDS = Array.from({ length: 40 }, (_, i) => `seed-${i}`);
 
 describe('makeTiles', () => {
-  const tokens = tokenize("Grandpa, won't let me drive!");
+  const tokens = tokenize("Grandpa, won't let geese drive!");
 
   it('splits the line the way the tiles need', () => {
-    expect(tokens).toEqual(['Grandpa', "won't", 'let', 'me', 'drive']);
+    expect(tokens).toEqual(['Grandpa', "won't", 'let', 'geese', 'drive']);
   });
 
   it('has the same words in another order', () => {
@@ -149,9 +149,9 @@ describe('eligibleForTiles', () => {
 
 describe('selectTileLines', () => {
   it('turns each line into one blank for the whole line', () => {
-    const lines = [line(7, "Grandpa, won't let me drive!")];
+    const lines = [line(7, "Grandpa, won't let geese drive!")];
     expect(selectTileLines(lines, 'dificil', 's')).toEqual([
-      { id: '7:-1', lineIndex: 7, tokenIndex: -1, answer: "Grandpa won't let me drive" },
+      { id: '7:-1', lineIndex: 7, tokenIndex: -1, answer: "Grandpa won't let geese drive" },
     ]);
   });
 
@@ -208,7 +208,7 @@ describe('selectTileLines', () => {
   });
 
   it('asks for the same usable word as the blanks do: none in stopwords only, any in capitals', () => {
-    const lines = [line(0, 'I am in it'), line(1, 'I PAINT THE SKY'), line(2, 'Run through the fire')];
+    const lines = [line(0, 'I am in it'), line(1, 'YOU KNIT THE FOG'), line(2, 'Sprint through the custard')];
     expect(selectTileLines(lines, 'dificil', 's').map((b) => b.lineIndex)).toEqual([1, 2]);
   });
 
