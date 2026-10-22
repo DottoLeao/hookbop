@@ -1,6 +1,12 @@
 /** A video this much longer than the lyrics probably has an intro the lyrics do not cover. */
 const CALIBRATION_THRESHOLD_S = 10;
 
+/**
+ * The largest offset a vote may carry, either way, in ms. The database refuses a vote beyond it (migration 0005, ruling
+ * R87), so the calibration sheet checks it first. Music videos with a long intro need a lot more than 30 s.
+ */
+export const MAX_OFFSET_MS = 120_000;
+
 /** True when the video is more than 10 s longer than the lyrics, so their timing may be off. */
 export function needsCalibration(videoDurationS: number, lyricsDurationS: number): boolean {
   return videoDurationS - lyricsDurationS > CALIBRATION_THRESHOLD_S;

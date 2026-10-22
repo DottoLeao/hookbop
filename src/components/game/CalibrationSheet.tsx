@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { t } from '@/i18n/t';
+import { MAX_OFFSET_MS } from '@/lib/lyrics/offset';
 import type { PlayerAdapter } from '@/lib/player/adapter';
 
 /** One tap on −0,5 s or +0,5 s. */
@@ -50,17 +51,27 @@ export function CalibrationSheet({
   const [offsetMs, setOffsetMs] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [tooFar, setTooFar] = useState(false);
 
   function markStart() {
     setOffsetMs(adapter.getCurrentTimeMs() - firstLine.startMs);
+    setTooFar(false);
   }
 
   function nudge(deltaMs: number) {
     setOffsetMs((current) => (current === null ? current : current + deltaMs));
+    setTooFar(false);
   }
 
   async function save() {
     if (offsetMs === null || saving) return;
+    // The database takes no vote past MAX_OFFSET_MS either way, so such a value is not even sent. The player measures
+    // again, nudges it back, or skips.
+    if (Math.abs(offsetMs) > MAX_OFFSET_MS) {
+      setFailed(false);
+      setTooFar(true);
+      return;
+    }
     setSaving(true);
     setFailed(false);
     let medianMs: number;
@@ -104,6 +115,11 @@ export function CalibrationSheet({
       {failed && (
         <p role="alert" className="text-center text-body text-error">
           {t('calibrar.saveError')}
+        </p>
+      )}
+      {tooFar && (
+        <p role="alert" className="text-center text-body text-muted">
+          {t('calibrar.tooFar')}
         </p>
       )}
 

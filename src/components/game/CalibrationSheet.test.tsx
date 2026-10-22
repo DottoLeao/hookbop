@@ -12,7 +12,8 @@ type Save = (id: string, offsetMs: number) => Promise<number>;
 function setup({
   saveOffsetVote = vi.fn<Save>().mockResolvedValue(25700),
   playerStarted = true,
-}: { saveOffsetVote?: Save; playerStarted?: boolean } = {}) {
+  firstLine = FIRST_LINE,
+}: { saveOffsetVote?: Save; playerStarted?: boolean; firstLine?: { text: string; startMs: number } } = {}) {
   const adapter = new FakePlayerAdapter(213000);
   adapter.seekTo(26000);
   const onSaved = vi.fn();
@@ -20,7 +21,7 @@ function setup({
   const props = {
     youtubeId: ID,
     adapter,
-    firstLine: FIRST_LINE,
+    firstLine,
     audioSearchUrl: AUDIO_SEARCH,
     saveOffsetVote,
     onSaved,
@@ -152,6 +153,110 @@ describe('CalibrationSheet', () => {
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledExactlyOnceWith(25700));
     expect(saveOffsetVote).toHaveBeenCalledTimes(2);
+  });
+
+  describe('an offset past 120 s either way, which the database would refuse', () => {
+    const TOO_FAR = 'Esse ajuste passou do meu limite. De novo?';
+
+    it('is not sent: a calm line takes the place of the save, and the player can measure again', async () => {
+      const { adapter, saveOffsetVote, onSaved } = setup();
+      adapter.seekTo(130000);
+
+      tap('Começou!');
+      expect(screen.getByRole('status')).toHaveTextContent('+129,7 s');
+      tap('Salvar');
+
+      expect(screen.getByText(TOO_FAR)).toBeInTheDocument();
+      expect(saveOffsetVote).not.toHaveBeenCalled();
+      expect(onSaved).not.toHaveBeenCalled();
+      expect(screen.queryByText('Não rolou salvar. Tenta de novo?')).not.toBeInTheDocument();
+
+      adapter.seekTo(26000);
+      tap('Começou!');
+      expect(screen.queryByText(TOO_FAR)).not.toBeInTheDocument();
+      tap('Salvar');
+
+      expect(saveOffsetVote).toHaveBeenCalledExactlyOnceWith(ID, 25700);
+      await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+    });
+
+    it('is not sent below −120 s either, and the player can still skip', () => {
+      const { adapter, saveOffsetVote, onSkip } = setup({ firstLine: { text: FIRST_LINE.text, startMs: 125000 } });
+      adapter.seekTo(3000);
+
+      tap('Começou!');
+      expect(screen.getByRole('status')).toHaveTextContent('−122,0 s');
+      tap('Salvar');
+
+      expect(screen.getByText(TOO_FAR)).toBeInTheDocument();
+      expect(saveOffsetVote).not.toHaveBeenCalled();
+
+      tap('Pular');
+
+      expect(onSkip).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+      ['+120 s', 120300, 120000],
+      ['−120 s', 5000, -120000],
+    ])('still sends exactly %s', (_name, playerMs, expected) => {
+      const { adapter, saveOffsetVote } = setup({
+        firstLine: { text: FIRST_LINE.text, startMs: playerMs === 5000 ? 125000 : FIRST_LINE.startMs },
+      });
+      adapter.seekTo(playerMs);
+
+      tap('Começou!');
+      tap('Salvar');
+
+      expect(screen.queryByText(TOO_FAR)).not.toBeInTheDocument();
+      expect(saveOffsetVote).toHaveBeenCalledExactlyOnceWith(ID, expected);
+    });
+
+    it('lets a nudge bring it back in range, and the line goes away', () => {
+      const { adapter, saveOffsetVote } = setup();
+      adapter.seekTo(120600);
+
+      tap('Começou!');
+      tap('Salvar');
+      expect(screen.getByText(TOO_FAR)).toBeInTheDocument();
+
+      tap('−0,5 s');
+      expect(screen.queryByText(TOO_FAR)).not.toBeInTheDocument();
+      tap('Salvar');
+
+      expect(saveOffsetVote).toHaveBeenCalledExactlyOnceWith(ID, 119800);
+    });
+
+    it('replaces the line of an earlier failed save instead of stacking on it', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const saveOffsetVote = vi.fn<Save>().mockRejectedValueOnce(new Error('offline'));
+      const { adapter } = setup({ saveOffsetVote });
+
+      tap('Começou!');
+      tap('Salvar');
+      expect(await screen.findByText('Não rolou salvar. Tenta de novo?')).toBeInTheDocument();
+      expect(warn).toHaveBeenCalledOnce();
+
+      adapter.seekTo(130000);
+      tap('Começou!');
+      tap('Salvar');
+
+      expect(screen.getByText(TOO_FAR)).toBeInTheDocument();
+      expect(screen.queryByText('Não rolou salvar. Tenta de novo?')).not.toBeInTheDocument();
+    });
+
+    it('follows the voice rules: 8 words at most, and it never blames the player', () => {
+      const { adapter } = setup();
+      adapter.seekTo(130000);
+
+      tap('Começou!');
+      tap('Salvar');
+
+      const line = screen.getByText(TOO_FAR);
+      expect(line.textContent!.trim().split(/\s+/).length).toBeLessThanOrEqual(8);
+      expect(line).not.toHaveClass('text-error');
+      expect(line.textContent).not.toMatch(/errad|erro|culpa|você/i);
+    });
   });
 
   it('lets the player skip it', () => {

@@ -53,6 +53,8 @@ export const ptBR = {
   'calibrar.offset': 'Ajuste: {valor}',
   'calibrar.save': 'Salvar',
   'calibrar.saveError': 'Não rolou salvar. Tenta de novo?',
+  // O ajuste passou de 2 minutos para qualquer lado: o banco não guarda, então nem tenta salvar.
+  'calibrar.tooFar': 'Esse ajuste passou do meu limite. De novo?',
   'calibrar.skip': 'Pular',
   'calibrar.switchToAudio': 'Trocar para a versão áudio oficial',
 
