@@ -1312,8 +1312,9 @@ describe('GameScreen: help with a line', () => {
     it('"Valeu" closes it, shows the game again and gives the focus back to what opened it', async () => {
       renderHelped();
       fireEvent.click(option('late'));
+      // Not focused first: Safari gives a tapped button no focus, and the focus must still come back to it.
       const pill = screen.getByRole('button', { name: 'Não entendi' });
-      pill.focus();
+      expect(pill).not.toHaveFocus();
       fireEvent.click(pill);
       await settleHelp();
 
@@ -1348,6 +1349,20 @@ describe('GameScreen: help with a line', () => {
   });
 
   describe('the clip while the sheet is open (ruling R70)', () => {
+    it('closes on Escape too, playing the clip again and giving the focus back', async () => {
+      renderHelped();
+      playTo(1000);
+      const before = fake.calls.length;
+
+      fireEvent.click(word('mind'));
+      await settleHelp();
+      fireEvent.keyDown(helpSheet(), { key: 'Escape' });
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(fake.calls.slice(before)).toEqual(['pause', 'play']);
+      expect(word('mind')).toHaveFocus();
+    });
+
     it('pauses a clip that plays, and plays it again on "Valeu"', async () => {
       renderHelped();
       playTo(1000);
@@ -1535,7 +1550,7 @@ describe('GameScreen: help with a line', () => {
 describe('LyricPanel', () => {
   function renderPanel(over: Partial<Parameters<typeof LyricPanel>[0]> = {}) {
     const onTranslate = vi.fn<(lineIndex: number) => void>();
-    const onExplain = vi.fn<(target: string, lineIndex: number) => void>();
+    const onExplain = vi.fn<(target: string, lineIndex: number, opener: HTMLElement) => void>();
     render(
       <LyricPanel
         lines={LINES}
@@ -1555,9 +1570,21 @@ describe('LyricPanel', () => {
 
     fireEvent.click(within(screen.getByTestId('line-current')).getByRole('button', { name: 'down' }));
 
-    expect(onExplain).toHaveBeenCalledExactlyOnceWith('down', 0);
+    expect(onExplain).toHaveBeenCalledExactlyOnceWith('down', 0, expect.any(HTMLButtonElement));
     expect(within(screen.getByTestId('line-current')).queryByRole('button', { name: 'let' })).not.toBeInTheDocument();
     expect(within(screen.getByTestId('line-next')).queryAllByRole('button')).toHaveLength(0);
+  });
+
+  it('hands over the very button that was tapped, so the focus can go back to it even on Safari', () => {
+    const { onExplain } = renderPanel({ status: { [LET.id]: 'wrong' } });
+
+    const word = within(screen.getByTestId('line-current')).getByRole('button', { name: 'down' });
+    fireEvent.click(word);
+    expect(onExplain.mock.lastCall?.[2]).toBe(word);
+
+    const pill = screen.getByRole('button', { name: 'Não entendi' });
+    fireEvent.click(pill);
+    expect(onExplain.mock.lastCall?.[2]).toBe(pill);
   });
 
   it('"Traduzir verso" asks for the translation of the line it is under', () => {
@@ -1577,9 +1604,9 @@ describe('LyricPanel', () => {
     });
 
     fireEvent.click(within(screen.getByTestId('line-current')).getByRole('button', { name: 'plays' }));
-    expect(onExplain).toHaveBeenLastCalledWith('plays', 1);
+    expect(onExplain).toHaveBeenLastCalledWith('plays', 1, expect.any(HTMLButtonElement));
     fireEvent.click(screen.getByRole('button', { name: 'Não entendi' }));
-    expect(onExplain).toHaveBeenLastCalledWith('radio', 1);
+    expect(onExplain).toHaveBeenLastCalledWith('radio', 1, expect.any(HTMLButtonElement));
     fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
     expect(onTranslate).toHaveBeenCalledExactlyOnceWith(1);
   });
@@ -1613,11 +1640,11 @@ describe('LyricPanel', () => {
     const { onExplain } = renderPanel({ status: { [LET.id]: 'correct' } });
 
     fireEvent.click(screen.getByRole('button', { name: 'Não entendi' }));
-    expect(onExplain).toHaveBeenLastCalledWith('let', 0);
+    expect(onExplain).toHaveBeenLastCalledWith('let', 0, expect.any(HTMLButtonElement));
 
     fireEvent.click(within(screen.getByTestId('line-current')).getByRole('button', { name: 'let, acertou' }));
     expect(onExplain).toHaveBeenCalledTimes(2);
-    expect(onExplain).toHaveBeenLastCalledWith('let', 0);
+    expect(onExplain).toHaveBeenLastCalledWith('let', 0, expect.any(HTMLButtonElement));
   });
 
   it('shows a blank the typing mode corrected with its fixed letters marked, and says so to screen readers', () => {
@@ -1632,7 +1659,7 @@ describe('LyricPanel', () => {
     expect(fixedLettersIn(word)).toEqual(['e', 't']);
     // It is still the word to explain.
     fireEvent.click(word);
-    expect(onExplain).toHaveBeenCalledExactlyOnceWith('let', 0);
+    expect(onExplain).toHaveBeenCalledExactlyOnceWith('let', 0, expect.any(HTMLButtonElement));
   });
 
   it('shows every right blank with a check and its result for screen readers, with no letters marked unless fixed', () => {
@@ -1646,7 +1673,7 @@ describe('LyricPanel', () => {
     // The result is the accessible name, not text on screen.
     expect(document.body.textContent).not.toMatch(/acertou|errou/i);
     fireEvent.click(word);
-    expect(onExplain).toHaveBeenCalledExactlyOnceWith('let', 0);
+    expect(onExplain).toHaveBeenCalledExactlyOnceWith('let', 0, expect.any(HTMLButtonElement));
   });
 
   it('draws two right words on one line the same way, whether one of them was fixed or not (ruling R55)', () => {
@@ -1766,7 +1793,7 @@ describe('LyricPanel', () => {
         }
         expect(current).not.toHaveTextContent('verso escondido');
         fireEvent.click(words[1]);
-        expect(onExplain).toHaveBeenCalledExactlyOnceWith('come', 0);
+        expect(onExplain).toHaveBeenCalledExactlyOnceWith('come', 0, expect.any(HTMLButtonElement));
       });
 
       it('shows a right line around the line in play as plain text, with no check', () => {
@@ -2097,7 +2124,6 @@ describe('GameScreen: Karaokê', () => {
     const requestHelp = helpService();
     renderKaraoke({ requestHelp });
     const river = within(currentRow()!).getByRole('button', { name: 'river' });
-    river.focus();
 
     fireEvent.click(river);
     await settleHelp();
@@ -2113,6 +2139,23 @@ describe('GameScreen: Karaokê', () => {
     expect(within(currentRow()!).getByRole('button', { name: 'river' })).toHaveFocus();
     // The list was hidden and lost its scroll, so the current line is centered again.
     expect(scrollTo).toHaveBeenCalled();
+  });
+
+  it('reports the end once when the song ends while a word is explained, and does not play on after "Valeu"', async () => {
+    const onEnd = renderKaraoke({ requestHelp: helpService() });
+    playTo(11000);
+    fireEvent.click(within(currentRow()!).getByRole('button', { name: 'Hold' }));
+    await settleHelp();
+    const before = fake.calls.length;
+
+    // The player ran the clip out from its own controls.
+    act(() => fake.emitState('ended'));
+    expect(onEnd).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole('button', { name: 'Valeu' }));
+
+    expect(fake.calls.slice(before)).toEqual([]);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(onEnd).toHaveBeenCalledOnce();
   });
 
   it('pauses the song while a word is explained, and plays it again on "Valeu"', async () => {

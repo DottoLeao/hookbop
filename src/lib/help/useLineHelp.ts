@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react';
 import { foldWord } from '@/lib/game/text';
 import type { LyricLine } from '@/lib/types';
-import { HelpError, type HelpStatus } from './helpError';
+import { HELP_STATUSES, HelpError, type HelpStatus } from './helpError';
 import type { HelpKind, HelpRequest } from './helpService';
 
 /** Sends one ask to the server and gives back the help. Rejects with a HelpError. */
 export type HelpRequester = (request: HelpRequest) => Promise<string>;
 
-const KNOWN_STATUSES: ReadonlySet<number> = new Set<HelpStatus>([400, 401, 403, 429, 503]);
+const KNOWN_STATUSES: ReadonlySet<number> = new Set<number>(HELP_STATUSES);
 
 /**
  * `POST /api/help`. A redirect is not followed: it is how src/proxy.ts turns away a request with no session or from

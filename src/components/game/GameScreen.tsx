@@ -2,14 +2,13 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { createPortal, flushSync } from 'react-dom';
+import { createPortal } from 'react-dom';
 import { DjBop, type DjBopExpression } from '@/components/brand/DjBop';
 import { t } from '@/i18n/t';
 import { getEntitlements } from '@/lib/entitlements';
 import { tokenize } from '@/lib/game/blanks';
 import { awaitsAnswer, gameReducer, initGame, summaryOf, type GameEvent, type GameState } from '@/lib/game/reducer';
 import { playHit, playMiss } from '@/lib/game/sfx';
-import { helpErrorCopy } from '@/lib/help/helpError';
 import { postHelp, useLineHelp, type HelpRequester } from '@/lib/help/useLineHelp';
 import { cleanTitle } from '@/lib/lyrics/cleanTitle';
 import type { VideoRecord } from '@/lib/lyrics/resolveSong';
@@ -22,10 +21,12 @@ import { EscolhaArea, escolhaOptions } from './EscolhaArea';
 import { HelpSheet } from './HelpSheet';
 import { KaraokeView } from './KaraokeView';
 import { LazyDigitacaoArea, preloadDigitacaoArea } from './LazyDigitacaoArea';
-import { LyricPanel, type TranslationView } from './LyricPanel';
+import { LyricPanel } from './LyricPanel';
 import { MontarArea } from './MontarArea';
 import { SettingsSheet } from './SettingsSheet';
 import { ToolsBar } from './ToolsBar';
+import { useHelpSheet } from './useHelpSheet';
+import { useLineTranslations } from './useLineTranslations';
 
 /** How often the player's clock is read and handed to the game. */
 const TICK_MS = 100;
@@ -64,16 +65,6 @@ export interface GameScreenProps {
   requestHelp?: HelpRequester;
 }
 
-/** "Não entendi" (or a tapped word) while its sheet is open. */
-interface HelpAsk {
-  target: string;
-  /** Asks for the explanation; made once per ask, so the sheet does not ask again on every render. */
-  load: () => Promise<string>;
-  /** What had the focus when the sheet opened, which gets it back on "Valeu". */
-  opener: HTMLElement | null;
-  /** The sheet paused the clip, so "Valeu" plays it again. */
-  pausedClip: boolean;
-}
 
 /** The browser storage for the settings, or null when touching it throws (site data blocked: SecurityError). */
 function settingsStorage(): Storage | null {
@@ -180,11 +171,6 @@ export function GameScreen({
   const [showTranslations, setShowTranslations] = useState(true);
   const gearRef = useRef<HTMLButtonElement>(null);
   const lineHelp = useLineHelp({ youtubeId: video.youtubeId, lyricsRef: video.lyricsRef, lines, request: requestHelp });
-  const [helpAsk, setHelpAsk] = useState<HelpAsk | null>(null);
-  // The translations of the lyric panel, by line index. A line the player asked for keeps its translation on screen.
-  const [translations, setTranslations] = useState<Record<number, TranslationView>>({});
-  // The lines "Mostrar tradução sempre" asked for by itself, each once in the round.
-  const autoTranslated = useRef(new Set<number>());
 
   const run = useCallback(
     (commands: readonly Command[]) => {
@@ -286,59 +272,13 @@ export function GameScreen({
     [mode, blank, lines],
   );
 
-  // "Mostrar tradução sempre": the line in play is translated as it comes into play, once in the round. The player
-  // opted in to that. A translation that cannot be had shows nothing here, and "Traduzir verso" stays to ask for it.
-  useEffect(() => {
-    if (karaoke || !settings.alwaysShowTranslation || autoTranslated.current.has(lineIndex)) return;
-    autoTranslated.current.add(lineIndex);
-    lineHelp.translate(lineIndex).then(
-      (text) => setTranslations((known) => ({ ...known, [lineIndex]: { status: 'done', text } })),
-      () => {},
-    );
-  }, [karaoke, settings.alwaysShowTranslation, lineIndex, lineHelp]);
-
-  /**
-   * "Traduzir verso": the translation goes under the line, whatever "Mostrar tradução sempre" says (ruling R64), with
-   * "Traduzindo..." until it comes, and DJ Bop's calm line if it cannot be had. A hidden Monte o verso line can be
-   * translated too: a translation scores nothing (ruling R60).
-   */
-  function translateLine(index: number) {
-    const unlessDone = (view: TranslationView) => (known: Record<number, TranslationView>) =>
-      known[index]?.status === 'done' ? known : { ...known, [index]: view };
-    setTranslations(unlessDone({ status: 'loading' }));
-    lineHelp.translate(index).then(
-      (text) => setTranslations((known) => ({ ...known, [index]: { status: 'done', text } })),
-      (error: unknown) => setTranslations(unlessDone({ status: 'error', message: t(helpErrorCopy(error).message) })),
-    );
-  }
-
-  /**
-   * "Não entendi", a tapped word or "Não entendi a ordem": DJ Bop's explanation of `target` in the line it was asked
-   * from, in place of the game area. A clip that plays is paused while the sheet is open (ruling R70), through the same
-   * commands as the game's own pauses. One that is already stopped (the game waiting for an answer, or the player's own
-   * pause) is left as it is.
-   */
-  function openHelp(target: string, index: number) {
-    const { phase, playerState } = gameRef.current;
-    const pausedClip = phase === 'playing' && (playerState === 'playing' || playerState === 'buffering');
-    if (pausedClip) run([{ type: 'pause' }]);
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    setHelpAsk({ target, load: () => lineHelp.explain(index, target), opener, pausedClip });
-  }
-
-  /**
-   * "Valeu": the game area comes back and the focus returns to what opened the sheet. The clip plays again only if the
-   * sheet paused it and the game has not begun to wait for an answer since (YouTube can report the pause late, and a
-   * wait can start in between): playing then would read to the game as the player skipping the line.
-   */
-  function closeHelp() {
-    const ask = helpAsk;
-    if (!ask) return;
-    // The game area has to be on screen again before the focus can go back into it.
-    flushSync(() => setHelpAsk(null));
-    if (ask.pausedClip && gameRef.current.phase === 'playing') run([{ type: 'play' }]);
-    if (ask.opener?.isConnected) ask.opener.focus();
-  }
+  // DJ Bop's explanation, in place of the game area, and the translations of the lyric panel. With "Mostrar tradução
+  // sempre" on, the line in play is translated as it comes into play; Karaokê's view asks for its own.
+  const help = useHelpSheet({ explain: lineHelp.explain, gameRef, run });
+  const { translations, translateLine } = useLineTranslations(
+    lineHelp.translate,
+    !karaoke && settings.alwaysShowTranslation ? lineIndex : null,
+  );
 
   function showReaction(expression: DjBopExpression) {
     setDj(expression);
@@ -458,16 +398,16 @@ export function GameScreen({
             already picked are still there when the sheet closes. */}
         {settingsOpen && <SettingsSheet settings={settings} onChange={changeSettings} onClose={closeSettings} />}
         {/* DJ Bop's explanation stands in for the game area the same way. */}
-        {helpAsk && !settingsOpen && <HelpSheet target={helpAsk.target} load={helpAsk.load} onClose={closeHelp} />}
-        <div hidden={settingsOpen || helpAsk !== null} className="contents">
+        {help.ask && !settingsOpen && <HelpSheet target={help.ask.target} load={help.ask.load} onClose={help.close} />}
+        <div hidden={settingsOpen || help.ask !== null} className="contents">
           {karaoke ? (
             <KaraokeView
               lines={lines}
               timeMs={game.lastTickMs}
               fetchTranslation={lineHelp.translate}
-              onExplain={openHelp}
+              onExplain={help.open}
               showTranslations={showTranslations}
-              visible={!settingsOpen && helpAsk === null}
+              visible={!settingsOpen && help.ask === null}
             />
           ) : (
             <LyricPanel
@@ -479,7 +419,7 @@ export function GameScreen({
               corrected={corrected}
               translation={translations[lineIndex]}
               onTranslate={translateLine}
-              onExplain={openHelp}
+              onExplain={help.open}
             />
           )}
           {blank && options && (
@@ -511,7 +451,7 @@ export function GameScreen({
               solved={solved}
               answered={solved || game.status[blank.id] === 'wrong'}
               onTile={(word) => placeTile(blank, word)}
-              onExplain={openHelp}
+              onExplain={help.open}
             />
           )}
           <ToolsBar

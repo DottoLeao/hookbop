@@ -52,6 +52,8 @@ export function HelpSheet({ target, load, onClose }: HelpSheetProps) {
   function retry() {
     setView({ status: 'loading' });
     setAttempt((n) => n + 1);
+    // The button goes away with the error, and the focus would fall to the page, out of reach of Escape.
+    sheetRef.current?.focus();
   }
 
   const problem = view.status === 'error' ? helpErrorCopy(view.error) : null;

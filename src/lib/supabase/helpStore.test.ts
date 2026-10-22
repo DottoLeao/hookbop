@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { describe, expect, it, vi } from 'vitest';
-import type { HelpRequest } from '@/lib/help/helpService';
+import { HELP_BUDGET_PER_HOUR, type HelpRequest } from '@/lib/help/helpService';
 import type { Database } from './database.types';
 import { createSupabaseHelpStore } from './helpStore';
 
@@ -36,7 +36,11 @@ function fakeAdmin(answer: { data?: unknown; error?: { message: string } | null;
       resolve({ data: answer.data ?? null, error: answer.error ?? null, count: answer.count ?? null });
     return builder;
   });
-  return { admin: { from } as unknown as Client, calls };
+  const rpc = vi.fn(async (name: string, args: unknown) => {
+    calls.push({ table: `rpc:${name}`, steps: [['args', args]] });
+    return { data: answer.data ?? null, error: answer.error ?? null };
+  });
+  return { admin: { from, rpc } as unknown as Client, calls };
 }
 
 describe('createSupabaseHelpStore', () => {
@@ -108,44 +112,57 @@ describe('createSupabaseHelpStore', () => {
     });
   });
 
-  describe('countRecent', () => {
-    it('counts the requests of the member since that time, without reading the rows', async () => {
-      const { admin, calls } = fakeAdmin({ count: 12 });
-      const since = Date.parse('2026-10-22T11:00:00.000Z');
+  describe('reserve', () => {
+    it('takes one request of the member\u2019s budget for that kind, with the hourly limit of the kind', async () => {
+      const { admin, calls } = fakeAdmin({ data: 17 });
 
-      expect(await createSupabaseHelpStore(admin).countRecent('user-1', since)).toBe(12);
+      expect(await createSupabaseHelpStore(admin).reserve('user-1', 'explain')).toBe(17);
       expect(calls).toEqual([
         {
-          table: 'help_requests',
-          steps: [
-            ['select', 'id', { count: 'exact', head: true }],
-            ['eq', 'user_id', 'user-1'],
-            ['gte', 'created_at', '2026-10-22T11:00:00.000Z'],
-          ],
+          table: 'rpc:reserve_help_request',
+          steps: [['args', { p_user_id: 'user-1', p_kind: 'explain', p_limit: HELP_BUDGET_PER_HOUR.explain }]],
         },
       ]);
     });
 
-    it('fails when the requests cannot be counted', async () => {
+    it('asks with the limit of translations for a translation', async () => {
+      const { admin, calls } = fakeAdmin({ data: 18 });
+
+      await createSupabaseHelpStore(admin).reserve('user-1', 'translate');
+
+      expect(calls[0].steps[0][1]).toEqual({
+        p_user_id: 'user-1',
+        p_kind: 'translate',
+        p_limit: HELP_BUDGET_PER_HOUR.translate,
+      });
+    });
+
+    it('is null when the budget has no request left', async () => {
+      const { admin } = fakeAdmin({ data: null });
+
+      expect(await createSupabaseHelpStore(admin).reserve('user-1', 'explain')).toBeNull();
+    });
+
+    it('fails when the budget cannot be read', async () => {
       const { admin } = fakeAdmin({ error: { message: 'timeout' } });
 
-      await expect(createSupabaseHelpStore(admin).countRecent('user-1', 0)).rejects.toThrow(/timeout/);
+      await expect(createSupabaseHelpStore(admin).reserve('user-1', 'explain')).rejects.toThrow(/timeout/);
     });
   });
 
-  describe('logRequest', () => {
-    it('adds one request of the member to help_requests', async () => {
+  describe('release', () => {
+    it('gives the reservation back', async () => {
       const { admin, calls } = fakeAdmin({});
 
-      await createSupabaseHelpStore(admin).logRequest('user-1');
+      await createSupabaseHelpStore(admin).release(17);
 
-      expect(calls).toEqual([{ table: 'help_requests', steps: [['insert', { user_id: 'user-1' }]] }]);
+      expect(calls).toEqual([{ table: 'rpc:release_help_request', steps: [['args', { p_id: 17 }]] }]);
     });
 
-    it('fails when the request cannot be recorded', async () => {
+    it('fails when the reservation cannot be given back', async () => {
       const { admin } = fakeAdmin({ error: { message: 'nope' } });
 
-      await expect(createSupabaseHelpStore(admin).logRequest('user-1')).rejects.toThrow(/nope/);
+      await expect(createSupabaseHelpStore(admin).release(17)).rejects.toThrow(/nope/);
     });
   });
 

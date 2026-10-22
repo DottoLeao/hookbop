@@ -16,8 +16,11 @@ interface KaraokeViewProps {
    * that line, no error, and does not ask for it again.
    */
   fetchTranslation: (lineIndex: number) => Promise<string>;
-  /** A tap on a word of the current line: the word to explain, and the index of the line it was drawn on. */
-  onExplain: (target: string, lineIndex: number) => void;
+  /**
+   * A tap on a word of the current line: the word to explain, the index of the line it was drawn on, and the button,
+   * which gets the focus back when the explanation closes.
+   */
+  onExplain: (target: string, lineIndex: number, opener: HTMLElement) => void;
   /**
    * Show the translations under the lines. While they are hidden none is fetched. A switch of the screen, not a
    * setting: the game screen starts it shown every time.
@@ -165,7 +168,7 @@ export function KaraokeView({
                       <button
                         key={k}
                         type="button"
-                        onClick={() => onExplain(piece.word, i)}
+                        onClick={(event) => onExplain(piece.word, i, event.currentTarget)}
                         className={`${tappableShape} px-0.5 hover:underline focus-visible:outline-bg`}
                       >
                         {piece.text}

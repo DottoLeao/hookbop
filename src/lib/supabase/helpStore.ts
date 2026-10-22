@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { HelpDeps } from '@/lib/help/helpService';
+import { HELP_BUDGET_PER_HOUR, type HelpDeps } from '@/lib/help/helpService';
 import type { StoredVideo } from '@/lib/help/validate';
 import type { Database } from './database.types';
 
@@ -14,8 +14,9 @@ export type HelpStore = Omit<HelpDeps, 'callModel'> & {
 const LINE_HELP_KEY = 'youtube_id,lyrics_ref,line_index,kind,target';
 
 /**
- * The help cache (`line_help`), the request log (`help_requests`) and the video rows, through the service client.
- * No member may write the first two, so this takes `createServiceSupabase()`; the route checks who is asking first.
+ * The help cache (`line_help`), the members' hourly budgets (`help_requests`, through `reserve_help_request` and
+ * `release_help_request`) and the video rows, through the service client. No member may write or call any of these,
+ * so this takes `createServiceSupabase()`; the route checks who is asking first.
  */
 export function createSupabaseHelpStore(admin: Client): HelpStore {
   return {
@@ -49,19 +50,20 @@ export function createSupabaseHelpStore(admin: Client): HelpStore {
       if (error) throw new Error(`Could not save the help: ${error.message}`);
     },
 
-    async countRecent(userId, sinceMs) {
-      const { count, error } = await admin
-        .from('help_requests')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', userId)
-        .gte('created_at', new Date(sinceMs).toISOString());
-      if (error) throw new Error(`Could not count the help requests: ${error.message}`);
-      return count ?? 0;
+    async reserve(userId, kind) {
+      const { data, error } = await admin.rpc('reserve_help_request', {
+        p_user_id: userId,
+        p_kind: kind,
+        p_limit: HELP_BUDGET_PER_HOUR[kind],
+      });
+      if (error) throw new Error(`Could not reserve a help request: ${error.message}`);
+      // The generated types cannot say it, but the function gives null when the budget has no request left.
+      return (data as number | null) ?? null;
     },
 
-    async logRequest(userId) {
-      const { error } = await admin.from('help_requests').insert({ user_id: userId });
-      if (error) throw new Error(`Could not record the help request: ${error.message}`);
+    async release(id) {
+      const { error } = await admin.rpc('release_help_request', { p_id: id });
+      if (error) throw new Error(`Could not give the help request back: ${error.message}`);
     },
 
     async getVideo(youtubeId) {

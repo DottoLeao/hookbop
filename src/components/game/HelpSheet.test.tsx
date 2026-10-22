@@ -112,7 +112,22 @@ describe('HelpSheet', () => {
       expect(screen.queryByRole('button', { name: 'Tentar de novo' })).not.toBeInTheDocument();
     });
 
-    it.each([400, 401, 403] as const)('gives a calm general line for %i, with no retry', async (status) => {
+    it('keeps the focus in the sheet when "Tentar de novo" goes away, so Escape still closes it', async () => {
+      const load = vi.fn<() => Promise<string>>().mockRejectedValueOnce(new HelpError(503)).mockReturnValue(new Promise(() => {}));
+      const { onClose } = renderSheet({ load });
+      await settle();
+      const retry = screen.getByRole('button', { name: 'Tentar de novo' });
+      retry.focus();
+
+      fireEvent.click(retry);
+
+      expect(screen.queryByRole('button', { name: 'Tentar de novo' })).not.toBeInTheDocument();
+      expect(sheet()).toHaveFocus();
+      fireEvent.keyDown(sheet(), { key: 'Escape' });
+      expect(onClose).toHaveBeenCalledOnce();
+    });
+
+    it.each([400, 401, 403, 422] as const)('gives a calm general line for %i, with no retry', async (status) => {
       renderSheet({ load: async () => Promise.reject(new HelpError(status)) });
       await settle();
 

@@ -66,18 +66,40 @@ export function targetAsWritten(lineText: string, target: string): string {
 }
 
 /**
+ * A line's text as two lines sung alike compare (ruling R72): trimmed, its runs of spaces made one, lowercased and
+ * with plain apostrophes. So a chorus written "Paper boats" once and "PAPER  boats" later is one line to explain.
+ */
+export function sameTextKey(text: string): string {
+  return foldWord(text.trim().replace(/\s+/g, ' '));
+}
+
+/** A request checked against the stored lyrics, and the other lines that have the same text as its line. */
+export interface StoredLine {
+  request: HelpRequest;
+  sameTextLines: number[];
+}
+
+/**
  * The request checked against the video's stored lyrics (ruling R61), with the stored text of the line in place of the
  * one the browser sent, or null (a 400). The video must be playable, the request must be about its stored lyrics, the
  * line must exist, and the text the browser sent must be that line once trimmed. So the route explains only lines of
  * songs in the app, and no one can put help for a line that is not there into the cache every member reads.
+ *
+ * It also lists the other lines of the lyrics with the same text (`sameTextKey`), whose help is the same (ruling R72).
  */
-export function checkStoredLine(r: HelpRequest, video: StoredVideo | null): HelpRequest | null {
+export function checkStoredLine(r: HelpRequest, video: StoredVideo | null): StoredLine | null {
   if (!video || video.status !== 'ok') return null;
   const { lyricsRef, lyricsLrc, lyricsDurationS } = video;
   if (lyricsRef === null || lyricsLrc === null || lyricsDurationS === null) return null;
   if (r.lyricsRef !== lyricsRef || !Number.isInteger(r.lineIndex)) return null;
 
-  const line = linesOfVideo({ lyricsLrc, lyricsDurationS })[r.lineIndex];
+  const lines = linesOfVideo({ lyricsLrc, lyricsDurationS });
+  const line = lines[r.lineIndex];
   if (!line || r.lineText.trim() !== line.text.trim()) return null;
-  return { ...r, lineText: line.text };
+
+  const key = sameTextKey(line.text);
+  const sameTextLines = lines
+    .filter((other) => other.index !== line.index && sameTextKey(other.text) === key)
+    .map((other) => other.index);
+  return { request: { ...r, lineText: line.text }, sameTextLines };
 }

@@ -141,7 +141,7 @@ describe('postHelp', () => {
     });
   });
 
-  it.each([400, 401, 403, 429, 503])('rejects with a HelpError carrying %i', async (status) => {
+  it.each([400, 401, 403, 422, 429, 503])('rejects with a HelpError carrying %i', async (status) => {
     serverAnswers(Response.json({ error: 'x' }, { status }));
 
     await expect(postHelp(ASK)).rejects.toEqual(new HelpError(status as 400));

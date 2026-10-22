@@ -30,9 +30,10 @@ interface MontarAreaProps {
   onTile: (word: string) => void;
   /**
    * "Não entendi a ordem", with '' as the word since it is the order of the whole line that is not clear, or a tap on a
-   * word of the row once the line is right. Always with the index of this line.
+   * word of the row once the line is right. Always with the index of this line, and the button that was tapped, which
+   * gets the focus back when the explanation closes.
    */
-  onExplain: (target: string, lineIndex: number) => void;
+  onExplain: (target: string, lineIndex: number, opener: HTMLElement) => void;
 }
 
 /**
@@ -108,6 +109,8 @@ export function MontarArea({
   // What a screen reader says: the line that is right, or the wrong tile.
   const hitLabel = t('montar.hit', { palavra: tokens.join(' ') });
   const status = solved ? hitLabel : missed !== null ? t('montar.miss', { palavra: tiles[missed] }) : null;
+  // "Não entendi a ordem" once the first try is spent (ruling R65).
+  const explainable = answered || solved;
 
   return (
     <div className="flex flex-col gap-3">
@@ -133,7 +136,11 @@ export function MontarArea({
           {placed.map((word, position) =>
             solved ? (
               <li key={position} className="flex">
-                <button type="button" onClick={() => onExplain(word, blank.lineIndex)} className={wordChip}>
+                <button
+                  type="button"
+                  onClick={(event) => onExplain(word, blank.lineIndex, event.currentTarget)}
+                  className={wordChip}
+                >
                   {word}
                 </button>
               </li>
@@ -191,15 +198,17 @@ export function MontarArea({
         })}
       </div>
 
-      {(answered || solved) && (
-        <button
-          type="button"
-          onClick={() => onExplain('', blank.lineIndex)}
-          className={`min-h-11 rounded-button border-[1.5px] border-border px-3.5 text-body font-semibold text-text ${focusRing}`}
-        >
-          {t('montar.explain')}
-        </button>
-      )}
+      {/* Until the line has an answer, the button keeps its place unseen and out of reach (ruling R65), so the tools
+          under it do not jump down when it comes. */}
+      <button
+        type="button"
+        disabled={!explainable}
+        aria-hidden={explainable ? undefined : true}
+        onClick={(event) => onExplain('', blank.lineIndex, event.currentTarget)}
+        className={`min-h-11 rounded-button border-[1.5px] border-border px-3.5 text-body font-semibold text-text ${focusRing} ${explainable ? '' : 'invisible'}`}
+      >
+        {t('montar.explain')}
+      </button>
       <span role="status" className="sr-only">
         {status}
       </span>

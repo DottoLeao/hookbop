@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment } from 'react';
+import { Fragment, type MouseEvent } from 'react';
 import { t } from '@/i18n/t';
 import type { BlankStatus } from '@/lib/game/reducer';
 import type { Blank, LyricLine } from '@/lib/types';
@@ -37,10 +37,11 @@ interface LyricPanelProps {
   /** "Traduzir verso", with the index of the line it is under. */
   onTranslate: (lineIndex: number) => void;
   /**
-   * "Não entendi", or a tap on a word of the line in play: the word or expression to explain, and the index of the line
-   * that was drawn, which the clock may have moved past by the time of the tap.
+   * "Não entendi", or a tap on a word of the line in play: the word or expression to explain, the index of the line
+   * that was drawn (the clock may have moved past it by the time of the tap), and the button that was tapped, which
+   * gets the focus back when the explanation closes. Safari gives a tapped button no focus, so it is handed over here.
    */
-  onExplain: (target: string, lineIndex: number) => void;
+  onExplain: (target: string, lineIndex: number, opener: HTMLElement) => void;
 }
 
 export type TranslationView =
@@ -84,7 +85,7 @@ interface LineTextProps {
   blanks: Blank[];
   status: Record<string, BlankStatus>;
   /** Only for the line in play: its words can be tapped. */
-  onExplain?: (word: string) => void;
+  onExplain?: (word: string, opener: HTMLElement) => void;
   /** The blank the player answers now, on the line in play. */
   inPlayId?: string;
   /** The letters fixed in the blanks that were typed with a slip, on the line in play. */
@@ -118,7 +119,7 @@ function LineText({ text, blanks, status, onExplain, inPlayId, corrected }: Line
           key={i}
           type="button"
           aria-label={t(fixed.length > 0 ? 'digitacao.corrected' : 'jogo.hit', { palavra: piece.text })}
-          onClick={() => onExplain(piece.word)}
+          onClick={(event) => onExplain(piece.word, event.currentTarget)}
           className={`${tappable} gap-1 bg-lime px-2.5 text-bg`}
         >
           <ResultIcon hit />
@@ -130,7 +131,7 @@ function LineText({ text, blanks, status, onExplain, inPlayId, corrected }: Line
       <button
         key={i}
         type="button"
-        onClick={() => onExplain(piece.word)}
+        onClick={(event) => onExplain(piece.word, event.currentTarget)}
         className={`${tappable} px-0.5 hover:text-lime-light`}
       >
         {piece.text}
@@ -139,7 +140,7 @@ function LineText({ text, blanks, status, onExplain, inPlayId, corrected }: Line
   });
 }
 
-function Pill({ onClick, children }: { onClick: () => void; children: string }) {
+function Pill({ onClick, children }: { onClick: (event: MouseEvent<HTMLButtonElement>) => void; children: string }) {
   return (
     <button
       type="button"
@@ -188,7 +189,7 @@ export function LyricPanel({
   const translationNote =
     translation?.status === 'loading' ? t('ajuda.translating') : translation?.status === 'error' ? translation.message : null;
   // The word the player tapped belongs to the line drawn now, whatever line the clock reaches before the tap lands.
-  const explain = (target: string) => onExplain(target, current);
+  const explain = (target: string, opener: HTMLElement) => onExplain(target, current, opener);
 
   return (
     <div className="flex flex-col gap-2.5">
@@ -222,7 +223,7 @@ export function LyricPanel({
       {(canTranslate || answered) && (
         <div className="flex flex-wrap gap-2">
           {canTranslate && <Pill onClick={() => onTranslate(current)}>{t('jogo.translate')}</Pill>}
-          {answered && <Pill onClick={() => explain(answered.answer)}>{t('jogo.explain')}</Pill>}
+          {answered && <Pill onClick={(event) => explain(answered.answer, event.currentTarget)}>{t('jogo.explain')}</Pill>}
         </div>
       )}
       {next && !inArea && (

@@ -1,7 +1,8 @@
 import type { MessageKey } from '@/i18n/t';
 
 /** The answers of `POST /api/help` that are not the help itself. */
-export type HelpStatus = 400 | 401 | 403 | 429 | 503;
+export const HELP_STATUSES = [400, 401, 403, 422, 429, 503] as const;
+export type HelpStatus = (typeof HELP_STATUSES)[number];
 
 /** An ask for help that failed, with the status that says why. */
 export class HelpError extends Error {
@@ -14,8 +15,8 @@ export class HelpError extends Error {
 
 /**
  * What DJ Bop says when the help cannot be had, and whether trying again can work: past the limit he asks the player
- * to come back later, when the service is down he offers a retry, and for anything else he gives a calm general line.
- * Never a status code or an error message.
+ * to come back later, when the service is down he offers a retry, and for anything else he gives a calm general line,
+ * a model that declined (422, ruling R74) included. Never a status code or an error message.
  */
 export function helpErrorCopy(error: unknown): { message: MessageKey; retry: boolean } {
   const status = error instanceof HelpError ? error.status : 503;

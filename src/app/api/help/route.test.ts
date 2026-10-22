@@ -24,8 +24,8 @@ const ASK = {
 const store = {
   getCached: vi.fn(),
   saveCached: vi.fn(),
-  countRecent: vi.fn(),
-  logRequest: vi.fn(),
+  reserve: vi.fn(),
+  release: vi.fn(),
   getVideo: vi.fn(),
 };
 
@@ -60,7 +60,7 @@ beforeEach(() => {
     lyricsDurationS: 30,
   });
   store.getCached.mockResolvedValue(null);
-  store.countRecent.mockResolvedValue(0);
+  store.reserve.mockResolvedValue(41);
   vi.mocked(callModel).mockResolvedValue('Barcos de papel num rio de luz');
 });
 
@@ -75,7 +75,27 @@ describe('POST /api/help', () => {
     expect(rpc).toHaveBeenCalledExactlyOnceWith('is_member');
     expect(createSupabaseHelpStore).toHaveBeenCalledExactlyOnceWith({ marker: 'service-client' });
     expect(callModel).toHaveBeenCalledOnce();
-    expect(store.logRequest).toHaveBeenCalledExactlyOnceWith('user-1');
+    expect(store.reserve).toHaveBeenCalledExactlyOnceWith('user-1', 'translate');
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+  });
+
+  it('asks for the session once, for both the user and the membership', async () => {
+    sessionAs('user-1', true);
+
+    await post();
+
+    expect(createServerSupabase).toHaveBeenCalledOnce();
+  });
+
+  it('answers 503 with no-store when the session client cannot be made', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.mocked(createServerSupabase).mockRejectedValue(new Error('cookies() outside a request'));
+
+    const response = await post();
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    warn.mockRestore();
   });
 
   it('answers 401 with no session, and never makes the service client', async () => {

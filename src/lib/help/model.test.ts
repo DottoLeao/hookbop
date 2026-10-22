@@ -2,7 +2,8 @@
 import { readFileSync } from 'node:fs';
 import Anthropic from '@anthropic-ai/sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { callModel, HELP_MODEL, ModelError } from './model';
+import { callModel, HELP_MODEL } from './model';
+import { ModelError } from './modelError';
 
 // No test reaches the real API: the client is always a fake, and the SDK constructor is replaced too.
 const create = vi.hoisted(() => vi.fn());
@@ -44,14 +45,28 @@ describe('callModel', () => {
 
     await callModel('system prompt', 'Verso: Paper boats on a river of light');
 
-    expect(create).toHaveBeenCalledExactlyOnceWith({
-      model: 'claude-haiku-5-5',
-      max_tokens: 300,
-      thinking: { type: 'disabled' },
-      output_config: { effort: 'low' },
-      system: 'system prompt',
-      messages: [{ role: 'user', content: 'Verso: Paper boats on a river of light' }],
-    });
+    expect(create).toHaveBeenCalledExactlyOnceWith(
+      {
+        model: 'claude-haiku-5-5',
+        max_tokens: 300,
+        thinking: { type: 'disabled' },
+        output_config: { effort: 'low' },
+        system: 'system prompt',
+        messages: [{ role: 'user', content: 'Verso: Paper boats on a river of light' }],
+      },
+      { signal: expect.any(AbortSignal) },
+    );
+  });
+
+  it('gives the whole call 20 s, retries included, through the signal it hands the SDK', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    create.mockResolvedValue(answer());
+
+    await callModel('s', 'u');
+
+    expect(timeout).toHaveBeenCalledExactlyOnceWith(20_000);
+    expect(create.mock.calls[0][1]).toEqual({ signal: timeout.mock.results[0].value });
+    timeout.mockRestore();
   });
 
   it('makes one client, on first use, that gives up after 15 s and retries once', async () => {
@@ -87,26 +102,45 @@ describe('callModel', () => {
     expect(await callModel('s', 'u')).toBe('Barcos de papel num rio de luz');
   });
 
-  it.each(['max_tokens', 'refusal', 'pause_turn', 'stop_sequence'] as const)(
-    'fails when the model stopped with %s, so a cut or refused answer is never cached',
+  it.each(['refusal', 'max_tokens'] as const)(
+    'fails as declined when the model stopped with %s, which asking again would not change (ruling R74)',
     async (stopReason) => {
       create.mockResolvedValue(answer({ stop_reason: stopReason }));
 
-      await expect(callModel('s', 'u')).rejects.toBeInstanceOf(ModelError);
+      const failure = await callModel('s', 'u').catch((e: unknown) => e);
+
+      expect(failure).toBeInstanceOf(ModelError);
+      expect((failure as ModelError).declined).toBe(true);
     },
   );
 
-  it('fails when the answer has no text', async () => {
+  it.each(['pause_turn', 'stop_sequence'] as const)(
+    'fails when the model stopped with %s, so an unfinished answer is never cached, and may be asked again',
+    async (stopReason) => {
+      create.mockResolvedValue(answer({ stop_reason: stopReason }));
+
+      const failure = await callModel('s', 'u').catch((e: unknown) => e);
+
+      expect(failure).toBeInstanceOf(ModelError);
+      expect((failure as ModelError).declined).toBe(false);
+    },
+  );
+
+  it('fails, and may be asked again, when the answer has no text', async () => {
     create.mockResolvedValue(answer({ content: [{ type: 'text', text: '   ', citations: null }] }));
 
-    await expect(callModel('s', 'u')).rejects.toBeInstanceOf(ModelError);
+    const failure = await callModel('s', 'u').catch((e: unknown) => e);
+
+    expect(failure).toBeInstanceOf(ModelError);
+    expect((failure as ModelError).declined).toBe(false);
   });
 
   it.each([
     ['the service is rate limiting', () => new Anthropic.RateLimitError(429, undefined, 'slow down', new Headers()), /rate limit/i],
     ['the service cannot be reached', () => new Anthropic.APIConnectionError({ message: 'offline' }), /reached/i],
     ['the service answers with an error', () => new Anthropic.InternalServerError(500, undefined, 'boom', new Headers()), /500/],
-  ])('fails with a ModelError when %s, keeping the SDK error as its cause', async (_name, error, message) => {
+    ['the 20 s are up', () => new Anthropic.APIUserAbortError(), /20 s/],
+  ])('fails with a ModelError that may be asked again when %s, keeping the SDK error as its cause', async (_name, error, message) => {
     const thrown = error();
     create.mockRejectedValue(thrown);
 
@@ -115,6 +149,7 @@ describe('callModel', () => {
     expect(failure).toBeInstanceOf(ModelError);
     expect((failure as ModelError).message).toMatch(message);
     expect((failure as ModelError).cause).toBe(thrown);
+    expect((failure as ModelError).declined).toBe(false);
   });
 
   it('reads its key only on the server: listed in .env.example with no value, and never as a NEXT_PUBLIC variable', () => {

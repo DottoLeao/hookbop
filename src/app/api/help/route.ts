@@ -7,19 +7,23 @@ import { createServerSupabase } from '@/lib/supabase/server';
 
 /**
  * "Não entendi" and "Traduzir verso" (see `handleHelpRequest`). The member check runs with the person's own session;
- * the help cache and the request log, which no member may write, go through the service key.
+ * the help cache and the budgets, which no member may write, go through the service key.
+ *
+ * The session client is made inside the handler, on its first use, so a failure to make it is answered like any
+ * other: a 503 that no cache keeps.
  */
 export async function POST(request: Request) {
-  const supabase = await createServerSupabase();
+  let session: ReturnType<typeof createServerSupabase> | undefined;
+  const supabase = () => (session ??= createServerSupabase());
+
   return handleHelpRequest(request, {
-    userId: () => currentUserId(supabase),
+    userId: async () => currentUserId(await supabase()),
     async isMember() {
-      const { data, error } = await supabase.rpc('is_member');
+      const { data, error } = await (await supabase()).rpc('is_member');
       if (error) throw new Error(`Could not check the membership: ${error.message}`);
       return data === true;
     },
     store: () => createSupabaseHelpStore(createServiceSupabase()),
     callModel,
-    now: Date.now,
   });
 }

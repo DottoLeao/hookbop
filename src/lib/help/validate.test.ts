@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { HelpRequest } from './helpService';
-import { checkStoredLine, normalizeHelpRequest, parseHelpRequest, targetAsWritten, type StoredVideo } from './validate';
+import {
+  checkStoredLine,
+  normalizeHelpRequest,
+  parseHelpRequest,
+  sameTextKey,
+  targetAsWritten,
+  type StoredVideo,
+} from './validate';
 
 const ID = 'aaaaaaaaaaa';
 
@@ -111,14 +118,42 @@ describe('targetAsWritten', () => {
   });
 });
 
+describe('sameTextKey', () => {
+  it('reads two lines as the same once trimmed, with the spaces collapsed, lowercased and with plain apostrophes', () => {
+    expect(sameTextKey('  We’re   COUNTING the stars ')).toBe(sameTextKey("we're counting the stars"));
+  });
+
+  it('keeps lines with other words apart', () => {
+    expect(sameTextKey('counting the stars')).not.toBe(sameTextKey('counting the star'));
+  });
+});
+
 describe('checkStoredLine (ruling R61)', () => {
   it('takes a request for a line of the stored lyrics, with the stored text', () => {
-    expect(checkStoredLine(ASK, VIDEO)).toEqual(ASK);
+    expect(checkStoredLine(ASK, VIDEO)).toEqual({ request: ASK, sameTextLines: [] });
   });
 
   it('uses the stored text of the line, which the client only had to match once trimmed', () => {
     const checked = checkStoredLine({ ...ASK, lineIndex: 1, lineText: ' We’re counting the stars from the roof  ' }, VIDEO);
-    expect(checked?.lineText).toBe('We’re counting the stars from the roof');
+    expect(checked?.request.lineText).toBe('We’re counting the stars from the roof');
+  });
+
+  it('lists the other lines with the same text, for the help of a line sung again (ruling R72)', () => {
+    // Invented lines: the first one comes back three times, written a little differently each time.
+    const chorus = [
+      '[00:02.00]Paper boats on a river of light',
+      '[00:06.00]Hold the line till the morning comes',
+      '[00:10.00]PAPER boats  on a river of light',
+      '[00:14.00]Paper boats on a river of lights',
+      '[00:18.00]paper boats on a river of light',
+    ].join('\n');
+
+    const checked = checkStoredLine({ ...ASK, lineIndex: 4, lineText: 'paper boats on a river of light' }, {
+      ...VIDEO,
+      lyricsLrc: chorus,
+    });
+
+    expect(checked?.sameTextLines).toEqual([0, 2]);
   });
 
   it('numbers the lines as the song screen does: an empty LRC line is not a line', () => {

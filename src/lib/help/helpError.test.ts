@@ -20,7 +20,7 @@ describe('helpErrorCopy', () => {
     expect(helpErrorCopy(new HelpError(503))).toEqual({ message: 'ajuda.retryable', retry: true });
   });
 
-  it.each([400, 401, 403] as const)('gives a calm general line for %i', (status) => {
+  it.each([400, 401, 403, 422] as const)('gives a calm general line, with no retry, for %i', (status) => {
     expect(helpErrorCopy(new HelpError(status))).toEqual({ message: 'ajuda.unavailable', retry: false });
   });
 

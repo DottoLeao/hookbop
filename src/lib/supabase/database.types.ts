@@ -59,14 +59,14 @@ isOneToOne: false
                   ]
                 },"help_requests": {
                   Row: {
-                    "created_at": string,"id": number,"user_id": string
+                    "created_at": string,"id": number,"kind": string,"user_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "created_at"?: string,"id"?: number,"user_id": string
+                    "created_at"?: string,"id"?: number,"kind"?: string,"user_id": string
                   }
                   Update: {
-                    "created_at"?: string,"id"?: number,"user_id"?: string
+                    "created_at"?: string,"id"?: number,"kind"?: string,"user_id"?: string
                   }
                   Relationships: [
                     
@@ -206,8 +206,14 @@ isOneToOne: false
 "redeem_invite":
 { Args: { "p_code": string,"p_display_name": string }; Returns: string
                            },
+"release_help_request":
+{ Args: { "p_id": number }; Returns: undefined
+                           },
 "remove_member":
 { Args: { "p_user": string }; Returns: undefined
+                           },
+"reserve_help_request":
+{ Args: { "p_kind": string,"p_limit": number,"p_user_id": string }; Returns: number
                            },
 "set_offset_vote":
 { Args: { "p_offset_ms": number,"p_youtube_id": string }; Returns: number

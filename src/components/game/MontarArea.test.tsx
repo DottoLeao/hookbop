@@ -14,7 +14,7 @@ type Props = Parameters<typeof MontarArea>[0];
 
 function areaProps(over: Partial<Props> = {}) {
   const onTile = vi.fn<(word: string) => void>();
-  const onExplain = vi.fn<(target: string, lineIndex: number) => void>();
+  const onExplain = vi.fn<(target: string, lineIndex: number, opener: HTMLElement) => void>();
   const props: Props = { blank: BLANK, tokens: TOKENS, placed: [], youtubeId: ID, onTile, onExplain, ...over };
   return { props, onTile, onExplain };
 }
@@ -266,16 +266,25 @@ describe('MontarArea', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Não entendi a ordem' }));
 
-    expect(onExplain).toHaveBeenCalledExactlyOnceWith('', 4);
+    expect(onExplain).toHaveBeenCalledExactlyOnceWith('', 4, expect.any(HTMLButtonElement));
   });
 
   it('keeps "Não entendi a ordem" away until the line has an answer, as it would give the order away (ruling R65)', () => {
-    const { rerender, props } = renderArea({ placed: ['Please'] });
+    const { rerender, props, onExplain } = renderArea({ placed: ['Please'] });
     expect(screen.queryByRole('button', { name: 'Não entendi a ordem' })).not.toBeInTheDocument();
+    // Its place is kept, unseen and out of reach, so nothing under it moves when it comes.
+    const reserved = screen.getByText('Não entendi a ordem');
+    expect(reserved).toHaveClass('invisible', 'min-h-11');
+    expect(reserved).toHaveAttribute('aria-hidden', 'true');
+    expect(reserved).toBeDisabled();
+    fireEvent.click(reserved);
+    expect(onExplain).not.toHaveBeenCalled();
 
     // A miss is an answer: the first try is spent, so explaining the order gives nothing away.
     rerender(<MontarArea {...props} placed={[]} answered />);
-    expect(screen.getByRole('button', { name: 'Não entendi a ordem' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Não entendi a ordem' })).not.toHaveClass('invisible');
+    // The same button: the focus is never lost to a new one.
+    expect(screen.getByRole('button', { name: 'Não entendi a ordem' })).toBe(reserved);
 
     rerender(<MontarArea {...props} placed={TOKENS} solved answered />);
     expect(screen.getByRole('button', { name: 'Não entendi a ordem' })).toBeInTheDocument();
@@ -289,7 +298,7 @@ describe('MontarArea', () => {
       expect(words.map((word) => word.textContent)).toEqual(TOKENS);
       fireEvent.click(words[2]);
 
-      expect(onExplain).toHaveBeenCalledExactlyOnceWith('back', 4);
+      expect(onExplain).toHaveBeenCalledExactlyOnceWith('back', 4, words[2]);
     });
 
     it('keeps the row’s words lime chips of the same size, each reaching 44 px with its touch area', () => {

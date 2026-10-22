@@ -29,7 +29,7 @@ let reducedMotion = false;
 
 let props: Props;
 let fetchTranslation: ReturnType<typeof vi.fn<(lineIndex: number) => Promise<string>>>;
-let onExplain: ReturnType<typeof vi.fn<(target: string, lineIndex: number) => void>>;
+let onExplain: ReturnType<typeof vi.fn<(target: string, lineIndex: number, opener: HTMLElement) => void>>;
 let view: ReturnType<typeof render>;
 
 /** The view on the song, at `timeMs`. Each line's translation is "Tradução <index>" unless `over` says otherwise. */
@@ -333,7 +333,16 @@ describe('KaraokeView', () => {
 
       fireEvent.click(within(rows()[3]).getByRole('button', { name: 'worry' }));
 
-      expect(onExplain).toHaveBeenCalledExactlyOnceWith('worry', 3);
+      expect(onExplain).toHaveBeenCalledExactlyOnceWith('worry', 3, expect.any(HTMLButtonElement));
+    });
+
+    it('hands over the very button that was tapped, so the focus can go back to it', () => {
+      renderKaraoke(15000);
+      const word = within(rows()[3]).getByRole('button', { name: 'worry' });
+
+      fireEvent.click(word);
+
+      expect(onExplain.mock.lastCall?.[2]).toBe(word);
     });
 
     it('gives a word with an apostrophe whole', () => {
@@ -341,7 +350,7 @@ describe('KaraokeView', () => {
 
       fireEvent.click(within(rows()[3]).getByRole('button', { name: "I'm" }));
 
-      expect(onExplain).toHaveBeenCalledExactlyOnceWith("I'm", 3);
+      expect(onExplain).toHaveBeenCalledExactlyOnceWith("I'm", 3, expect.any(HTMLButtonElement));
     });
 
     it('makes every word of the current line a button, in order, and leaves out the punctuation', () => {
