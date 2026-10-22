@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { getEntitlements } from './entitlements';
 
@@ -30,5 +31,13 @@ describe('getEntitlements', () => {
     const fallback = getEntitlements(undefined);
     fallback.hint = 'off';
     expect(getEntitlements(undefined).hint).toBe('free');
+  });
+});
+
+describe('NEXT_PUBLIC_APP_PHASE', () => {
+  it('is listed in .env.example as closed_beta, the phase of this part of the app', () => {
+    const example = readFileSync('.env.example', 'utf8');
+
+    expect(example).toMatch(/^NEXT_PUBLIC_APP_PHASE=closed_beta\s*$/m);
   });
 });
