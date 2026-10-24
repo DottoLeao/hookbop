@@ -34,9 +34,9 @@ export async function GangSongs() {
 }
 
 /**
- * The links at the foot of the home page. "Admin" is for the owner, decided the way /admin decides it. A failed check
- * only leaves the link out: /admin keeps its own gate. The members and the signed-in member do not depend on each
- * other, so they are read at the same time.
+ * The links at the foot of the home page. "Admin" and "Métricas" are for the owner, decided the way /admin and
+ * /admin/metricas decide it. A failed check only leaves the links out: each page keeps its own gate. The members and
+ * the signed-in member do not depend on each other, so they are read at the same time.
  */
 export async function HomeShortcuts() {
   const supabase = await createServerSupabase();

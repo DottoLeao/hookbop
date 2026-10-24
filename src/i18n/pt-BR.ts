@@ -28,6 +28,7 @@ export const ptBR = {
   'home.empty': 'Tá silêncio por aqui. Cola a primeira!',
   'home.invite': 'Convidar',
   'home.admin': 'Admin',
+  'home.metrics': 'Métricas',
   'home.licenses': 'Licenças de terceiros',
 
   // Convite para instalar o app, na tela inicial depois da primeira música terminada.
@@ -215,6 +216,79 @@ export const ptBR = {
   'admin.remove': 'Remover',
   'admin.removeNamed': 'Remover {nome}',
   'admin.removeError': 'Não rolou. Tenta de novo?',
+
+  // Painel de métricas do dono (/admin/metricas). Todo dia e todo período dizem "horário de Brasília", que é como o
+  // banco conta os dias.
+  'metricas.title': 'Métricas',
+  'metricas.back': 'Voltar',
+  'metricas.period': 'Período',
+  'metricas.days': '{n} dias',
+  'metricas.export': 'Exportar dados',
+  'metricas.loading': 'Carregando as métricas…',
+  'metricas.periodRange': 'Últimos {n} dias, horário de Brasília ({de} a {ate})',
+  'metricas.monthRange': 'Em {mes}, horário de Brasília ({de} a {ate})',
+  'metricas.none': '—',
+  'metricas.empty': 'Nada no período ainda.',
+  'metricas.inBrl': '≈ {valor}',
+
+  'metricas.spend.title': 'Gasto da IA',
+
+  'metricas.average.title': 'Custo médio',
+  'metricas.average.perPerson': 'Por pessoa ativa',
+  'metricas.average.perGame': 'Por partida',
+  'metricas.average.perSong': 'Por música',
+  'metricas.average.basis': '{pessoas} pessoas ativas · {partidas} partidas começadas · {musicas} músicas jogadas',
+
+  'metricas.projection.title': 'Projeção',
+  'metricas.projection.people': 'Pessoas por mês',
+  'metricas.projection.result': 'Com {n} pessoas por mês, o gasto seria',
+  'metricas.projection.basis':
+    'Pela média de {valor} por pessoa ativa nos últimos 30 dias, horário de Brasília ({pessoas} pessoas).',
+  'metricas.projection.noData': 'Ainda não há pessoas ativas nos últimos 30 dias para projetar.',
+  'metricas.projection.invalid': 'Digite um número inteiro de pessoas.',
+
+  'metricas.ai.title': 'Tokens e memória',
+  'metricas.ai.calls': 'Pedidos de ajuda à IA',
+  'metricas.ai.memory': 'Da memória',
+  'metricas.ai.memoryDetail': '{cache} do cache por verso · {reuse} reaproveitados do refrão · {model} do modelo',
+  'metricas.ai.inputTokens': 'Tokens de entrada',
+  'metricas.ai.outputTokens': 'Tokens de saída',
+  'metricas.ai.latency': 'Tempo médio de resposta',
+  'metricas.ai.latencyNote': 'Só as respostas do modelo que deram certo.',
+  'metricas.ai.failures': 'Recusados: {recusados} · Com erro: {erros}',
+
+  'metricas.modes.title': 'Modos mais jogados',
+  'metricas.modes.line': '{partidas} partidas começadas · {escolhas} escolhas do modo',
+
+  'metricas.games.title': 'Partidas por modo',
+  'metricas.games.started': 'Começadas',
+  'metricas.games.finished': 'Terminadas',
+  'metricas.games.exits': 'Saídas',
+  'metricas.games.completion': 'Conclusão',
+  'metricas.games.avgPct': 'Acerto médio',
+  'metricas.games.avgLength': 'Duração média',
+  'metricas.games.note':
+    'Conclusão: terminadas ÷ começadas. Saída: a pessoa saiu da partida pelo menos uma vez, e pode ter voltado e terminado.',
+
+  'metricas.songs.title': 'Músicas mais jogadas',
+  'metricas.songs.line': '{partidas} partidas · {terminadas} terminadas · {aberturas} aberturas',
+  'metricas.songs.untitled': 'Música {id}',
+
+  'metricas.help.title': 'Pedidos de ajuda por modo',
+  'metricas.help.line': '{explicar} "Não entendi" · {traduzir} "Traduzir verso"',
+  'metricas.help.avgLine': 'Em média no verso {n}',
+  'metricas.help.noMode': 'Sem modo',
+
+  'metricas.rate.title': 'Cotação do dólar',
+  'metricas.rate.current': 'US$ 1 = {valor}',
+  'metricas.rate.label': 'Reais por dólar',
+  'metricas.rate.save': 'Salvar',
+  'metricas.rate.saved': 'Cotação salva.',
+  'metricas.rate.invalid': 'Use um número entre 1 e 20, como 5,50.',
+  'metricas.rate.failed': 'Não rolou. Tenta de novo?',
+
+  'metricas.priceNote':
+    'Custos estimados pelos tokens e pelo preço do {modelo}: {entrada} por milhão de tokens de entrada e {saida} por milhão de saída (preço de {data}).',
 
   // Política de privacidade (/privacidade). Rascunho para o dono revisar.
   'privacidade.link': 'Privacidade',

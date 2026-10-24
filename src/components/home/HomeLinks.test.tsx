@@ -19,6 +19,25 @@ describe('HomeLinks', () => {
     expect(screen.getByRole('link', { name: 'Convidar' })).toBeInTheDocument();
   });
 
+  it('shows "Métricas" to the owner only, next to "Admin"', () => {
+    const { rerender } = render(<HomeLinks showAdmin={false} />);
+    expect(screen.queryByRole('link', { name: 'Métricas' })).not.toBeInTheDocument();
+    // Nothing else on the page names the panel or points at it either.
+    expect(document.body).not.toHaveTextContent(/m[ée]tricas/i);
+    expect(document.querySelector('a[href^="/admin"]')).toBeNull();
+
+    rerender(<HomeLinks showAdmin />);
+
+    expect(screen.getByRole('link', { name: 'Métricas' })).toHaveAttribute('href', '/admin/metricas');
+    expect(screen.getAllByRole('link').map((link) => link.textContent)).toEqual([
+      'Convidar',
+      'Admin',
+      'Métricas',
+      'Privacidade',
+      'Licenças de terceiros',
+    ]);
+  });
+
   it('links the third-party licences, in a new tab so an installed app does not lose its way back', () => {
     render(<HomeLinks showAdmin={false} />);
 
@@ -38,7 +57,7 @@ describe('HomeLinks', () => {
     render(<HomeLinks showAdmin />);
 
     const links = screen.getAllByRole('link');
-    expect(links).toHaveLength(4);
+    expect(links).toHaveLength(5);
     for (const link of links) expect(link.className).toMatch(/\bmin-h-11\b/);
   });
 });

@@ -16,16 +16,22 @@ function Pill({ href, children }: { href: string; children: ReactNode }) {
 const footLink = `flex min-h-11 items-center rounded-button px-2 text-label text-muted underline ${focusRing}`;
 
 /**
- * The shortcuts at the foot of the home page: "Convidar" for every member, "Admin" for the owner only, the privacy
- * policy and the third-party licences. The licences are a plain text file, which opens in a new tab: an app installed
- * on the phone has no way back from a page that is not its own. The privacy policy is an app page with its own way back.
+ * The shortcuts at the foot of the home page: "Convidar" for every member, "Admin" and "Métricas" for the owner only,
+ * the privacy policy and the third-party licences. For anyone else the owner's two links are not in the page at all,
+ * so nothing in it names them. The licences are a plain text file, which opens in a new tab: an app installed on the
+ * phone has no way back from a page that is not its own. The privacy policy is an app page with its own way back.
  */
 export function HomeLinks({ showAdmin }: { showAdmin: boolean }) {
   return (
     <nav className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Pill href="/convidar">{t('home.invite')}</Pill>
-        {showAdmin && <Pill href="/admin">{t('home.admin')}</Pill>}
+        {showAdmin && (
+          <>
+            <Pill href="/admin">{t('home.admin')}</Pill>
+            <Pill href="/admin/metricas">{t('home.metrics')}</Pill>
+          </>
+        )}
       </div>
       <div className="flex">
         <Link href="/privacidade" className={footLink}>

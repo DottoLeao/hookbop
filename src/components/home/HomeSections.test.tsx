@@ -93,13 +93,15 @@ describe('HomeShortcuts', () => {
     expect(listActiveMembers).toHaveBeenCalledWith(SUPABASE);
     expect(currentUserId).toHaveBeenCalledWith(SUPABASE);
     expect(screen.getByRole('link', { name: 'Admin' })).toHaveAttribute('href', '/admin');
+    expect(screen.getByRole('link', { name: 'Métricas' })).toHaveAttribute('href', '/admin/metricas');
     expect(screen.getByRole('link', { name: 'Convidar' })).toBeInTheDocument();
   });
 
-  it('shows no "Admin" to another member', async () => {
+  it('shows no "Admin" and no "Métricas" to another member', async () => {
     render(await HomeShortcuts());
 
     expect(screen.queryByRole('link', { name: 'Admin' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Métricas' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Convidar' })).toBeInTheDocument();
   });
 
@@ -111,6 +113,7 @@ describe('HomeShortcuts', () => {
     render(await HomeShortcuts());
 
     expect(screen.queryByRole('link', { name: 'Admin' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Métricas' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Convidar' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Licenças de terceiros' })).toBeInTheDocument();
     expect(log).toHaveBeenCalledTimes(1);
