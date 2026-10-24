@@ -175,8 +175,8 @@ const ANSWER_START = [
  * "Continuar" in the game area brings it back with its volume rising (see `useAwayAndBack`).
  *
  * The game in progress is kept on the device (`progressStorage`, see `useSavedProgress`) after each answer and tile,
- * every 5 s, and as the app goes away, and forgotten when the song ends. Given a saved game (`resume`) that is this
- * game's, it goes on from there, the clip starting again at the line it was in.
+ * every 5 s, as the app goes away and as the screen does, and forgotten when the song ends. Given a saved game
+ * (`resume`) that is this game's, it goes on from there, the clip starting again at the line it was in.
  *
  * The owner's panel hears (`track`) of each ask for help (`help_explain`, `help_translate`: only what the player asks
  * for, not the translations that come by themselves), of "Continuar" after coming back (`continue_after_leave`), and of
@@ -309,7 +309,7 @@ export function GameScreen({
   }, []);
 
   // The game in progress is kept on the device (see `useSavedProgress`): here after every answer and tile; the hook
-  // saves it every 5 s and as the app goes away, and forgets it when the song ends.
+  // saves it every 5 s, as the app goes away and as the screen does, and forgets it when the song ends.
   const persist = useSavedProgress({
     gameRef,
     storage: progressStorage,

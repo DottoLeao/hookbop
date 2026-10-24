@@ -2332,14 +2332,17 @@ describe('GameScreen: the game kept on the device', () => {
       expect(stored()?.lastTickMs).toBeGreaterThan(9000);
     });
 
-    it('stops saving when the game screen goes away', () => {
+    it('saves once as the game screen goes away, where the clip was, and then stops saving (ruling S54)', () => {
       renderGame({ blanks: [FERRY], progressStorage: storage });
+      playTo(2000);
       const setItem = vi.spyOn(storage, 'setItem');
 
       cleanup();
-      act(() => vi.advanceTimersByTime(20000));
+      expect(setItem).toHaveBeenCalledOnce();
+      expect(stored()).toMatchObject({ lastTickMs: 2000, status: { [FERRY.id]: 'pending' } });
 
-      expect(setItem).not.toHaveBeenCalled();
+      act(() => vi.advanceTimersByTime(20000));
+      expect(setItem).toHaveBeenCalledOnce();
     });
 
     it('saves when the app goes to the background, since Android can kill it from there (ruling S23)', () => {

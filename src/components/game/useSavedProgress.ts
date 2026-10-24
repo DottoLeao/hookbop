@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { canRestore, gameReducer, initGame, resumeStartMs, type GameState } from '@/lib/game/reducer';
 import {
   clearProgress,
@@ -59,7 +59,8 @@ interface SavedProgressOptions {
  * one (the `HINT` event stays in the game, with no button for now); the hook itself saves:
  * - every `SAVE_EVERY_MS`;
  * - when the page goes to the background or is put away (ruling S23), since the phone can close an app that is away and
- *   nothing more is heard of it.
+ *   nothing more is heard of it;
+ * - once when the screen goes away or Next hides it (ruling S54), before the player is closed.
  * It forgets the saved game when the song ends, and, once the screen comes up, a saved game it was given that the game
  * did not take (ruling S22: the lyrics changed, and it is of no use any more).
  *
@@ -87,7 +88,16 @@ export function useSavedProgress(options: SavedProgressOptions): () => void {
 
   usePauseWhenHidden(persist);
 
+  // Kept once more as the screen goes away or is hidden (Next hides the page it leaves in an <Activity>), so the saved
+  // game is where the clip was and not up to 5 s behind. A layout cleanup runs before the song screen closes the player
+  // (in an effect cleanup), and the clock it keeps is the game's, which only a live player moved.
+  useLayoutEffect(() => () => persist(), [persist]);
+
+  // Once for the screen, even if Next shows it again: by then the game it keeps is this one.
+  const sweptRef = useRef(false);
   useEffect(() => {
+    if (sweptRef.current) return;
+    sweptRef.current = true;
     const { storage, youtubeId, resume, resumed } = latest.current;
     if (storage && resume && !resumed) clearProgress(storage, youtubeId);
   }, []);

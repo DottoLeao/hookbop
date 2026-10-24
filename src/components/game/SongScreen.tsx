@@ -342,6 +342,12 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
   // The player. YouTube swaps the element it is given for its iframe, so it gets one made here, which
   // React knows nothing about, inside the box React renders. Under StrictMode (or a retry) the first
   // player is destroyed, even when it only gets ready after its effect was cleaned up.
+  //
+  // A player that is closed is never used again. Next hides the page it leaves in an <Activity> (the player taps ←),
+  // which closes the player here, and shows it again as it was (the back gesture), with a new player: a closed one reads
+  // time 0 and plays nothing. So closing it also takes the screen back to loading, as a retry does, and every screen that
+  // holds the player (the calibration, the picker, the game, the end) goes with it. Shown again, the page starts from
+  // there with the new player, and the picker offers the game that was kept as the game screen went away.
   useEffect(() => {
     const box = playerBoxRef.current;
     if (!box) return;
@@ -393,6 +399,10 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
       for (const stop of stopListening) stop();
       live?.destroy();
       host.remove();
+      setAdapter(null);
+      setPlayerError(null);
+      setPlayerStarted(false);
+      setPhase({ kind: 'loading' });
     };
   }, [createAdapter, youtubeId, playerAttempt]);
 

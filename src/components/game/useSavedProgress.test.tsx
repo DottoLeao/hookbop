@@ -1,4 +1,5 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, render, renderHook } from '@testing-library/react';
+import { Activity } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BrokenStorage, MemoryStorage } from '@/lib/game/fakeStorage';
 import { gameReducer, initGame, type GameEvent, type GameState } from '@/lib/game/reducer';
@@ -66,6 +67,20 @@ function options(over: Partial<Options> = {}): Options {
     ended: false,
     ...over,
   };
+}
+
+function UsesSavedProgress({ resume }: { resume?: SavedProgress }) {
+  useSavedProgress(options({ resume, resumed: false }));
+  return null;
+}
+
+/** The hook in a screen that Next keeps in an <Activity>, hidden or shown. */
+function Saving({ mode, resume }: { mode: 'visible' | 'hidden'; resume?: SavedProgress }) {
+  return (
+    <Activity mode={mode}>
+      <UsesSavedProgress resume={resume} />
+    </Activity>
+  );
 }
 
 function setVisibility(state: DocumentVisibilityState) {
@@ -194,13 +209,35 @@ describe('useSavedProgress: saving on its own', () => {
     expect(stored()?.savedAt).toBe(NOW + SAVE_EVERY_MS);
   });
 
+  it('saves once as it is unmounted, the game as it is then (ruling S54)', () => {
+    const { unmount } = renderHook(() => useSavedProgress(options()));
+    gameRef.current = { ...gameRef.current, lastTickMs: 7300 };
+
+    unmount();
+
+    expect(stored()).toMatchObject({ savedAt: NOW, lastTickMs: 7300 });
+  });
+
   it('stops saving when it is unmounted', () => {
     const { unmount } = renderHook(() => useSavedProgress(options()));
     unmount();
+    storage.removeItem(`hb_progress:${ID}`);
 
     act(() => vi.advanceTimersByTime(20000));
     setVisibility('hidden');
 
+    expect(storage.keys()).toEqual([]);
+  });
+
+  it('saves once as Next hides the screen (an <Activity>), and not again until it is shown', () => {
+    const { rerender } = render(<Saving mode="visible" />);
+    gameRef.current = { ...gameRef.current, lastTickMs: 7300 };
+
+    rerender(<Saving mode="hidden" />);
+    expect(stored()).toMatchObject({ lastTickMs: 7300 });
+
+    storage.removeItem(`hb_progress:${ID}`);
+    act(() => vi.advanceTimersByTime(20000));
     expect(storage.keys()).toEqual([]);
   });
 
@@ -239,13 +276,14 @@ describe('useSavedProgress: the end of the game', () => {
     expect(storage.keys()).toEqual([]);
   });
 
-  it('does not save the finished game again, on the timer or when the page goes away', () => {
-    const { rerender } = renderHook((p: Options) => useSavedProgress(p), { initialProps: options() });
+  it('does not save the finished game again, on the timer, when the page goes away or when it is unmounted', () => {
+    const { rerender, unmount } = renderHook((p: Options) => useSavedProgress(p), { initialProps: options() });
     gameRef.current = { ...gameRef.current, phase: 'ended' };
     rerender(options({ ended: true }));
 
     act(() => vi.advanceTimersByTime(20000));
     setVisibility('hidden');
+    unmount();
 
     expect(storage.keys()).toEqual([]);
   });
@@ -292,6 +330,19 @@ describe('useSavedProgress: a saved game that was not taken (ruling S22)', () =>
     rerender(options({ resume: saved, resumed: false, storage }));
 
     expect(stored()?.lastTickMs).toBe(7000);
+  });
+
+  it('does not forget it again when Next hides the screen and shows it again: what is kept by then is this game', () => {
+    const saved = savedGame();
+    saveProgress(storage, saved);
+    const { rerender } = render(<Saving mode="visible" resume={saved} />);
+    expect(storage.keys()).toEqual([]);
+
+    gameRef.current = { ...gameRef.current, lastTickMs: 7300 };
+    rerender(<Saving mode="hidden" resume={saved} />);
+    rerender(<Saving mode="visible" resume={saved} />);
+
+    expect(stored()?.lastTickMs).toBe(7300);
   });
 
   it('does not break when the storage refuses or there is none', () => {
