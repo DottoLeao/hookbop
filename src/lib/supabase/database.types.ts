@@ -23,7 +23,21 @@ export type Database = {
           }
         },"public": {
           Tables: {
-            "answers": {
+            "ai_usage": {
+                  Row: {
+                    "cost_usd": number,"created_at": string,"id": number,"input_tokens": number,"kind": string | null,"latency_ms": number | null,"line_index": number,"model": string | null,"outcome": string | null,"output_tokens": number,"source": string | null,"user_id": string,"youtube_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "cost_usd"?: number,"created_at"?: string,"id"?: number,"input_tokens"?: number,"kind"?: string | null,"latency_ms"?: number | null,"line_index": number,"model"?: string | null,"outcome"?: string | null,"output_tokens"?: number,"source"?: string | null,"user_id": string,"youtube_id": string
+                  }
+                  Update: {
+                    "cost_usd"?: number,"created_at"?: string,"id"?: number,"input_tokens"?: number,"kind"?: string | null,"latency_ms"?: number | null,"line_index"?: number,"model"?: string | null,"outcome"?: string | null,"output_tokens"?: number,"source"?: string | null,"user_id"?: string,"youtube_id"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"answers": {
                   Row: {
                     "before_line_end": boolean | null,"blank_id": string,"correct": boolean,"kind": string,"play_id": string
                   }
@@ -53,6 +67,20 @@ isOneToOne: false
                   }
                   Update: {
                     "key"?: string,"value"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"app_events": {
+                  Row: {
+                    "created_at": string,"id": number,"mode": string | null,"name": string,"props": NonNullable<Json>,"session_id": string,"user_id": string,"youtube_id": string | null
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"id"?: number,"mode"?: string | null,"name": string,"props"?: NonNullable<Json>,"session_id": string,"user_id": string,"youtube_id"?: string | null
+                  }
+                  Update: {
+                    "created_at"?: string,"id"?: number,"mode"?: string | null,"name"?: string,"props"?: NonNullable<Json>,"session_id"?: string,"user_id"?: string,"youtube_id"?: string | null
                   }
                   Relationships: [
                     
@@ -194,7 +222,47 @@ isOneToOne: false
                 }
           }
           Views: {
-            [_ in never]: never
+            "metrics_ai_daily": {
+                  Row: {
+                    "calls": number | null,"calls_cache": number | null,"calls_declined": number | null,"calls_error": number | null,"calls_model": number | null,"calls_reuse": number | null,"cost_usd": number | null,"day": string | null,"input_tokens": number | null,"output_tokens": number | null
+                  }
+                  ComputedFields: never
+                  Relationships: [
+                    
+                  ]
+                },"metrics_help": {
+                  Row: {
+                    "avg_line_index": number | null,"day": string | null,"kind": string | null,"mode": string | null,"requests": number | null,"songs": number | null,"users": number | null
+                  }
+                  ComputedFields: never
+                  Relationships: [
+                    
+                  ]
+                },"metrics_modes": {
+                  Row: {
+                    "avg_duration_ms": number | null,"avg_pct": number | null,"day": string | null,"games_abandoned": number | null,"games_finished": number | null,"games_started": number | null,"mode": string | null,"mode_selections": number | null
+                  }
+                  ComputedFields: never
+                  Relationships: [
+                    
+                  ]
+                },"metrics_songs": {
+                  Row: {
+                    "day": string | null,"games_abandoned": number | null,"games_finished": number | null,"games_started": number | null,"players": number | null,"song_opens": number | null,"title": string | null,"youtube_id": string | null
+                  }
+                  ComputedFields: never
+                  Relationships: [
+                    
+                  ]
+                },"metrics_usage_daily": {
+                  Row: {
+                    "active_users": number | null,"day": string | null,"games_abandoned": number | null,"games_finished": number | null,"games_started": number | null,"sessions": number | null
+                  }
+                  ComputedFields: never
+                  Relationships: [
+                    
+                  ]
+                }
           }
           Functions: {
             "apply_double_xp":
@@ -205,6 +273,11 @@ isOneToOne: false
                            },
 "is_member":
 { Args: Record<PropertyKey, never>; Returns: boolean
+                           },
+"purge_old_metrics":
+{ Args: Record<PropertyKey, never>; Returns: {
+              "ai_usage_deleted": number,"app_events_deleted": number
+            }[]
                            },
 "redeem_invite":
 { Args: { "p_code": string,"p_display_name": string }; Returns: string
