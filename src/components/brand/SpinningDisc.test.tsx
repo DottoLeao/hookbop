@@ -21,13 +21,17 @@ describe('SpinningDisc', () => {
     expect(screen.getByTestId('spinning-disc')).toHaveClass('disc-spin');
   });
 
-  it('is a 40 px square', () => {
+  it('is a 40 px square: the box that turns and the svg in it are both in px, so they are the same size whatever the root font size', () => {
     render(<SpinningDisc />);
 
     const disc = screen.getByTestId('spinning-disc');
-    expect(disc).toHaveClass('h-10', 'w-10');
     const svg = disc.querySelector('svg')!;
+    expect([disc.style.width, disc.style.height]).toEqual(['40px', '40px']);
     expect([svg.getAttribute('width'), svg.getAttribute('height')]).toEqual(['40', '40']);
+    // A class for the size (h-10, w-10, size-10) is in rem: it would grow with the root font size (Android's large text)
+    // and leave the svg in a bigger box, which turns around its own center, so the disc would orbit instead of spinning
+    // in place. The size is the inline style, and no class sets one.
+    expect([...disc.classList].filter((name) => /^(min-|max-)?(h|w|size)-/.test(name))).toEqual([]);
   });
 
   it('is the disc of the logo: a lime body with a dark groove and a dark center', () => {
