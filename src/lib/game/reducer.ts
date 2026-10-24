@@ -408,12 +408,17 @@ export function canRestore(s: GameState, saved: RestorableProgress): boolean {
  * blank that still awaits an answer (`awaitsAnswer`: pending, skipped, or missed with auto-repeat on) has its pause point
  * before the clock, the start of the line that holds that point. The earliest of the two, so a wait the save interrupted
  * (the clock goes on for the length of the fade), or a miss whose replay had not begun, is waited for again and no blank
- * goes by unheard. The start of the clip when the clock was before the first line, as a new round has it.
+ * goes by unheard. Only a pause point at most `WAY_BACK_MAX_MS` behind the clock counts (ruling S27), as the way back
+ * after a wait never goes further either: a wait is at the clock and a miss at most the fade behind it, and a blank left
+ * further back (a seek over lines, a scrub) is not revisited. The start of the clip when the clock was before the first
+ * line, as a new round has it.
  */
 export function resumeStartMs(s: GameState): number {
   let fromMs = s.lastTickMs;
+  const furthestBackMs = s.lastTickMs - WAY_BACK_MAX_MS;
   for (const blank of s.blanks) {
-    if (awaitsAnswer(s, blank)) fromMs = Math.min(fromMs, lineOf(s, blank).endMs - PAUSE_LEAD_MS);
+    const pausePoint = lineOf(s, blank).endMs - PAUSE_LEAD_MS;
+    if (pausePoint >= furthestBackMs && awaitsAnswer(s, blank)) fromMs = Math.min(fromMs, pausePoint);
   }
   const started = lastStartedLineIndex(s.lines, fromMs);
   return started < 0 ? 0 : s.lines[started].startMs;

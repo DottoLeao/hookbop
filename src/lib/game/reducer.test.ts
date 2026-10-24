@@ -15,6 +15,7 @@ import {
   type RestorableProgress,
 } from './reducer';
 import { createScore, summarize } from './scoring';
+import { FADE_OUT_MS } from './timing';
 
 const LINES: LyricLine[] = [
   { index: 0, startMs: 0, endMs: 4000, text: "Grandpa won't let geese drive" },
@@ -985,10 +986,70 @@ describe('resumeStartMs (ruling S21)', () => {
     expect(resumeStartMs(restored([LET], { lastTickMs: 3850 }))).toBe(0);
   });
 
-  it('goes back to the earliest of several blanks still pending that the clock had gone past', () => {
-    const s = restored([LET, BOAT, SAIL], { lastTickMs: 11000 });
-    expect(resumeStartMs(s)).toBe(0);
-    expect(resumeStartMs({ ...s, status: { ...s.status, '0:2': 'correct' } })).toBe(4000);
+  describe('how far back it looks (ruling S27)', () => {
+    // LET's pause point is at 3850.
+    const LET_PAUSE = LINES[0].endMs - PAUSE_LEAD_MS;
+
+    it('goes back to the earliest of several blanks awaiting an answer that the clock had gone past', () => {
+      // Short invented lines, so that all three pause points are within the way back of the clock.
+      const quick: LyricLine[] = [
+        { index: 0, startMs: 0, endMs: 1000, text: 'Paper boats drift' },
+        { index: 1, startMs: 1000, endMs: 2000, text: 'Gulls call overhead' },
+        { index: 2, startMs: 2000, endMs: 3000, text: 'Low tide again' },
+        { index: 3, startMs: 3000, endMs: 4000, text: 'We wave goodbye' },
+      ];
+      const blanks: Blank[] = [0, 1, 2].map((lineIndex) => ({ id: `${lineIndex}:0`, lineIndex, tokenIndex: 0, answer: 'x' }));
+      const s = restored(blanks, { lines: quick, lastTickMs: 3500 });
+
+      expect(resumeStartMs(s)).toBe(0);
+      expect(resumeStartMs({ ...s, status: { ...s.status, '0:0': 'correct' } })).toBe(1000);
+      expect(resumeStartMs({ ...s, status: { ...s.status, '0:0': 'correct', '1:0': 'correct' } })).toBe(2000);
+    });
+
+    it('does not go back for a skipped blank more than the way back behind the clock', () => {
+      const s = restored([LET, BOAT], { lastTickMs: LET_PAUSE + WAY_BACK_MAX_MS + 1 });
+      const skipped = { ...s, status: { '0:2': 'skipped' as const, '1:3': 'correct' as const } };
+
+      expect(resumeStartMs(skipped)).toBe(4000);
+    });
+
+    it('goes back for a skipped blank exactly at the limit of the way back', () => {
+      const s = restored([LET, BOAT], { lastTickMs: LET_PAUSE + WAY_BACK_MAX_MS });
+      const skipped = { ...s, status: { '0:2': 'skipped' as const, '1:3': 'correct' as const } };
+
+      expect(resumeStartMs(skipped)).toBe(0);
+    });
+
+    it('is the same for a blank still pending, or missed with auto-repeat: too far behind is not revisited', () => {
+      const s = restored([LET, BOAT], { lastTickMs: LET_PAUSE + WAY_BACK_MAX_MS + 1 });
+
+      expect(resumeStartMs({ ...s, status: { '0:2': 'pending', '1:3': 'correct' } })).toBe(4000);
+      expect(resumeStartMs({ ...s, autoRepeat: true, status: { '0:2': 'wrong', '1:3': 'correct' } })).toBe(4000);
+    });
+
+    it('revisits the skipped blank within reach and not the one before it, as a seek over several lines leaves them', () => {
+      // The clip was moved on over two lines (both blanks skipped), and the save came a moment later.
+      const seeked = run(game({ blanks: [LET, BOAT, SAIL] }), tick(1000), tick(9000));
+      expect(seeked.status).toEqual({ '0:2': 'skipped', '1:3': 'skipped', '2:1': 'pending' });
+
+      const s = run(game({ blanks: [LET, BOAT, SAIL] }), restore(progressOf(seeked)));
+
+      // LET's pause point (3850) is 5150 behind the clock, BOAT's (7850) 1150.
+      expect(resumeStartMs(s)).toBe(4000);
+    });
+
+    it('keeps the wait that a save interrupted: the blank waited on sits at the clock, or the fade behind it', () => {
+      const s = restored([LET], { lastTickMs: LET_PAUSE + FADE_OUT_MS });
+
+      expect(resumeStartMs(s)).toBe(0);
+      expect(resumeStartMs({ ...s, lastTickMs: LET_PAUSE })).toBe(0);
+    });
+
+    it('keeps a miss awaiting its auto-repeat retry, which is at most the fade behind the clock', () => {
+      const s = restored([LET, BOAT], { lastTickMs: LET_PAUSE + FADE_OUT_MS });
+
+      expect(resumeStartMs({ ...s, autoRepeat: true, status: { '0:2': 'wrong', '1:3': 'pending' } })).toBe(0);
+    });
   });
 
   it('does not go back for a blank that is already right', () => {
