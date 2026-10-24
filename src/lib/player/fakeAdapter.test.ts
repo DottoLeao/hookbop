@@ -126,6 +126,16 @@ describe('FakePlayerAdapter', () => {
     expect(p.calls).toEqual(['volume:70', 'volume:33.6', 'volume:-5', 'volume:250']);
   });
 
+  it('reads NaN as silent, and infinity as the ends of the range', () => {
+    const p = new FakePlayerAdapter(180000);
+    p.setVolume(Number.NaN);
+    expect(p.getVolume()).toBe(0);
+    p.setVolume(Number.POSITIVE_INFINITY);
+    expect(p.getVolume()).toBe(100);
+    p.setVolume(Number.NEGATIVE_INFINITY);
+    expect(p.getVolume()).toBe(0);
+  });
+
   it('getPlayerState returns the last state that was emitted', () => {
     const p = new FakePlayerAdapter(10000);
     expect(p.getPlayerState()).toBe('unstarted');

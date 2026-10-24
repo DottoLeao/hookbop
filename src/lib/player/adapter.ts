@@ -4,8 +4,9 @@ export type PlayerState = 'unstarted' | 'playing' | 'paused' | 'buffering' | 'en
 /** Why a video cannot play: the owner blocked embedding, it does not exist, or anything else. */
 export type PlayerError = 'not_embeddable' | 'not_found' | 'other';
 
-/** A volume as the players take it: a whole number from 0 (silent) to 100 (full). */
+/** A volume as the players take it: a whole number from 0 (silent) to 100 (full). NaN counts as silent. */
 export function clampVolume(v: number): number {
+  if (Number.isNaN(v)) return 0;
   return Math.min(100, Math.max(0, Math.round(v)));
 }
 

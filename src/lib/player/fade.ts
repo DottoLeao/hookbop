@@ -13,16 +13,24 @@ export function supportsVolume(nav: { userAgent: string; maxTouchPoints: number 
   return true;
 }
 
-/** Brings the music down before a pause and back up when it resumes. It never pauses or plays by itself. */
+/**
+ * Brings the music down before a pause and back up when it resumes. It never pauses or plays by itself.
+ *
+ * The volume to come back to is kept by the first `fadeOut` of a sequence, and held until a `fadeIn` has brought the
+ * music all the way back. So a `fadeOut` that begins in the middle of a fade, or after one that left the music low,
+ * does not take that lower volume as the one to restore.
+ */
 export interface Fader {
   /**
    * Lowers the volume from where it is to 0 in steps, over `ms`, then calls `onDone`. Without volume control it
-   * only waits `ms` and calls `onDone`. The volume it started from is kept for the next `fadeIn`.
+   * only waits `ms` and then calls `onDone`. It replaces a fade that is already running, and that fade's
+   * `onDone` is dropped. A negative or non-finite `ms` counts as 0.
    */
   fadeOut(ms: number, onDone: () => void): void;
   /**
-   * Raises the volume from where it is to the one kept by the last `fadeOut` (or 100), over `ms`. It cancels a
-   * `fadeOut` that is still running, without calling its `onDone`. Without volume control it does nothing.
+   * Raises the volume from where it is to the kept volume (100 when no `fadeOut` kept one), over `ms`.
+   * On every platform it first cancels a `fadeOut` that is still pending, and that `onDone` is never called.
+   * Without volume control there is no volume to raise, so that is all it does.
    */
   fadeIn(ms: number): void;
   /** Stops whatever is running, at the volume it reached. It does not call `onDone`. */
@@ -32,13 +40,21 @@ export interface Fader {
 }
 
 export interface FaderOptions {
-  /** False where the device ignores the volume (see `supportsVolume`): `fadeOut` then only waits. */
+  /**
+   * False where the device ignores the volume (see `supportsVolume`). `fadeOut` then only waits, and `fadeIn`
+   * only cancels that wait.
+   */
   volume: boolean;
   /** Time between two volume steps. 50 ms by default. */
   stepMs?: number;
   /** Replaceable so tests can drive time. They default to `setTimeout` and `clearTimeout`. */
   setTimer?: (fn: () => void, ms: number) => unknown;
   clearTimer?: (handle: unknown) => void;
+}
+
+/** A time to wait. A negative or non-finite value (NaN, Infinity) counts as 0, so it can never hang a fade. */
+function toWaitMs(ms: number): number {
+  return Number.isFinite(ms) ? Math.max(0, ms) : 0;
 }
 
 export function createFader(adapter: PlayerAdapter, opts: FaderOptions): Fader {
@@ -50,7 +66,7 @@ export function createFader(adapter: PlayerAdapter, opts: FaderOptions): Fader {
   let direction: 'out' | 'in' | null = null;
   // Boxed, so a handle that is 0 or undefined still counts as a timer that is waiting.
   let timer: { handle: unknown } | null = null;
-  // The volume this fader last set. Only trusted while a fade runs: YouTube can be slow to read a volume back.
+  // The volume this fader last set.
   let level = FULL_VOLUME;
   // The volume the music should come back to, while it is below it. Null once it is all the way back.
   let restoreTo: number | null = null;
@@ -60,8 +76,30 @@ export function createFader(adapter: PlayerAdapter, opts: FaderOptions): Fader {
     timer = null;
   }
 
+  function cancel(): void {
+    stopTimer();
+    direction = null;
+  }
+
+  /**
+   * While the music is below its volume (`restoreTo` is set) the fader set that volume last, so it trusts its own
+   * `level`: YouTube can be slow to read a volume back, even after a fade was cancelled. Otherwise it asks the player.
+   */
   function currentVolume(): number {
-    return direction ? level : adapter.getVolume();
+    return restoreTo !== null ? level : adapter.getVolume();
+  }
+
+  /** Without volume control: one wait of `ms`, then `onDone`. The player's volume is never read or set. */
+  function wait(ms: number, onDone: () => void): void {
+    stopTimer();
+    direction = 'out';
+    timer = {
+      handle: setTimer(() => {
+        timer = null;
+        direction = null;
+        onDone();
+      }, toWaitMs(ms)),
+    };
   }
 
   /**
@@ -73,8 +111,8 @@ export function createFader(adapter: PlayerAdapter, opts: FaderOptions): Fader {
     direction = way;
     level = from;
 
-    const total = Math.max(0, ms);
-    const steps = opts.volume ? Math.max(1, Math.round(total / stepMs)) : 1;
+    const total = toWaitMs(ms);
+    const steps = Math.max(1, Math.round(total / stepMs));
     const waitFor = (n: number) => Math.round((total * n) / steps) - Math.round((total * (n - 1)) / steps);
 
     let n = 0;
@@ -84,7 +122,7 @@ export function createFader(adapter: PlayerAdapter, opts: FaderOptions): Fader {
           timer = null;
           n += 1;
           const next = n === steps ? to : Math.round(from + ((to - from) * n) / steps);
-          if (opts.volume && next !== level) {
+          if (next !== level) {
             level = next;
             adapter.setVolume(next);
           }
@@ -102,25 +140,24 @@ export function createFader(adapter: PlayerAdapter, opts: FaderOptions): Fader {
 
   return {
     fadeOut(ms, onDone) {
-      // No volume control: one wait of `ms`, and the player's volume is never read or set.
-      if (!opts.volume) return fade('out', ms, 0, 0, onDone);
-
+      if (!opts.volume) {
+        wait(ms, onDone);
+        return;
+      }
       const from = currentVolume();
-      // Keep the volume to return to only once. A fadeOut that begins in the middle of a fade, or after one that left
-      // the music low, must not take that lower volume as the one to come back to.
-      restoreTo ??= from;
+      restoreTo ??= from; // kept only once, see the `Fader` docs
       fade('out', ms, from, 0, onDone);
     },
 
     fadeIn(ms) {
+      // The same on every platform: a pending `fadeOut` is over, and its `onDone` never runs.
+      cancel();
       if (!opts.volume) return;
+
       const target = restoreTo ?? FULL_VOLUME;
       const from = currentVolume();
       if (from >= target) {
-        // Nothing to climb, but a descent that is still running has to stop.
-        stopTimer();
-        direction = null;
-        restoreTo = null;
+        restoreTo = null; // nothing to climb
         return;
       }
       restoreTo = target;
@@ -129,10 +166,7 @@ export function createFader(adapter: PlayerAdapter, opts: FaderOptions): Fader {
       });
     },
 
-    cancel() {
-      stopTimer();
-      direction = null;
-    },
+    cancel,
 
     fading: () => direction,
   };

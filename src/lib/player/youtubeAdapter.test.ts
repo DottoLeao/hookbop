@@ -261,6 +261,13 @@ describe('createYouTubeAdapter', () => {
     expect(player.setVolume.mock.calls).toEqual([[70], [34], [0], [100]]);
   });
 
+  it('sends NaN to the player as silent, never as NaN', async () => {
+    const { adapter, player } = await readyAdapter();
+    adapter.setVolume(Number.NaN);
+    adapter.setVolume(Number.POSITIVE_INFINITY);
+    expect(player.setVolume.mock.calls).toEqual([[0], [100]]);
+  });
+
   it('reads the volume from the player', async () => {
     const { adapter, player } = await readyAdapter();
     player.getVolume.mockReturnValue(42);

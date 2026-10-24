@@ -241,6 +241,47 @@ describe('createFader', () => {
       expect(() => fader.cancel()).not.toThrow();
       expect(p.calls).toEqual([]);
     });
+
+    it('leaves the fader sure of the volume it stopped at: a later fadeIn climbs from there, even if the player reads back late', () => {
+      const p = new FakePlayerAdapter(180000);
+      p.getVolume = () => 100; // like YouTube: the steps have been sent, but the read-back has not caught up
+      const fader = createFader(p, { volume: true });
+
+      fader.fadeOut(2000, () => {});
+      vi.advanceTimersByTime(1000);
+      fader.cancel();
+      const stoppedAt = volumes(p).at(-1)!;
+      expect(stoppedAt).toBeLessThan(100);
+
+      p.calls.length = 0;
+      fader.fadeIn(800);
+      vi.advanceTimersByTime(800);
+
+      const seen = volumes(p);
+      expect(seen[0]).toBeGreaterThan(stoppedAt);
+      expectStrictlyIncreasing(seen);
+      expect(seen.at(-1)).toBe(100);
+    });
+
+    it('asks the player again for the volume once the music is all the way back', () => {
+      const p = new FakePlayerAdapter(180000);
+      const fader = createFader(p, { volume: true });
+      fader.fadeOut(500, () => {});
+      vi.advanceTimersByTime(250);
+      fader.cancel();
+      fader.fadeIn(500);
+      vi.advanceTimersByTime(500);
+      expect(p.getVolume()).toBe(100);
+
+      p.setVolume(30); // changed in the player's own controls, which the fader cannot see
+      p.calls.length = 0;
+      fader.fadeOut(500, () => {});
+      vi.advanceTimersByTime(500);
+
+      const seen = volumes(p);
+      expect(seen[0]).toBeLessThan(30);
+      expectStrictlyDecreasing(seen);
+    });
   });
 
   describe('a fadeIn that starts before the fadeOut ends', () => {
@@ -271,6 +312,24 @@ describe('createFader', () => {
       vi.advanceTimersByTime(5000);
       expect(done).not.toHaveBeenCalled();
     });
+
+    it.each([true, false])(
+      'drops the onDone of the fadeOut it interrupts, on every platform (volume: %s)',
+      (volume) => {
+        const p = new FakePlayerAdapter(180000);
+        const done = vi.fn();
+        const fader = createFader(p, { volume });
+
+        fader.fadeOut(2000, done);
+        vi.advanceTimersByTime(1000);
+        fader.fadeIn(800);
+        vi.advanceTimersByTime(10000);
+
+        expect(done).not.toHaveBeenCalled();
+        expect(fader.fading()).toBeNull();
+        expect(vi.getTimerCount()).toBe(0);
+      },
+    );
 
     it('also stops a descent that has not lowered anything yet, because there is nothing to climb', () => {
       const p = new FakePlayerAdapter(180000);
@@ -344,12 +403,14 @@ describe('createFader', () => {
       [1, 50],
       [0, 50],
       [-20, 50],
-    ])('lands exactly on the target, at exactly the asked time (%i ms, %i ms steps)', (ms, stepMs) => {
+      [Number.NaN, 50],
+      [Number.POSITIVE_INFINITY, 50],
+    ])('lands exactly on the target, at exactly the asked time (%f ms, %i ms steps)', (ms, stepMs) => {
       const p = new FakePlayerAdapter(180000);
       p.setVolume(33);
       const done = vi.fn();
       const fader = createFader(p, { volume: true, stepMs });
-      const total = Math.max(0, ms);
+      const total = Number.isFinite(ms) ? Math.max(0, ms) : 0; // a negative or non-finite time counts as 0
 
       fader.fadeOut(ms, done);
       if (total > 0) {
@@ -424,7 +485,7 @@ describe('createFader', () => {
       expect(p.getVolume()).toBe(100);
     });
 
-    it('does nothing on fadeIn', () => {
+    it('a fadeIn with no wait pending does nothing', () => {
       const p = new FakePlayerAdapter(180000);
       const fader = createFader(p, { volume: false });
 
@@ -434,6 +495,38 @@ describe('createFader', () => {
       expect(vi.getTimerCount()).toBe(0);
       expect(p.calls).toEqual([]);
     });
+
+    it('a fadeIn during the wait stops it: done is never called, and no volume is set', () => {
+      const p = new FakePlayerAdapter(180000);
+      const done = vi.fn();
+      const fader = createFader(p, { volume: false });
+
+      fader.fadeOut(2000, done);
+      vi.advanceTimersByTime(1000);
+      fader.fadeIn(800);
+
+      expect(fader.fading()).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+      vi.advanceTimersByTime(10000);
+      expect(done).not.toHaveBeenCalled();
+      expect(p.calls).toEqual([]);
+      expect(p.getVolume()).toBe(100);
+    });
+
+    it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -50])(
+      'a time of %f counts as 0: done is called at once, not never',
+      (ms) => {
+        const p = new FakePlayerAdapter(180000);
+        const done = vi.fn();
+        const fader = createFader(p, { volume: false });
+
+        fader.fadeOut(ms, done);
+        vi.advanceTimersByTime(0);
+
+        expect(done).toHaveBeenCalledTimes(1);
+        expect(fader.fading()).toBeNull();
+      },
+    );
 
     it('cancel stops the wait without calling done', () => {
       const p = new FakePlayerAdapter(180000);
