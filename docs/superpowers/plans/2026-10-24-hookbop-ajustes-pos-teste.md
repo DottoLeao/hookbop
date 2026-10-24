@@ -66,7 +66,7 @@ pgTAP), API IFrame do YouTube, SDK `@anthropic-ai/sdk`, GSAP com `@gsap/react` (
 
 ---
 
-### Tarefa 1: Volume e fader no player
+### Task 1: Volume e fader no player
 
 **Arquivos:**
 - Modificar: `src/lib/player/adapter.ts`, `src/lib/player/youtubeAdapter.ts`, `src/lib/player/fakeAdapter.ts`
@@ -112,7 +112,7 @@ pgTAP), API IFrame do YouTube, SDK `@anthropic-ai/sdk`, GSAP com `@gsap/react` (
 - [ ] **Passo 4:** rode o arquivo e `npx vitest run src/lib/player`. Esperado: PASS.
 - [ ] **Passo 5:** `git commit -m "feat: player volume and a fader for smooth pauses"`
 
-### Tarefa 2: Reducer com fade e regra da volta
+### Task 2: Reducer com fade e regra da volta
 
 **Arquivos:**
 - Modificar: `src/lib/types.ts` (`Command`), `src/lib/game/reducer.ts`, `src/lib/game/reducer.test.ts`
@@ -164,7 +164,7 @@ pgTAP), API IFrame do YouTube, SDK `@anthropic-ai/sdk`, GSAP com `@gsap/react` (
 - [ ] **Passo 4:** `npx vitest run src/lib/game`. Esperado: PASS.
 - [ ] **Passo 5:** `git commit -m "feat: waits fade out, resume rule for blanks heard inside the fade"`
 
-### Tarefa 3: GameScreen toca o fade; "Traduzir verso" e a folha de ajuda pausam com fade
+### Task 3: GameScreen toca o fade; "Traduzir verso" e a folha de ajuda pausam com fade
 
 **Arquivos:**
 - Modificar:
@@ -202,7 +202,7 @@ pgTAP), API IFrame do YouTube, SDK `@anthropic-ai/sdk`, GSAP com `@gsap/react` (
 - [ ] **Passo 4:** `npx vitest run src/components/game`. Esperado: PASS.
 - [ ] **Passo 5:** `git commit -m "feat: smooth fades in the game, translate and help pause the clip"`
 
-### Tarefa 4: Sair e voltar sem travar
+### Task 4: Sair e voltar sem travar
 
 **Arquivos:**
 - Modificar:
@@ -248,7 +248,7 @@ pgTAP), API IFrame do YouTube, SDK `@anthropic-ai/sdk`, GSAP com `@gsap/react` (
 - [ ] **Passo 4:** `npx vitest run src/components/game src/lib/player`. Esperado: PASS.
 - [ ] **Passo 5:** `git commit -m "fix: coming back to the app resyncs the lyrics and waits for Continuar"`
 
-### Tarefa 5: Guardar a partida no aparelho e oferecer "Continuar de onde parou"
+### Task 5: Guardar a partida no aparelho e oferecer "Continuar de onde parou"
 
 **Arquivos:**
 - Criar: `src/lib/game/savedProgress.ts`, `src/lib/game/savedProgress.test.ts`
@@ -287,7 +287,7 @@ pgTAP), API IFrame do YouTube, SDK `@anthropic-ai/sdk`, GSAP com `@gsap/react` (
 - [ ] **Passo 4:** `npx vitest run src/lib/game src/components/game`. Esperado: PASS.
 - [ ] **Passo 5:** `git commit -m "feat: keep a game in progress on the device and offer to resume it"`
 
-### Tarefa 6: Tirar o botão "Dica"
+### Task 6: Tirar o botão "Dica"
 
 **Arquivos:**
 - Modificar: `src/components/game/ToolsBar.tsx`, `src/components/game/GameScreen.tsx`, `src/i18n/pt-BR.ts`, e os testes
@@ -309,7 +309,7 @@ pgTAP), API IFrame do YouTube, SDK `@anthropic-ai/sdk`, GSAP com `@gsap/react` (
 - [ ] **Passo 4:** rode `src/components/game`. Esperado: PASS.
 - [ ] **Passo 5:** `git commit -m "feat: drop the hint button"`
 
-### Tarefa 7: Capinha da música no card
+### Task 7: Capinha da música no card
 
 **Arquivos:**
 - Criar: `src/components/home/SongThumb.tsx` (cliente), `src/components/home/SongThumb.test.tsx`
@@ -333,7 +333,7 @@ pgTAP), API IFrame do YouTube, SDK `@anthropic-ai/sdk`, GSAP com `@gsap/react` (
 - [ ] **Passos 2 a 4:** rode e veja falhar, implemente, rode e veja passar (`src/components/home`).
 - [ ] **Passo 5:** `git commit -m "feat: song thumbnails on the home cards"`
 
-### Tarefa 8: Animações, base e letra deslizando
+### Task 8: Animações, base e letra deslizando
 
 **Arquivos:**
 - Criar:
@@ -364,7 +364,7 @@ pgTAP), API IFrame do YouTube, SDK `@anthropic-ai/sdk`, GSAP com `@gsap/react` (
   relatório o tamanho que o GSAP somou ao JS da rota `/jogar`.
 - [ ] **Passo 5:** `git commit -m "feat: lyrics slide between lines, with a reduced-motion fade"`
 
-### Tarefa 9: Animações de resposta e de carregamento
+### Task 9: Animações de resposta e de carregamento
 
 **Arquivos:**
 - Modificar:
@@ -392,7 +392,7 @@ pgTAP), API IFrame do YouTube, SDK `@anthropic-ai/sdk`, GSAP com `@gsap/react` (
   Depois implemente e rode `src/components`.
 - [ ] **Passo 5:** `git commit -m "feat: answer feedback and loading animations"`
 
-### Tarefa 10: Transições de tela e de folha
+### Task 10: Transições de tela e de folha
 
 **Arquivos:**
 - Modificar:
@@ -416,7 +416,7 @@ pgTAP), API IFrame do YouTube, SDK `@anthropic-ai/sdk`, GSAP com `@gsap/react` (
   Depois implemente e rode `src/components`.
 - [ ] **Passo 5:** `git commit -m "feat: sheet and screen transitions"`
 
-### Tarefa 11: Tabelas de métricas (migração 0006)
+### Task 11: Tabelas de métricas (migração 0006)
 
 **Arquivos:**
 - Criar: `supabase/migrations/0006_metrics.sql`, `supabase/tests/database/metrics.test.sql`
@@ -477,7 +477,7 @@ pgTAP), API IFrame do YouTube, SDK `@anthropic-ai/sdk`, GSAP com `@gsap/react` (
 - [ ] **Passo 4:** rode `npx supabase test db` e `npx tsc --noEmit`. Esperado: PASS.
 - [ ] **Passo 5:** `git commit -m "feat: metrics tables and owner-only summaries"`
 
-### Tarefa 12: A IA registra o próprio uso
+### Task 12: A IA registra o próprio uso
 
 **Arquivos:**
 - Criar: `src/lib/help/pricing.ts`, `src/lib/help/pricing.test.ts`
@@ -514,7 +514,7 @@ pgTAP), API IFrame do YouTube, SDK `@anthropic-ai/sdk`, GSAP com `@gsap/react` (
 - [ ] **Passos 2 a 4:** rode e veja falhar, implemente, rode `src/lib/help` e `src/lib/supabase` e veja passar.
 - [ ] **Passo 5:** `git commit -m "feat: log AI usage and estimated cost per help request"`
 
-### Tarefa 13: Registro de ações do app
+### Task 13: Registro de ações do app
 
 **Arquivos:**
 - Criar:
@@ -571,7 +571,7 @@ pgTAP), API IFrame do YouTube, SDK `@anthropic-ai/sdk`, GSAP com `@gsap/react` (
   `src/components` e veja passar.
 - [ ] **Passo 5:** `git commit -m "feat: record app usage events through a validated route"`
 
-### Tarefa 14: Painel de métricas do dono
+### Task 14: Painel de métricas do dono
 
 **Arquivos:**
 - Criar:
@@ -619,7 +619,7 @@ pgTAP), API IFrame do YouTube, SDK `@anthropic-ai/sdk`, GSAP com `@gsap/react` (
   `src/components/home` e veja passar.
 - [ ] **Passo 5:** `git commit -m "feat: owner metrics panel with projection and export"`
 
-### Tarefa 15: Política de privacidade atualizada
+### Task 15: Política de privacidade atualizada
 
 **Arquivos:** `src/i18n/pt-BR.ts` (chaves `privacidade.*`) e `src/app/privacidade/page.test.tsx`
 
@@ -637,7 +637,7 @@ O texto final é **revisado pelo dono** antes da publicação.
   depois implemente e veja passar.
 - [ ] **Passo 5:** `git commit -m "docs: privacy policy covers usage records and thumbnails"`
 
-### Tarefa 16: Publicar
+### Task 16: Publicar
 
 Esta tarefa é do controlador, junto com o dono.
 
