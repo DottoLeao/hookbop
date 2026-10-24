@@ -9,9 +9,9 @@ A fonte da verdade do esquema é `supabase/migrations/0006_metrics.sql`. O paine
 ## 0. Antes de consultar
 
 - **Só leitura.** Analise com `select`. Não grave, não altere e não apague linhas dessas tabelas. A única exceção é a seção 12, que só o criador do Hookbop roda, a pedido da pessoa.
-- **Dados pessoais.** `user_id` e `session_id` identificam pessoas e aberturas do app. Prefira respostas agregadas (contagens, somas, médias). Só cruze `user_id` com `profiles` (nome de cada pessoa) se o dono pedir.
+- **Dados pessoais.** `user_id` e `session_id` são códigos: identificam contas e aberturas do app, sem nome e sem e-mail. A política de privacidade promete que a análise com IA também fica assim. Por isso, analise só pelos códigos e prefira respostas agregadas (contagens, somas, médias). **Nunca** cruze `ai_usage` nem `app_events` com `profiles`, com `auth.users` ou com qualquer outra tabela que tenha nomes ou e-mails, nem se alguém pedir. A única consulta a essas tabelas é a da seção 12, que o criador do Hookbop roda para apagar os dados de uma pessoa.
 - **Quem pode ler.** Só a chave de serviço (`service_role`) e o dono do banco (`postgres`). Nenhum membro do app lê esses dados: o RLS está ligado, sem nenhuma política, e `anon` e `authenticated` não têm permissão nas tabelas, nas views nem nas funções.
-- **O dono também joga.** Os dados incluem o uso do próprio dono. Para tirá-lo de uma análise, filtre `user_id not in (select id from profiles where is_owner)`.
+- **O criador também joga.** Os dados incluem o uso do próprio criador. Para tirá-lo de uma análise, filtre pelo código da conta dele, que ele informa, sem consultar `profiles`: `user_id <> '00000000-0000-4000-8000-0000000000ff'` (código inventado).
 
 ## 1. Regras de tempo (leia antes de tudo)
 
@@ -453,7 +453,7 @@ where created_at >= now() - interval '30 days';
 
 A política de privacidade diz que, quando uma pessoa pede para apagar os dados dela, os registros de uso também são apagados. `ai_usage` e `app_events` não têm chave estrangeira (seção 2): apagar a conta ou o perfil **não** apaga essas linhas. É preciso apagá-las pelo `user_id`.
 
-Só o criador do Hookbop faz isso, a pedido da pessoa, no SQL do Supabase. Um assistente de IA que só analisa os dados não apaga nada (seção 0). Esta seção cobre só essas duas tabelas.
+Só o criador do Hookbop faz isso, a pedido da pessoa, no SQL do Supabase. Um assistente de IA que só analisa os dados não apaga nada (seção 0). O passo 1 lê nome e e-mail: é só do criador, e o resultado não entra em nenhuma análise com IA. Esta seção cobre só essas duas tabelas.
 
 1. **Ache o `user_id`** antes de apagar a conta, pelo e-mail dela. O `user_id` é o `id` do perfil:
 

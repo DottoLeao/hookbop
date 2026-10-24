@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import PrivacidadePage from './page';
@@ -43,12 +45,13 @@ describe('PrivacidadePage', () => {
     expect(screen.getByText(/só o verso da música e a palavra destacada/)).toBeInTheDocument();
   });
 
-  it('says the player and the covers of the songs on the home screen both come from YouTube', () => {
+  it('says the player and the covers of the songs on the home screen both come from YouTube, and the covers are asked for without saying which page', () => {
     render(<PrivacidadePage />);
 
     const youtube = screen.getByText(/^YouTube:/);
     expect(youtube).toHaveTextContent('os clipes tocam no player oficial do YouTube');
     expect(youtube).toHaveTextContent('As capinhas das músicas na tela inicial também vêm do YouTube.');
+    expect(youtube).toHaveTextContent('O pedido das capinhas não diz ao YouTube de qual página ele vem.');
   });
 
   it('says how to reach the person responsible, with a mail link', () => {
@@ -80,6 +83,7 @@ describe('PrivacidadePage: usage records', () => {
       'os tokens usados',
       'o custo estimado',
       'o tempo de resposta',
+      'a data e a hora',
     ]) {
       expect(record).toHaveTextContent(part);
     }
@@ -93,6 +97,7 @@ describe('PrivacidadePage: usage records', () => {
     for (const part of [
       'o código da sua conta',
       'um código aleatório da sessão',
+      'o nome da ação e a data e a hora',
       'abrir o app',
       'abrir uma música',
       'escolher o modo',
@@ -102,10 +107,8 @@ describe('PrivacidadePage: usage records', () => {
       'o aviso de instalação',
       'criar um convite',
       'ajustar o tempo da letra',
-      'a porcentagem de acertos',
-      'a duração',
-      'o número de lacunas',
-      'o número do verso ao pedir ajuda',
+      'ao terminar uma partida, a porcentagem de acertos, a duração e o número de lacunas',
+      'ao pedir ajuda, o número do verso',
     ]) {
       expect(record).toHaveTextContent(part);
     }
@@ -168,7 +171,9 @@ describe('PrivacidadePage: usage records', () => {
     const tempo = topic('Por quanto tempo');
     const registros = tempo.getByText(/registros de uso ficam guardados por 12 meses/);
     expect(registros).toHaveTextContent('um processo automático, que roda todo dia, apaga os mais antigos');
-    expect(tempo.getByText(/partida em andamento de uma música fica guardada por até 24 horas/)).toBeInTheDocument();
+    const aparelho = tempo.getByText(/partida em andamento de uma música é oferecida por até 24 horas/);
+    expect(aparelho).toHaveTextContent('para você continuar de onde parou');
+    expect(aparelho).toHaveTextContent('e sai do aparelho na próxima vez que você abrir uma música depois disso');
   });
 
   it('lists, in the paragraph about the device, everything the app keeps there: cookies, settings, game, marks, session', () => {
@@ -186,8 +191,18 @@ describe('PrivacidadePage: usage records', () => {
     );
     // In the tab only: the session code and the mark that the app was opened.
     expect(aparelho).toHaveTextContent(
-      'um código aleatório da sessão e a marca de que o app já foi aberto nela, que somem quando você fecha a aba',
+      'um código aleatório da sessão e a marca de que o app já foi aberto, que somem quando você fecha a aba',
     );
+  });
+
+  it('has the doc that the AI assistant follows forbid joining the records to anything with names or e-mails', () => {
+    const doc = readFileSync(join(process.cwd(), 'docs', 'analytics.md'), 'utf-8');
+
+    expect(doc).toContain('**Nunca** cruze `ai_usage` nem `app_events` com `profiles`, com `auth.users`');
+    expect(doc).toContain('qualquer outra tabela que tenha nomes ou e-mails');
+    // The old rule let the creator ask for names, and the old example read the owner out of `profiles`.
+    expect(doc).not.toContain('Só cruze');
+    expect(doc).not.toContain('from profiles where is_owner');
   });
 
   it('never calls the creator "o dono"', () => {

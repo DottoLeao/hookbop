@@ -331,11 +331,11 @@ export const ptBR = {
   'privacidade.guarda.ajuda':
     'Pedidos de ajuda: a hora e o tipo de cada "Não entendi" ou "Traduzir verso", para controlar o limite por hora. As explicações e traduções ficam guardadas por verso, sem dizer quem pediu.',
   'privacidade.guarda.usoIa':
-    'Registro de uso da IA: a cada pedido de ajuda com IA, guardamos o código da sua conta, o vídeo, o número do verso, se foi explicação ou tradução, se a resposta veio da IA ou de uma resposta já guardada, os tokens usados (a medida de texto que a IA processa), o custo estimado, o tempo de resposta e como terminou.',
+    'Registro de uso da IA: a cada pedido de ajuda com IA, guardamos o código da sua conta, o vídeo, o número do verso, se foi explicação ou tradução, se a resposta veio da IA ou de uma resposta já guardada, os tokens usados (a medida de texto da IA), o custo estimado, o tempo de resposta, como terminou e a data e a hora.',
   'privacidade.guarda.usoApp':
-    'Registro de uso do app: o código da sua conta, um código aleatório da sessão e o nome da ação, às vezes com o vídeo e o modo. As ações são abrir o app, abrir uma música, escolher o modo, começar, terminar ou sair no meio de uma partida, pedir ajuda, continuar depois de sair do app, ver o aviso de instalação (e aceitar), criar um convite e ajustar o tempo da letra. De detalhe, só guardamos a porcentagem de acertos, a duração e o número de lacunas ao terminar uma partida, e o número do verso ao pedir ajuda.',
+    'Registro de uso do app: o código da sua conta, um código aleatório da sessão, o nome da ação e a data e a hora, às vezes com o vídeo e o modo. As ações são abrir o app, abrir uma música, escolher o modo, começar, terminar ou sair no meio de uma partida, pedir ajuda, continuar depois de sair do app, ver o aviso de instalação (e aceitar), criar um convite e ajustar o tempo da letra. Detalhes, só estes: ao terminar uma partida, a porcentagem de acertos, a duração e o número de lacunas; ao pedir ajuda, o número do verso.',
   'privacidade.guarda.aparelho':
-    'No seu aparelho: os cookies que mantêm você conectado e guardam o convite; as suas configurações do jogo; a partida em andamento de cada música, para você continuar de onde parou; duas marcas do aviso para instalar o app (que você já terminou uma música e que tocou em "Agora não"); um código aleatório da sessão e a marca de que o app já foi aberto nela, que somem quando você fecha a aba; e as páginas guardadas para o app abrir sem internet.',
+    'No seu aparelho: os cookies que mantêm você conectado e guardam o convite; as suas configurações do jogo; a partida em andamento de cada música, para você continuar de onde parou; duas marcas do aviso para instalar o app (que você já terminou uma música e que tocou em "Agora não"); um código aleatório da sessão e a marca de que o app já foi aberto, que somem quando você fecha a aba; e as páginas guardadas para o app abrir sem internet.',
 
   'privacidade.uso.title': 'Para que usamos',
   'privacidade.uso.p1':
@@ -357,7 +357,7 @@ export const ptBR = {
   'privacidade.terceiros.anthropic':
     'Anthropic (Claude): quando você toca em "Não entendi" ou "Traduzir verso", enviamos só o verso da música e a palavra destacada, e nenhum dado seu vai junto. O criador também pode usar o Claude para analisar os registros de uso; nesse caso, entra o código da sua conta, sem nome e sem e-mail.',
   'privacidade.terceiros.youtube':
-    'YouTube: os clipes tocam no player oficial do YouTube, que segue a política de privacidade do Google. As capinhas das músicas na tela inicial também vêm do YouTube.',
+    'YouTube: os clipes tocam no player oficial do YouTube, que segue a política de privacidade do Google. As capinhas das músicas na tela inicial também vêm do YouTube. O pedido das capinhas não diz ao YouTube de qual página ele vem.',
   'privacidade.terceiros.lrclib': 'LRCLIB: é onde buscamos a letra sincronizada, pelo nome da música. Nenhum dado seu vai junto.',
 
   'privacidade.membros.title': 'O que os outros membros veem',
@@ -372,7 +372,7 @@ export const ptBR = {
   'privacidade.tempo.registros':
     'Já os registros de uso ficam guardados por 12 meses. Depois disso, um processo automático, que roda todo dia, apaga os mais antigos.',
   'privacidade.tempo.aparelho':
-    'No seu aparelho, a partida em andamento de uma música fica guardada por até 24 horas, para você continuar de onde parou. O código da sessão some quando você fecha a aba.',
+    'No seu aparelho, a partida em andamento de uma música é oferecida por até 24 horas, para você continuar de onde parou, e sai do aparelho na próxima vez que você abrir uma música depois disso. O código da sessão some quando você fecha a aba.',
 
   'privacidade.direitos.title': 'Seus direitos',
   'privacidade.direitos.p1':
