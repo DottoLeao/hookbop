@@ -2,7 +2,11 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { isRealWord } from '@/lib/game/realWords';
 import type { Blank } from '@/lib/types';
+import { animations, animationsOf, changedBy, preferReducedMotion } from './answerFeedbackTesting';
 import { DigitacaoArea } from './DigitacaoArea';
+
+// jsdom plays no animation, so GSAP is only watched: what the area asks it to animate, and how.
+vi.mock('gsap');
 
 // The word list is the real one, so "got" is a real word and "gte" is not. The spy only lets the tests see when it
 // is first asked, which the area does on its own once it is idle.
@@ -355,6 +359,115 @@ describe('DigitacaoArea: what is not an answer', () => {
     // fireEvent gives back false when the handler called preventDefault.
     expect(fireEvent.submit(field().form!)).toBe(false);
     expect(fireEvent.submit(field().form!)).toBe(false);
+  });
+});
+
+describe('DigitacaoArea: the feedback of an answer', () => {
+  it('pops the field, changing only its scale, as it turns lime with its check', () => {
+    renderArea();
+    expect(animations()).toHaveLength(0);
+
+    submit('get');
+
+    const [pop, ...more] = animationsOf(box());
+    expect(more).toHaveLength(0);
+    expect(changedBy(pop)).toEqual(['scale']);
+    expect(pop.to.scale).toBeGreaterThan(1);
+    expect(pop.to.duration).toBeLessThanOrEqual(0.3);
+    expect(animations()).toHaveLength(1);
+  });
+
+  it('pops for a word that was only a slip away, too', () => {
+    renderArea();
+
+    submit('Gte');
+
+    expect(changedBy(animationsOf(box())[0])).toEqual(['scale']);
+  });
+
+  it('shakes the field, changing only its x, as it turns red with its cross', () => {
+    renderArea();
+
+    submit('got');
+
+    const [shake, ...more] = animationsOf(box());
+    expect(more).toHaveLength(0);
+    expect(changedBy(shake)).toEqual(['x']);
+    expect(shake.to.duration).toBeLessThanOrEqual(0.3);
+    expect(animations()).toHaveLength(1);
+  });
+
+  it('shakes again for every wrong try: another wrong word, and the same one sent again', () => {
+    const { onAnswer } = renderArea();
+    submit('got');
+
+    fireEvent.submit(field().form!);
+    submit('gut');
+
+    expect(onAnswer).toHaveBeenCalledTimes(2);
+    expect(animationsOf(box()).map(changedBy)).toEqual([['x'], ['x'], ['x']]);
+  });
+
+  it('is not held back: the next try is taken at once, and pops when it is right', () => {
+    const { onAnswer } = renderArea();
+    submit('got');
+
+    submit('get');
+
+    expect(onAnswer.mock.calls).toEqual([[false, []], [true, []]]);
+    expect(animationsOf(box()).map(changedBy)).toEqual([['x'], ['scale']]);
+  });
+
+  it('animates nothing for a field that is empty, a send with no word, or one that is already right', () => {
+    renderArea();
+    submit('');
+    submit('   ');
+    expect(animations()).toHaveLength(0);
+
+    submit('get');
+    submit('got');
+
+    expect(animations()).toHaveLength(1);
+  });
+
+  it('animates nothing for a blank that is already right when the area is drawn', () => {
+    renderArea({ solved: true, corrected: [1, 2] });
+
+    expect(animations()).toHaveLength(0);
+  });
+
+  it('does not shake again when a hint clears the wrong word', () => {
+    const { onAnswer, rerender } = renderArea();
+    submit('got');
+
+    rerender(<DigitacaoArea blank={BLANK} hinted onAnswer={onAnswer} />);
+
+    expect(animations()).toHaveLength(1);
+  });
+
+  it('only fades, for a right word and for a wrong one, when motion is reduced', () => {
+    preferReducedMotion(true);
+    renderArea();
+
+    submit('got');
+    submit('get');
+
+    expect(animations()).toHaveLength(2);
+    for (const animation of animations()) expect(changedBy(animation)).toEqual(['opacity']);
+  });
+
+  it('keeps the focus in the field, and its label, aria and the status for screen readers as they were', () => {
+    renderArea();
+    field().focus();
+
+    submit('got');
+
+    expect(field()).toHaveFocus();
+    expect(field()).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText('Digite a palavra que falta')).toBe(field());
+    expect(screen.getByRole('status')).toHaveTextContent('got, errou');
+    expect(screen.getByRole('status')).toHaveClass('sr-only');
+    expect(visibleText()).not.toMatch(/acertou|errou/i);
   });
 });
 

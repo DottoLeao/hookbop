@@ -382,6 +382,19 @@ describe('useRingFill (ruling S34: the one animation that is not transform and o
     expect(arc.getAttribute('stroke-dasharray')).toBe('331 377');
   });
 
+  it('clears only the opacity of its fade, never a transform: the arc is an SVG circle with a transform of its own', () => {
+    // GSAP clears "transform" on an SVG element by removing its transform attribute (CSSPlugin, _renderClearProps), and
+    // the arc's "rotate(-90 70 70)" is what starts it from the top. jsdom cannot run that path (it has no getCTM), so
+    // what is checked is what the fade is told to clear.
+    preferReducedMotion(true);
+    render(<Ring length={331} />);
+
+    const arc = screen.getByTestId('arc');
+    const [tween] = gsap.getTweensOf(arc);
+    expect(asked(tween).to.clearProps).toBe('opacity');
+    expect(arc.getAttribute('transform')).toBe('rotate(-90 70 70)');
+  });
+
   it('leaves no tween and no style behind when the screen goes away mid-fill', () => {
     const { unmount } = render(<Ring />);
     const arc = screen.getByTestId('arc');

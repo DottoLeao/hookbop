@@ -91,3 +91,99 @@
     animation-delay: 0s;
   }
 }
+
+/* The loops, by CSS alone (ruling S37): they have no end to start from, so there is nothing for a script to time, and
+   "reduzir movimento" is met by the stylesheet, which follows the phone's setting as it changes. Only opacity and
+   transform, as everywhere.
+
+   The blank whose turn it is: a lime ring around the solid slot swells and fades out, once every 1.6 s, and the slot
+   itself never moves. The ring is the same lime as the slot's border, so it reads as the border radiating. */
+@keyframes blank-pulse {
+  0% {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+  70%, 100% {
+    opacity: 0;
+    transform: scale(1.14, 1.3);
+  }
+}
+
+.blank-pulse {
+  position: relative;
+}
+
+.blank-pulse::after {
+  content: "";
+  position: absolute;
+  inset: -2.5px;
+  border: 2.5px solid var(--color-lime);
+  border-radius: inherit;
+  pointer-events: none;
+  animation: blank-pulse 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* The disc while a song loads: one turn in 1.3 s, as a record at 45 rpm. */
+@keyframes disc-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.disc-spin {
+  animation: disc-spin 1.3s linear infinite;
+}
+
+/* The shimmer where a translation, or the explanation of DJ Bop, will come: a soft sheen crosses the box from side to
+   side until the text is there. The box clips it. */
+@keyframes shimmer-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes shimmer-breathe {
+  0%, 100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 20%, rgb(255 255 255 / 0.12) 50%, transparent 80%);
+  pointer-events: none;
+  animation: shimmer-sweep 1.5s ease-in-out infinite;
+}
+
+/* "Reduzir movimento": no ring, no turn and no sweep. The disc stands still; the box of the shimmer is lit and dimmed
+   slowly instead, which changes nothing but its opacity. */
+@media (prefers-reduced-motion: reduce) {
+  .blank-pulse::after {
+    display: none;
+  }
+
+  .disc-spin {
+    animation: none;
+  }
+
+  .shimmer::after {
+    background: rgb(255 255 255 / 0.07);
+    animation: shimmer-breathe 2s ease-in-out infinite;
+  }
+}

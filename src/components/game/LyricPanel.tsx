@@ -69,7 +69,9 @@ const SLOT_SIZE = {
 };
 
 /**
- * A blank still open. The one in play is solid ("sua vez"); the others, and those of the lines around it, dashed.
+ * A blank still open. The one in play is solid ("sua vez") and pulses in lime (`blank-pulse`, in `globals.css`: a ring that
+ * swells and fades around the slot, which itself never moves, and none at all when motion is reduced); the others, and
+ * those of the lines around it, dashed.
  * `whole` is a line that is a puzzle, hidden altogether: one dashed bar as wide as the line in place of its words
  * (the player builds it in the answer area, so the bar has no "sua vez" look).
  */
@@ -78,7 +80,7 @@ function Slot({ inPlay = false, small, whole = false }: { inPlay?: boolean; smal
   const look = small
     ? 'border-[1.5px] border-dashed border-faint'
     : inPlay
-      ? 'border-[2.5px] border-lime bg-card'
+      ? 'blank-pulse border-[2.5px] border-lime bg-card'
       : 'border-2 border-dashed border-lime';
   return (
     <span className={`inline-block rounded-blank align-middle ${size} ${look}`}>
@@ -231,7 +233,9 @@ function Pill({ onClick, children }: { onClick: (event: MouseEvent<HTMLButtonEle
  * then ("Traduzindo..." while it is on its way, and DJ Bop's calm line next to the pill when it cannot be had), and
  * "Não entendi" once every blank of the line has had its first answer. Until then the words of the line in play cannot
  * be tapped either (ruling R83); "Traduzir verso" is there all along (spec §7, ruling R60). While the music is paused
- * for the translation, "Continuar" is the first of those buttons, under the translation.
+ * for the translation, "Continuar" is the first of those buttons, under the translation. While the translation is on its way,
+ * "Traduzindo..." is drawn in a box a shimmer passes over (`shimmer`, in `globals.css`), where the translation will come;
+ * it is still the `role="status"` that says it.
  *
  * A line that is a puzzle (Monte o verso) is never drawn as text until it is right (ruling R52), and while it is in
  * play the answer area holds it (ruling R59): the panel then draws neither that line nor the line after it, only the
@@ -274,6 +278,7 @@ export function LyricPanel({
   const canTranslate = !shownTranslation && translation?.status !== 'loading';
   const translationNote =
     translation?.status === 'loading' ? t('ajuda.translating') : translation?.status === 'error' ? translation.message : null;
+  const translating = translation?.status === 'loading';
   // The word the player tapped belongs to the line drawn now, whatever line the clock reaches before the tap lands.
   const explain = (target: string, opener: HTMLElement) => onExplain(target, current, opener);
 
@@ -303,7 +308,10 @@ export function LyricPanel({
         </p>
       )}
       {translationNote && (
-        <p role="status" className="text-body text-muted">
+        <p
+          role="status"
+          className={translating ? 'shimmer rounded-blank bg-elevated px-3 py-2 text-body text-muted' : 'text-body text-muted'}
+        >
           {translationNote}
         </p>
       )}

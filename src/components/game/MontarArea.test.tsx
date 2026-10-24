@@ -1,9 +1,18 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { tokenize } from '@/lib/game/blanks';
 import { makeTiles, tileSeed } from '@/lib/game/tiles';
 import type { Blank } from '@/lib/types';
+import { animations, animationsOf, changedBy, preferReducedMotion } from './answerFeedbackTesting';
 import { MontarArea } from './MontarArea';
+
+// jsdom plays no animation, so GSAP is only watched: what the area asks it to animate, and how.
+vi.mock('gsap');
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.clearAllMocks();
+});
 
 const ID = 'dQw4w9WgXcQ';
 // An invented line, not a lyric.
@@ -327,6 +336,113 @@ describe('MontarArea', () => {
     renderArea({ tokens: ['I', 'love', 'you'] });
 
     expect(tile('I')).toHaveClass('min-w-11');
+  });
+});
+
+describe('MontarArea: the feedback of an answer', () => {
+  it('shakes a wrong tile, changing only its x, as its cross comes, and no other tile', () => {
+    renderArea();
+    expect(animations()).toHaveLength(0);
+
+    fireEvent.click(tile('tonight'));
+
+    const [shake, ...more] = animationsOf(tile('tonight, errou'));
+    expect(more).toHaveLength(0);
+    expect(changedBy(shake)).toEqual(['x']);
+    expect(shake.to.duration).toBeLessThanOrEqual(0.3);
+    expect(animations()).toHaveLength(1);
+  });
+
+  it('shakes the same wrong tile again when it is tapped again, since the row starts over', () => {
+    renderArea();
+
+    fireEvent.click(tile('tonight'));
+    fireEvent.click(tile('tonight, errou'));
+
+    expect(animationsOf(tile('tonight, errou')).map(changedBy)).toEqual([['x'], ['x']]);
+  });
+
+  it('shakes another wrong tile too, and not the one that was red before', () => {
+    renderArea();
+
+    fireEvent.click(tile('tonight'));
+    fireEvent.click(tile('home'));
+
+    expect(animationsOf(tile('home, errou'))).toHaveLength(1);
+    expect(animationsOf(tile('tonight'))).toHaveLength(1);
+    expect(animations()).toHaveLength(2);
+  });
+
+  it('animates nothing for a right tap that does not finish the line', () => {
+    renderArea();
+
+    fireEvent.click(tile('Please'));
+
+    expect(animations()).toHaveLength(0);
+  });
+
+  it('pops the row, changing only its scale, when the last word makes the line right', () => {
+    const { rerender, props } = renderArea({ placed: TOKENS.slice(0, -1) });
+    expect(animations()).toHaveLength(0);
+
+    rerender(<MontarArea {...props} placed={TOKENS} solved />);
+
+    const [pop, ...more] = animationsOf(row());
+    expect(more).toHaveLength(0);
+    expect(changedBy(pop)).toEqual(['scale']);
+    expect(pop.to.scale).toBeGreaterThan(1);
+    expect(pop.to.duration).toBeLessThanOrEqual(0.3);
+    expect(animations()).toHaveLength(1);
+  });
+
+  it('animates nothing for a line that is already right when the area is drawn', () => {
+    renderArea({ placed: TOKENS, solved: true });
+
+    expect(animations()).toHaveLength(0);
+  });
+
+  it('does not shake when a hint fills the row and takes the red away', () => {
+    const { rerender, props } = renderArea();
+    fireEvent.click(tile('tonight'));
+
+    rerender(<MontarArea {...props} placed={['Please']} />);
+
+    expect(animations()).toHaveLength(1);
+  });
+
+  it('only fades, for a wrong tile and for a right line, when motion is reduced', () => {
+    preferReducedMotion(true);
+    const { rerender, props } = renderArea();
+
+    fireEvent.click(tile('tonight'));
+    rerender(<MontarArea {...props} placed={TOKENS} solved />);
+
+    expect(animations()).toHaveLength(2);
+    for (const animation of animations()) expect(changedBy(animation)).toEqual(['opacity']);
+  });
+
+  it('keeps the focus on the tile that was tapped, and its name, aria and text as they were', () => {
+    renderArea();
+    const tapped = tile('tonight');
+    tapped.focus();
+
+    fireEvent.click(tapped);
+
+    expect(tile('tonight, errou')).toBe(tapped);
+    expect(tapped).toHaveFocus();
+    expect(tapped).not.toHaveAttribute('aria-disabled');
+    expect(tapped).toHaveTextContent('tonight');
+    expect(screen.getByRole('status')).toHaveTextContent('tonight, errou');
+    expect(visibleText()).not.toMatch(/acertou|errou/i);
+  });
+
+  it('never holds back a new try: the next tile is taken while the shake runs', () => {
+    const { onTile } = renderArea();
+
+    fireEvent.click(tile('tonight'));
+    fireEvent.click(tile('Please'));
+
+    expect(onTile.mock.calls).toEqual([['tonight'], ['Please']]);
   });
 });
 

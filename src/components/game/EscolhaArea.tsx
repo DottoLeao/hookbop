@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { t } from '@/i18n/t';
 import { tokenize } from '@/lib/game/blanks';
 import { makeDistractors } from '@/lib/game/distractors';
 import { seededRng, shuffled } from '@/lib/game/rng';
 import type { Blank, LyricLine } from '@/lib/types';
 import { ResultIcon } from './ResultIcon';
+import { useAnswerFeedback, type AnswerResult } from './useAnswerFeedback';
 
 /**
  * The three options of a blank: its answer and two distractors, in an order drawn from the blank id and the video,
@@ -32,10 +33,44 @@ interface EscolhaAreaProps {
 const option =
   'flex min-h-13 min-w-0 items-center justify-center gap-1.5 rounded-answer px-2 text-center text-button [overflow-wrap:anywhere] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime';
 
+interface OptionButtonProps {
+  /** What the option came to: it pops when it is right and shakes when it is wrong, as its mark comes. */
+  result: AnswerResult;
+  disabled: boolean;
+  /** The option has its result, and takes no more taps (it is `aria-disabled`, never `disabled`). */
+  tried: boolean;
+  /** The accessible name: the result, said to screen readers, once there is one. */
+  label?: string;
+  className: string;
+  onClick: () => void;
+  children: ReactNode;
+}
+
+/** One answer button, which moves with its own result (`useAnswerFeedback`): the other options stay where they are. */
+function OptionButton({ result, disabled, tried, label, className, onClick, children }: OptionButtonProps) {
+  const ref = useRef<HTMLButtonElement>(null);
+  useAnswerFeedback(ref, result);
+  return (
+    <button
+      ref={ref}
+      type="button"
+      disabled={disabled}
+      aria-disabled={tried || undefined}
+      aria-label={label}
+      onClick={onClick}
+      className={className}
+    >
+      {children}
+    </button>
+  );
+}
+
 /**
  * "Escolha a palavra que falta": three answer buttons (design/canvas/Escolha.dc.html, Limão colors). A right pick
  * turns lime with ✓ and closes the question; a wrong one turns red with ✕ and the other two stay open for another
- * try. The result is said only in the button's accessible name ("let, acertou"), never as text on screen.
+ * try. The result is said only in the button's accessible name ("let, acertou"), never as text on screen. As the mark
+ * comes, a right option pops and a wrong one shakes, for 0.3 s at most (`useAnswerFeedback`): no tap is held back by
+ * it, and the focus stays on the option that was tapped.
  */
 export function EscolhaArea({ blank, options, hinted = false, solved = false, onAnswer }: EscolhaAreaProps) {
   const [picked, setPicked] = useState<readonly string[]>([]);
@@ -66,18 +101,18 @@ export function EscolhaArea({ blank, options, hinted = false, solved = false, on
               ? 'border-[1.5px] border-dashed border-border font-semibold text-faint'
               : 'bg-card font-semibold text-text disabled:text-muted';
         return (
-          <button
+          <OptionButton
             key={choice}
-            type="button"
+            result={hit ? 'hit' : miss ? 'miss' : null}
             disabled={!tried && (done || greyed)}
-            aria-disabled={tried || undefined}
-            aria-label={hit ? t('escolha.hit', { palavra: choice }) : miss ? t('escolha.miss', { palavra: choice }) : undefined}
+            tried={tried}
+            label={hit ? t('escolha.hit', { palavra: choice }) : miss ? t('escolha.miss', { palavra: choice }) : undefined}
             onClick={() => pick(choice)}
             className={`${option} ${look}`}
           >
             {(hit || miss) && <ResultIcon hit={hit} />}
             {choice}
-          </button>
+          </OptionButton>
         );
       })}
     </div>

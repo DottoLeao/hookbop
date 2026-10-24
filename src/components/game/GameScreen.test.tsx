@@ -18,6 +18,7 @@ import type { VideoRecord } from '@/lib/lyrics/resolveSong';
 import { DEFAULT_STEP_MS, supportsVolume } from '@/lib/player/fade';
 import { FakePlayerAdapter } from '@/lib/player/fakeAdapter';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from '@/lib/settings';
+import { layOutPage } from '@/lib/motion/laidOutPage';
 import type { Blank, LyricLine } from '@/lib/types';
 import { GameScreen, type GameScreenProps } from './GameScreen';
 import { LyricPanel } from './LyricPanel';
@@ -307,12 +308,17 @@ function distractorsAskedFor() {
   return vi.mocked(makeDistractors).mock.calls.map(([answer]) => answer);
 }
 
+let unlayPage: () => void;
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
   localStorage.clear();
   device.canSetVolume = true;
   fake = new FakePlayerAdapter(DURATION_MS);
+  // The answers pop and shake with the real GSAP: it must see a page that is laid out, or it would take the element it
+  // moves out of the DOM and back, and the field would lose the focus it keeps on a phone.
+  unlayPage = layOutPage();
 });
 
 afterEach(() => {
@@ -320,6 +326,7 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.restoreAllMocks();
+  unlayPage();
 });
 
 describe('GameScreen: header', () => {
@@ -4438,5 +4445,102 @@ describe('ToolsBar', () => {
       expect(screen.getByRole('button', { name: 'Esconder tradução' })).not.toHaveClass('whitespace-nowrap');
       expect(screen.getByRole('button', { name: 'Repetir verso' })).toHaveClass('whitespace-nowrap');
     });
+  });
+});
+
+describe('GameScreen: the feedback of an answer and the blank whose turn it is', () => {
+  /** The real GSAP, only watched: what each answer moves, and with which property. */
+  function watched() {
+    return vi.spyOn(gsap, 'fromTo');
+  }
+
+  /** What was animated and what it was told to change, other than how to run. */
+  function moved(spy: ReturnType<typeof watched>) {
+    // fromTo(target, fromVars, toVars), the one form the feedback uses (the types read the calls as its last overload).
+    const calls = spy.mock.calls as unknown as [Element, Record<string, unknown>, Record<string, unknown>][];
+    return calls.map(([target, from, to]) => ({
+      target,
+      changes: [...new Set([...Object.keys(from), ...Object.keys(to)])]
+        .filter((name) => !['duration', 'ease', 'clearProps', 'delay', 'overwrite', 'immediateRender', 'parent', 'startAt'].includes(name))
+        .sort(),
+    }));
+  }
+
+  it('pulses the blank in play in the lyrics, and not once it is right', () => {
+    renderGame();
+    const blank = () => screen.getByTestId('line-current').querySelector('.blank-pulse');
+
+    expect(blank()).not.toBeNull();
+    expect(blank()).toHaveTextContent('lacuna');
+
+    fireEvent.click(option('let'));
+
+    expect(blank()).toBeNull();
+  });
+
+  it('shakes a wrong option and pops the right one, and the focus stays on the option that was tapped', () => {
+    renderGame();
+    const spy = watched();
+    option('late').focus();
+
+    fireEvent.click(option('late'));
+
+    expect(moved(spy)).toEqual([{ target: option('late, errou'), changes: ['x'] }]);
+    expect(option('late, errou')).toHaveFocus();
+
+    spy.mockClear();
+    option('let').focus();
+    fireEvent.click(option('let'));
+
+    expect(moved(spy)).toEqual([{ target: option('let, acertou'), changes: ['scale'] }]);
+    expect(option('let, acertou')).toHaveFocus();
+  });
+
+  it('shakes the typing field for a wrong word and pops it for a right one, keeping the focus in the field', async () => {
+    await renderTyping();
+    const spy = watched();
+
+    type('got');
+
+    expect(moved(spy)).toEqual([{ target: fieldBox(), changes: ['x'] }]);
+    expect(field()).toHaveFocus();
+    expect(screen.getByRole('status')).toHaveTextContent('got, errou');
+
+    spy.mockClear();
+    type('get');
+
+    expect(moved(spy)).toEqual([{ target: fieldBox(), changes: ['scale'] }]);
+    expect(field()).toHaveFocus();
+    expect(screen.getByRole('status')).toHaveTextContent('get, acertou');
+  });
+
+  it('shakes a wrong tile and pops the row when the line is right, in Monte o verso', () => {
+    renderBuild();
+    const spy = watched();
+
+    fireEvent.click(tile('tonight'));
+
+    expect(moved(spy)).toEqual([{ target: tile('tonight, errou'), changes: ['x'] }]);
+
+    spy.mockClear();
+    placeWords(BUILD_WORDS);
+
+    expect(moved(spy)).toEqual([{ target: screen.getByTestId('montar-row'), changes: ['scale'] }]);
+  });
+
+  it('moves nothing for a blank that comes back right: the answer is not a new one', () => {
+    renderGame({ blanks: [LET, GAVE] });
+    fireEvent.click(option('let'));
+    playTo(4500);
+    const spy = watched();
+
+    // The player goes back to the line that was answered: it comes back right, drawn as it was, without a pop.
+    act(() => {
+      fake.seekTo(1000);
+      vi.advanceTimersByTime(100);
+    });
+
+    expect(screen.getByTestId('line-current')).toHaveTextContent("Grandpa won't let geese drive");
+    expect(moved(spy).filter(({ changes }) => changes.includes('scale') || changes.includes('x'))).toEqual([]);
   });
 });

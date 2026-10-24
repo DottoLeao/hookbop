@@ -245,3 +245,132 @@ describe('LyricPanel: the lyrics slide from line to line', () => {
     focus.mockRestore();
   });
 });
+
+describe('LyricPanel: the blank whose turn it is', () => {
+  const ROOF: Blank = { id: '1:5', lineIndex: 1, tokenIndex: 5, answer: 'roof' };
+  const WHOLE: Blank = { id: '2:-1', lineIndex: 2, tokenIndex: -1, answer: 'Hold the line till the morning comes' };
+
+  /** The boxes of the blanks still open: each is drawn with the text "lacuna" for screen readers only. */
+  const slots = () => screen.queryAllByText('lacuna').map((hidden) => hidden.parentElement!);
+  const pulsing = () => slots().filter((slot) => slot.classList.contains('blank-pulse'));
+
+  it('pulses the blank in play, and no other: not the other blanks of the line, nor those of the lines around it', () => {
+    renderPanel({
+      blanks: [STARS, ROOF, LINE],
+      status: { [STARS.id]: 'pending', [ROOF.id]: 'pending', [LINE.id]: 'pending' },
+      inPlayId: STARS.id,
+    });
+
+    expect(slots()).toHaveLength(3);
+    expect(pulsing()).toHaveLength(1);
+    const [turn] = pulsing();
+    expect(turn).toHaveClass('border-[2.5px]', 'border-lime', 'bg-card');
+    expect(turn.closest('[data-testid="line-current"]')).not.toBeNull();
+  });
+
+  it('moves the pulse to the next blank of the line when that one is the one in play', () => {
+    renderPanel({
+      blanks: [STARS, ROOF],
+      status: { [STARS.id]: 'correct', [ROOF.id]: 'pending' },
+      inPlayId: ROOF.id,
+    });
+
+    expect(pulsing()).toHaveLength(1);
+    expect(slots()).toHaveLength(1);
+  });
+
+  it('stops pulsing when the blank is answered right, and when nothing is in play', () => {
+    renderPanel({ inPlayId: STARS.id });
+    expect(pulsing()).toHaveLength(1);
+
+    update({ status: { [STARS.id]: 'correct', [LINE.id]: 'pending' }, inPlayId: undefined });
+
+    expect(pulsing()).toHaveLength(0);
+  });
+
+  it('pulses nothing when no blank is in play', () => {
+    renderPanel();
+
+    expect(slots().length).toBeGreaterThan(0);
+    expect(pulsing()).toHaveLength(0);
+  });
+
+  it('does not pulse a line that is a puzzle: the answer area holds it', () => {
+    renderPanel({
+      current: 2,
+      blanks: [WHOLE],
+      status: { [WHOLE.id]: 'pending' },
+      inPlayId: WHOLE.id,
+    });
+
+    expect(pulsing()).toHaveLength(0);
+  });
+
+  it('keeps the slot as it was: its name for screen readers, and nothing else in it', () => {
+    renderPanel({ inPlayId: STARS.id });
+
+    const [turn] = pulsing();
+    expect(turn).toHaveTextContent('lacuna');
+    expect(turn.children).toHaveLength(1);
+    expect(turn.querySelector('button, a, input, [tabindex]')).toBeNull();
+    expect(turn).not.toHaveAttribute('style');
+    expect(gsap.fromTo).not.toHaveBeenCalled();
+  });
+});
+
+describe('LyricPanel: the translation on its way', () => {
+  it('passes a shimmer where the translation will come, until it is there, and keeps saying it is translating', () => {
+    renderPanel({ translation: { status: 'loading' } });
+
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent('Traduzindo...');
+    expect(status).toHaveClass('shimmer');
+    expect(status.tagName).toBe('P');
+  });
+
+  it('keeps the pills as they are while it loads: no "Traduzir verso" until it fails, "Continuar" and "Não entendi" stay', () => {
+    renderPanel({
+      translation: { status: 'loading' },
+      status: { [STARS.id]: 'correct', [LINE.id]: 'pending' },
+      onContinue: vi.fn(),
+    });
+
+    expect(screen.queryByRole('button', { name: 'Traduzir verso' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continuar' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Não entendi' })).toBeInTheDocument();
+  });
+
+  it('shows no shimmer once the translation is there', () => {
+    renderPanel({ translation: { status: 'loading' } });
+
+    update({ translation: { status: 'done', text: 'Segura a linha até a manhã chegar' } });
+
+    expect(screen.getByTestId('translation')).toHaveTextContent('Segura a linha até a manhã chegar');
+    expect(view.container.querySelector('.shimmer')).toBeNull();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('shows no shimmer when the translation failed: DJ Bop says so, and "Traduzir verso" asks again', () => {
+    renderPanel({ translation: { status: 'error', message: 'Essa agora não deu. Fica pra próxima?' } });
+
+    expect(screen.getByRole('status')).toHaveTextContent('Essa agora não deu. Fica pra próxima?');
+    expect(view.container.querySelector('.shimmer')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Traduzir verso' })).toBeInTheDocument();
+  });
+
+  it('shows no shimmer, and no status, before a translation is asked for', () => {
+    renderPanel();
+
+    expect(view.container.querySelector('.shimmer')).toBeNull();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('shimmers again when a failed translation is asked for again', () => {
+    renderPanel({ translation: { status: 'error', message: 'Essa agora não deu. Fica pra próxima?' } });
+
+    update({ translation: { status: 'loading' } });
+
+    expect(screen.getByRole('status')).toHaveClass('shimmer');
+    expect(screen.getByRole('status')).toHaveTextContent('Traduzindo...');
+  });
+});

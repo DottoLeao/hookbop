@@ -95,6 +95,67 @@ describe('HelpSheet', () => {
     expect(sheet()).toHaveFocus();
   });
 
+  it('takes the focus without scrolling the page: the sheet is still displaced by its rise as it does', () => {
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+
+    renderSheet();
+
+    expect(focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
+    expect(focus.mock.contexts[0]).toBe(sheet());
+    focus.mockRestore();
+  });
+
+  describe('while the explanation is on its way', () => {
+    /** The speech bubble of DJ Bop: the one status of the sheet. */
+    const bubble = () => within(sheet()).getByRole('status');
+
+    it('passes a shimmer over the bubble, which still says that he is on it', () => {
+      renderSheet({ load: () => new Promise<string>(() => {}) });
+
+      expect(bubble()).toHaveTextContent('Peraí, deixa eu ver...');
+      expect(bubble()).toHaveClass('shimmer');
+      expect(bubble().tagName).toBe('P');
+    });
+
+    it('stops the shimmer when the explanation is there, in the same bubble', async () => {
+      renderSheet();
+      const loading = bubble();
+      expect(loading).toHaveClass('shimmer');
+
+      await settle();
+
+      expect(bubble()).toBe(loading);
+      expect(bubble()).not.toHaveClass('shimmer');
+      expect(bubble()).toHaveTextContent('"River" é rio.');
+      expect(sheet().querySelector('.shimmer')).toBeNull();
+    });
+
+    it('has no shimmer when it cannot be had, and shimmers again when it is asked for again', async () => {
+      const load = vi
+        .fn<() => Promise<string>>()
+        .mockRejectedValueOnce(new HelpError(503))
+        .mockReturnValue(new Promise(() => {}));
+      renderSheet({ load });
+      await settle();
+      expect(bubble()).toHaveTextContent('Não rolou agora. Tenta de novo?');
+      expect(bubble()).not.toHaveClass('shimmer');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Tentar de novo' }));
+
+      expect(bubble()).toHaveTextContent('Peraí, deixa eu ver...');
+      expect(bubble()).toHaveClass('shimmer');
+    });
+
+    it('keeps DJ Bop, the word and "Valeu" as they are, and the shimmer takes nothing from the sheet', () => {
+      renderSheet({ load: () => new Promise<string>(() => {}) });
+
+      expect(within(sheet()).getByRole('img', { name: 'DJ Bop' })).toBeInTheDocument();
+      expect(within(sheet()).getByRole('heading', { name: 'river' })).toBeInTheDocument();
+      expect(within(sheet()).getByRole('button', { name: 'Valeu' })).toBeEnabled();
+      expect(sheet()).toHaveFocus();
+    });
+  });
+
   describe('when the help cannot be had', () => {
     it('asks the player to come back later past the limit, with no retry', async () => {
       renderSheet({ load: async () => Promise.reject(new HelpError(429)) });

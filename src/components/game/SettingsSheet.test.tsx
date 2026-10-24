@@ -52,6 +52,16 @@ describe('SettingsSheet', () => {
     expect(sheet()).toHaveFocus();
   });
 
+  it('takes the focus without scrolling the page: the sheet is still displaced by its rise as it does', () => {
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+
+    renderSheet();
+
+    expect(focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
+    expect(focus.mock.contexts[0]).toBe(sheet());
+    focus.mockRestore();
+  });
+
   it('gives the new settings on every switch, and closes with "Pronto" and with Escape', () => {
     const { onChange, onClose } = renderSheet();
 

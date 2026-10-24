@@ -28,7 +28,9 @@ const action = `min-h-11 rounded-button px-4 text-button font-bold ${focusRing}`
  *
  * Like the settings, it is a panel in the page and not an overlay: the game screen shows it under the player in place
  * of the game area, because nothing may be drawn over the YouTube player. It rises from below as it opens
- * (`useSheetEnter`) and closes at once, with no way out to wait for.
+ * (`useSheetEnter`) and closes at once, with no way out to wait for. While the explanation is on its way, a shimmer
+ * passes over DJ Bop's bubble (`shimmer`, in `globals.css`), as over the translation of a line; the bubble is still the
+ * `role="status"` that says he is on it.
  */
 export function HelpSheet({ target, load, onClose }: HelpSheetProps) {
   const sheetRef = useRef<HTMLDivElement>(null);
@@ -36,9 +38,10 @@ export function HelpSheet({ target, load, onClose }: HelpSheetProps) {
   const [attempt, setAttempt] = useState(0);
   useSheetEnter(sheetRef);
 
-  // The sheet takes the focus when it opens, so a screen reader starts in it and Escape reaches it.
+  // The sheet takes the focus when it opens, so a screen reader starts in it and Escape reaches it. Without scrolling:
+  // it opens displaced by its rise (`useSheetEnter`), and the browser would scroll to where it is drawn at that moment.
   useEffect(() => {
-    sheetRef.current?.focus();
+    sheetRef.current?.focus({ preventScroll: true });
   }, []);
 
   useEffect(() => {
@@ -83,7 +86,7 @@ export function HelpSheet({ target, load, onClose }: HelpSheetProps) {
         <p
           role="status"
           lang={view.status === 'done' ? 'pt-BR' : undefined}
-          className="min-w-0 flex-1 rounded-[16px_16px_16px_4px] bg-elevated px-3.5 py-2.5 text-body font-semibold"
+          className={`min-w-0 flex-1 rounded-[16px_16px_16px_4px] bg-elevated px-3.5 py-2.5 text-body font-semibold${view.status === 'loading' ? ' shimmer' : ''}`}
         >
           {said}
         </p>

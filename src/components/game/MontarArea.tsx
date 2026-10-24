@@ -1,11 +1,12 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { t } from '@/i18n/t';
 import { isNextTileCorrect, makeTiles, tileSeed } from '@/lib/game/tiles';
 import type { Blank } from '@/lib/types';
 import { ResultIcon } from './ResultIcon';
 import { focusRing } from './styles';
+import { useAnswerFeedback } from './useAnswerFeedback';
 
 interface MontarAreaProps {
   /** The blank for the whole line (its `tokenIndex` is -1). */
@@ -67,6 +68,36 @@ const wordChip = `${chip} relative bg-lime text-bg before:absolute before:inset-
 /** A tile is at least 44 px tall and wide (a one-letter word such as "I"), and wraps onto the next row. */
 const tileLook = `relative inline-flex min-h-11 min-w-11 items-center justify-center rounded-button text-button [overflow-wrap:anywhere] ${focusRing}`;
 
+interface TileProps {
+  /** The tile was tapped and is wrong: it shakes as its cross comes. */
+  miss: boolean;
+  /** How many wrong taps there have been: tapping the same wrong tile again shakes it again. */
+  attempt: number;
+  blocked: boolean;
+  label?: string;
+  className: string;
+  onClick: () => void;
+  children: ReactNode;
+}
+
+/** One tile of the pool. It shakes when it is the wrong one (`useAnswerFeedback`): the other tiles stay where they are. */
+function Tile({ miss, attempt, blocked, label, className, onClick, children }: TileProps) {
+  const ref = useRef<HTMLButtonElement>(null);
+  useAnswerFeedback(ref, miss ? 'miss' : null, attempt);
+  return (
+    <button
+      ref={ref}
+      type="button"
+      aria-disabled={blocked || undefined}
+      aria-label={label}
+      onClick={onClick}
+      className={className}
+    >
+      {children}
+    </button>
+  );
+}
+
 /**
  * "Monte o verso": the shuffled words of a whole line to tap in order (design/canvas/MonteVerso.dc.html, Limão
  * colors). The words placed so far sit in a row of lime chips followed by empty slots; their tiles stay in the pool,
@@ -79,6 +110,9 @@ const tileLook = `relative inline-flex min-h-11 min-w-11 items-center justify-ce
  * disabled button drops the focus the tap gave it, and the player would lose their place on every right tap. The tap
  * is ignored in `pick`. The result is said only to screen readers (a status line that is `sr-only`) and in accessible
  * names ("tonight, errou"), never as text on screen.
+ *
+ * A wrong tile shakes as its cross comes (again each time it is tapped wrong), and the row pops when the line turns right
+ * (`useAnswerFeedback`): 0.3 s at most, and no tap is held back by it. The focus stays on the tile that was tapped.
  */
 export function MontarArea({
   blank,
@@ -94,16 +128,20 @@ export function MontarArea({
     () => makeTiles(tokens, tileSeed(youtubeId, blank.lineIndex)),
     [tokens, youtubeId, blank.lineIndex],
   );
-  // The tile that was a wrong tap. The red holds until the next tap, and a wrong tap always empties the row, so a
-  // row that has words again (a right tap, or a hint after the miss, should one be given) is the end of it.
-  const [missedAt, setMissedAt] = useState<number | null>(null);
+  // The tile that was a wrong tap, and how many wrong taps there have been. The red holds until the next tap, and a
+  // wrong tap always empties the row, so a row that has words again (a right tap, or a hint after the miss, should one
+  // be given) is the end of it.
+  const [miss, setMiss] = useState<{ position: number; count: number } | null>(null);
   const used = usedTiles(tiles, placed);
-  const missed = placed.length === 0 ? missedAt : null;
+  const missed = placed.length === 0 ? (miss?.position ?? null) : null;
+  // The row of the line pops when the line turns right.
+  const rowRef = useRef<HTMLDivElement>(null);
+  useAnswerFeedback(rowRef, solved ? 'hit' : null);
 
   function pick(position: number) {
     if (solved || used.has(position)) return;
     const word = tiles[position];
-    setMissedAt(isNextTileCorrect(tokens, placed.length, word) ? null : position);
+    setMiss(isNextTileCorrect(tokens, placed.length, word) ? null : { position, count: (miss?.count ?? 0) + 1 });
     onTile(word);
   }
 
@@ -116,6 +154,7 @@ export function MontarArea({
   return (
     <div className="flex flex-col gap-3">
       <div
+        ref={rowRef}
         data-testid="montar-row"
         role="group"
         aria-label={solved ? hitLabel : t('montar.row')}
@@ -170,31 +209,32 @@ export function MontarArea({
       <div role="group" aria-label={t('montar.question')} className="flex flex-wrap gap-2">
         {tiles.map((word, position) => {
           const isPlaced = used.has(position);
-          const miss = missed === position;
+          const isMiss = missed === position;
           // A placed tile keeps its place in the pool, dashed and faint, as in the wireframe. A wrong one is red, and
           // its ✕ takes the room of the left padding (wider here, narrower on the right) and its text stays as heavy
           // as the others: the tile keeps its width, so the pool does not shift.
           const look = isPlaced
             ? 'border-[1.5px] border-dashed border-faint px-4 font-semibold text-faint'
-            : miss
+            : isMiss
               ? 'border-[1.5px] border-transparent bg-error pr-2 pl-6 font-semibold text-bg'
               : 'border-[1.5px] border-border bg-card px-4 font-semibold text-text';
           return (
-            <button
+            <Tile
               key={position}
-              type="button"
-              aria-disabled={solved || isPlaced || undefined}
-              aria-label={miss ? t('montar.miss', { palavra: word }) : undefined}
+              miss={isMiss}
+              attempt={isMiss ? (miss?.count ?? 0) : 0}
+              blocked={solved || isPlaced}
+              label={isMiss ? t('montar.miss', { palavra: word }) : undefined}
               onClick={() => pick(position)}
               className={`${tileLook} ${look}`}
             >
-              {miss && (
+              {isMiss && (
                 <span className="absolute left-1.5 flex">
                   <ResultIcon hit={false} />
                 </span>
               )}
               {word}
-            </button>
+            </Tile>
           );
         })}
       </div>

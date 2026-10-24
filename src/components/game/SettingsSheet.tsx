@@ -31,9 +31,10 @@ export function SettingsSheet({ settings, onChange, onClose }: SettingsSheetProp
   const sheetRef = useRef<HTMLDivElement>(null);
   useSheetEnter(sheetRef);
 
-  // The sheet takes the focus when it opens, so a screen reader starts in it and Escape reaches it.
+  // The sheet takes the focus when it opens, so a screen reader starts in it and Escape reaches it. Without scrolling:
+  // it opens displaced by its rise (`useSheetEnter`), and the browser would scroll to where it is drawn at that moment.
   useEffect(() => {
-    sheetRef.current?.focus();
+    sheetRef.current?.focus({ preventScroll: true });
   }, []);
 
   return (

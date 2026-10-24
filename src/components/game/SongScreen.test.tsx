@@ -146,6 +146,49 @@ describe('SongScreen: loading', () => {
     expect(screen.getByText('Procurando a letra...')).toBeInTheDocument();
   });
 
+  it('turns a disc under DJ Bop while they load, and the line that says it stays the one status', async () => {
+    const lyrics = deferred<SongResolution>();
+    const deps = makeDeps({ resolve: vi.fn<SongScreenDeps['resolve']>().mockReturnValue(lyrics.promise) });
+    render(<SongScreen youtubeId={ID} deps={deps} />);
+    await waitFor(() => expect(deps.resolve).toHaveBeenCalled());
+
+    const disc = screen.getByTestId('spinning-disc');
+    expect(disc).toHaveClass('disc-spin');
+    expect(disc).toHaveAttribute('aria-hidden', 'true');
+    // The disc is not the status, and the status is not inside it: the loading is announced once, by the line.
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent('Procurando a letra...');
+    expect(status).not.toContainElement(disc);
+    expect(screen.getByRole('img', { name: 'DJ Bop' })).toBeInTheDocument();
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+  });
+
+  it('stops showing the disc as soon as the lyrics are there', async () => {
+    const lyrics = deferred<SongResolution>();
+    const deps = makeDeps({ resolve: vi.fn<SongScreenDeps['resolve']>().mockReturnValue(lyrics.promise) });
+    render(<SongScreen youtubeId={ID} deps={deps} />);
+    await waitFor(() => expect(deps.resolve).toHaveBeenCalled());
+    expect(screen.getByTestId('spinning-disc')).toBeInTheDocument();
+
+    lyrics.resolve(READY);
+
+    expect(await screen.findByRole('button', { name: 'Jogar' })).toBeInTheDocument();
+    expect(screen.queryByTestId('spinning-disc')).not.toBeInTheDocument();
+  });
+
+  it('shows no disc where nothing is loading: not when the lyrics are slow, nor when the video is gone', async () => {
+    const slow = makeDeps({ resolve: vi.fn<SongScreenDeps['resolve']>().mockResolvedValue({ status: 'lyrics_unavailable' }) });
+    const { unmount } = render(<SongScreen youtubeId={ID} deps={slow} />);
+    expect(await screen.findByText(SLOW)).toBeInTheDocument();
+    expect(screen.queryByTestId('spinning-disc')).not.toBeInTheDocument();
+    unmount();
+
+    const gone = makeDeps({ createAdapter: vi.fn<SongScreenDeps['createAdapter']>().mockRejectedValue(new PlayerLoadError('not_found')) });
+    render(<SongScreen youtubeId={ID} deps={gone} />);
+    expect(await screen.findByText(CANNOT_EMBED)).toBeInTheDocument();
+    expect(screen.queryByTestId('spinning-disc')).not.toBeInTheDocument();
+  });
+
   it('starts the player on an element of its own inside the player box, then resolves with its duration', async () => {
     const deps = makeDeps();
     render(<SongScreen youtubeId={ID} deps={deps} />);

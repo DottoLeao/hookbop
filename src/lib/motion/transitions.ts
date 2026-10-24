@@ -117,7 +117,9 @@ export function useCardsIn(listRef: ElementRef, selector: string): void {
  * small SVG, with no layout: what the rule is there to avoid. The offset is cleared at the end, so the arc is left
  * as it was drawn.
  *
- * With reduced motion the ring is drawn at its final value from the first frame, and only fades in.
+ * With reduced motion the ring is drawn at its final value from the first frame, and only fades in. That fade clears
+ * its opacity and nothing else: the arc is an SVG circle with a `transform` attribute of its own (the turn that starts
+ * it from the top), and GSAP clears a transform on an SVG element by removing that attribute.
  */
 export function useRingFill(arcRef: ElementRef, length: number): void {
   useGSAP(
@@ -125,7 +127,7 @@ export function useRingFill(arcRef: ElementRef, length: number): void {
       const arc = arcRef.current;
       if (!arc) return;
       if (prefersReducedMotion()) {
-        gsap.fromTo(arc, { opacity: 0 }, { opacity: 1, duration: FADE, ease: 'power1.out', clearProps: CLEAR });
+        gsap.fromTo(arc, { opacity: 0 }, { opacity: 1, duration: FADE, ease: 'power1.out', clearProps: 'opacity' });
         return;
       }
       gsap.fromTo(

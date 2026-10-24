@@ -6,6 +6,7 @@ import { matchTyped, normalizeTyped, warmUpWordList } from '@/lib/game/typo';
 import type { Blank } from '@/lib/types';
 import { CorrectedWord } from './CorrectedWord';
 import { ResultIcon } from './ResultIcon';
+import { useAnswerFeedback } from './useAnswerFeedback';
 
 /** Where the browser has no idle callback (Safari), the word list is built this long after the area appears. */
 const WARM_UP_DELAY_MS = 300;
@@ -43,12 +44,18 @@ function firstLetter(answer: string): string | undefined {
  *    the hint may have taken it.
  * The result is said only to screen readers (a status line that is `sr-only`), never as text on screen.
  *
+ * The field pops when it turns right and shakes when it turns wrong, for 0.3 s at most (`useAnswerFeedback`): it also
+ * shakes when the same wrong word is sent again, so a send is always seen to land. Neither holds back a new try, and
+ * neither moves the focus, which stays in the field.
+ *
  * Send goes through the form, not a key event: the "done" key of some Android keyboards sends no Enter keydown.
  */
 export function DigitacaoArea({ blank, hinted = false, solved = false, corrected = [], onAnswer }: DigitacaoAreaProps) {
   const id = useId();
   const statusId = `${id}-status`;
   const inputRef = useRef<HTMLInputElement>(null);
+  // The box of the field, which pops and shakes with the answer.
+  const boxRef = useRef<HTMLDivElement>(null);
   // An input method (a Japanese or Chinese keyboard, a predictive one) is still putting the word together.
   const composingRef = useRef(false);
   const [typed, setTyped] = useState('');
@@ -56,8 +63,11 @@ export function DigitacaoArea({ blank, hinted = false, solved = false, corrected
   const [fixed, setFixed] = useState<readonly number[]>(corrected);
   // The last wrong word, as it is compared: sending it again is not a new try.
   const lastWrongRef = useRef<string | null>(null);
+  // How many times a wrong word was sent, a new one or the same again: each is a new shake.
+  const [misses, setMisses] = useState(0);
   const right = solved || phase === 'right';
   const wrong = !right && phase === 'wrong';
+  useAnswerFeedback(boxRef, right ? 'hit' : wrong ? 'miss' : null, misses);
 
   // A hint asked for after a miss: the wrong word is still in the field, and would hide the example text. Clear it.
   const [hintSeen, setHintSeen] = useState(hinted);
@@ -113,6 +123,7 @@ export function DigitacaoArea({ blank, hinted = false, solved = false, corrected
     if (word === lastWrongRef.current) {
       // The same wrong word again: not a new try. The field says it is still wrong, with the text ready to replace.
       setPhase('wrong');
+      setMisses((n) => n + 1);
       inputRef.current?.select();
       return;
     }
@@ -121,6 +132,7 @@ export function DigitacaoArea({ blank, hinted = false, solved = false, corrected
     if (result === 'wrong') {
       lastWrongRef.current = word;
       setPhase('wrong');
+      setMisses((n) => n + 1);
       inputRef.current?.select();
       onAnswer(false, []);
       return;
@@ -149,6 +161,7 @@ export function DigitacaoArea({ blank, hinted = false, solved = false, corrected
         {t('digitacao.label')}
       </label>
       <div
+        ref={boxRef}
         className={`flex h-12 items-center gap-2 rounded-answer border-2 px-3 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-lime ${look}`}
       >
         {(right || wrong) && <ResultIcon hit={right} />}

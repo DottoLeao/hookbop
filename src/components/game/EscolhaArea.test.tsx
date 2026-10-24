@@ -1,10 +1,19 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { tokenize } from '@/lib/game/blanks';
 import { makeDistractors } from '@/lib/game/distractors';
 import { seededRng, shuffled } from '@/lib/game/rng';
 import type { Blank, LyricLine } from '@/lib/types';
+import { animations, animationsOf, changedBy, preferReducedMotion } from './answerFeedbackTesting';
 import { EscolhaArea, escolhaOptions } from './EscolhaArea';
+
+// jsdom plays no animation, so GSAP is only watched: what the area asks it to animate, and how.
+vi.mock('gsap');
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.clearAllMocks();
+});
 
 const BLANK: Blank = { id: '0:2', lineIndex: 0, tokenIndex: 2, answer: 'let' };
 const OPTIONS = ['late', 'let', 'lead'];
@@ -109,6 +118,97 @@ describe('EscolhaArea', () => {
   it('keeps every option at least 44 px tall', () => {
     renderArea();
     for (const button of screen.getAllByRole('button')) expect(button).toHaveClass('min-h-13');
+  });
+});
+
+describe('EscolhaArea: the feedback of an answer', () => {
+  it('pops the right option, changing only its scale, as its check comes', () => {
+    renderArea();
+
+    fireEvent.click(option('let'));
+
+    const [pop, ...more] = animationsOf(option('let, acertou'));
+    expect(more).toHaveLength(0);
+    expect(changedBy(pop)).toEqual(['scale']);
+    expect(pop.from.scale).toBe(1);
+    expect(pop.to.scale).toBeGreaterThan(1);
+    expect(pop.to.duration).toBeLessThanOrEqual(0.3);
+    expect(animations()).toHaveLength(1);
+  });
+
+  it('shakes a wrong option, changing only its x, as its cross comes, and leaves the other two still', () => {
+    renderArea();
+
+    fireEvent.click(option('late'));
+
+    const [shake, ...more] = animationsOf(option('late, errou'));
+    expect(more).toHaveLength(0);
+    expect(changedBy(shake)).toEqual(['x']);
+    expect(shake.to.duration).toBeLessThanOrEqual(0.3);
+    expect(animations()).toHaveLength(1);
+  });
+
+  it('shakes each wrong option once, and pops the right one when it is picked after them', () => {
+    renderArea();
+
+    fireEvent.click(option('late'));
+    fireEvent.click(option('lead'));
+    fireEvent.click(option('let'));
+
+    expect(animationsOf(option('late, errou'))).toHaveLength(1);
+    expect(animationsOf(option('lead, errou'))).toHaveLength(1);
+    expect(changedBy(animationsOf(option('let, acertou'))[0])).toEqual(['scale']);
+    expect(animations()).toHaveLength(3);
+  });
+
+  it('animates nothing for a blank that is already right when the area is drawn', () => {
+    renderArea({ solved: true });
+
+    expect(animations()).toHaveLength(0);
+  });
+
+  it('animates nothing while nothing has been picked, and nothing for a tap that does nothing', () => {
+    renderArea();
+    expect(animations()).toHaveLength(0);
+
+    fireEvent.click(option('late'));
+    fireEvent.click(option('late, errou'));
+
+    expect(animations()).toHaveLength(1);
+  });
+
+  it('only fades, for a right option and for a wrong one, when motion is reduced', () => {
+    preferReducedMotion(true);
+    renderArea();
+
+    fireEvent.click(option('late'));
+    fireEvent.click(option('let'));
+
+    expect(animations()).toHaveLength(2);
+    for (const animation of animations()) expect(changedBy(animation)).toEqual(['opacity']);
+  });
+
+  it('keeps the focus on the option that was tapped, and its name, aria and text as they were', () => {
+    renderArea();
+    const late = option('late');
+    late.focus();
+
+    fireEvent.click(late);
+
+    expect(option('late, errou')).toBe(late);
+    expect(late).toHaveFocus();
+    expect(late).toHaveAttribute('aria-disabled', 'true');
+    expect(late).toHaveTextContent('late');
+    expect(document.body.textContent).not.toMatch(/acertou|errou/i);
+  });
+
+  it('never holds back a new try: the next option is taken at once, while the shake runs', () => {
+    const onAnswer = renderArea();
+
+    fireEvent.click(option('late'));
+    fireEvent.click(option('let'));
+
+    expect(onAnswer.mock.calls).toEqual([[false], [true]]);
   });
 });
 

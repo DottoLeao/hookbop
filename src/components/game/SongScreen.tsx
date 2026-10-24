@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { DjBop, type DjBopExpression } from '@/components/brand/DjBop';
+import { SpinningDisc } from '@/components/brand/SpinningDisc';
 import { t } from '@/i18n/t';
 import { currentUserId } from '@/lib/auth/currentUser';
 import { getEntitlements } from '@/lib/entitlements';
@@ -228,11 +229,25 @@ const action =
 const primaryAction = `${action} bg-lime text-bg`;
 const secondaryAction = `${action} border-[1.5px] border-border text-text`;
 
-/** DJ Bop with a line under him and what the player can do next. */
-function Notice({ expression, message, children }: { expression: DjBopExpression; message: string; children?: ReactNode }) {
+/**
+ * DJ Bop with a line under him and what the player can do next. While something loads (`loading`), a disc turns between
+ * him and the line; the line is what says it, as the `role="status"` it always was.
+ */
+function Notice({
+  expression,
+  message,
+  loading = false,
+  children,
+}: {
+  expression: DjBopExpression;
+  message: string;
+  loading?: boolean;
+  children?: ReactNode;
+}) {
   return (
     <section className="flex flex-col items-center gap-4 rounded-card bg-card px-4 py-6 text-center">
       <DjBop expression={expression} size={96} />
+      {loading && <SpinningDisc />}
       <p role="status" className="font-heading text-verse font-bold">
         {message}
       </p>
@@ -499,7 +514,7 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
 
     switch (phase.kind) {
       case 'loading':
-        return <Notice expression="idle" message={t('jogar.loading')} />;
+        return <Notice expression="idle" message={t('jogar.loading')} loading />;
 
       case 'lyrics_unavailable':
         return (
