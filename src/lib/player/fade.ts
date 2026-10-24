@@ -29,7 +29,9 @@ export interface Fader {
    */
   fadeOut(ms: number, onDone: () => void): void;
   /**
-   * Raises the volume from where it is to the kept volume (100 when no `fadeOut` kept one), over `ms`.
+   * Raises the volume from where it is to the kept volume, over `ms`. With no kept volume (no `fadeOut` of this fader is
+   * undone yet) it raises to 100 only a player that is silent, which a fade left that way; a player with any volume
+   * keeps it, since it may be one the listener lowered, and the app never raises that.
    * On every platform it first cancels a `fadeOut` that is still pending, and that `onDone` is never called.
    * Without volume control there is no volume to raise, so that is all it does.
    */
@@ -157,6 +159,8 @@ export function createFader(adapter: PlayerAdapter, opts: FaderOptions): Fader {
 
       const target = restoreTo ?? FULL_VOLUME;
       const from = currentVolume();
+      // Nothing of this fader's to bring back: only a silent player is one a fade left behind.
+      if (restoreTo === null && from > 0) return;
       if (from >= target) {
         restoreTo = null; // nothing to climb
         return;

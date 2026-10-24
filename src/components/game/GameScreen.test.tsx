@@ -610,6 +610,17 @@ describe('GameScreen: smooth fades (spec sections 1 and 2)', () => {
       expect(fake.calls.slice(full)).toEqual(['seek:0', 'play']);
     });
 
+    it('leaves a volume the player lowered itself alone: only a silent player is raised', () => {
+      fake.setVolume(40);
+      const before = fake.calls.length;
+
+      renderGame();
+      finishFadeIn();
+
+      expect(fake.calls.slice(before)).toEqual(['seek:0', 'play']);
+      expect(fake.getVolume()).toBe(40);
+    });
+
     it('on a device that ignores the volume, starts with no volume call', () => {
       device.canSetVolume = false;
       fake.setVolume(0);

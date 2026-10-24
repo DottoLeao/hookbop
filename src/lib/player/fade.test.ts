@@ -122,15 +122,51 @@ describe('createFader', () => {
       expect(volumes(p)).toEqual(seen);
     });
 
-    it('goes up to 100 when there was no fadeOut before', () => {
+    it('with no volume kept by a fadeOut, leaves a volume the player lowered itself alone', () => {
+      const p = new FakePlayerAdapter(180000);
+      p.setVolume(40);
+      p.calls.length = 0;
+      const fader = createFader(p, { volume: true });
+
+      fader.fadeIn(500);
+      vi.advanceTimersByTime(5000);
+
+      expect(p.calls).toEqual([]);
+      expect(p.getVolume()).toBe(40);
+      expect(fader.fading()).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('with no volume kept by a fadeOut, raises a silent player to 100: a fade left it that way', () => {
+      const p = new FakePlayerAdapter(180000);
+      p.setVolume(0);
+      p.calls.length = 0;
+      const fader = createFader(p, { volume: true });
+
+      fader.fadeIn(500);
+      expect(fader.fading()).toBe('in');
+      vi.advanceTimersByTime(500);
+
+      const seen = volumes(p);
+      expect(seen.length).toBeGreaterThan(1);
+      expect(seen.at(-1)).toBe(100);
+      expectStrictlyIncreasing(seen);
+      expect(p.getVolume()).toBe(100);
+      expect(fader.fading()).toBeNull();
+    });
+
+    it('with a volume kept by a fadeOut, still comes back to it, whatever the player reads now', () => {
       const p = new FakePlayerAdapter(180000);
       p.setVolume(40);
       const fader = createFader(p, { volume: true });
+      fader.fadeOut(500, () => {});
+      vi.advanceTimersByTime(250);
+      expect(p.getVolume()).toBeGreaterThan(0);
 
       fader.fadeIn(500);
       vi.advanceTimersByTime(500);
 
-      expect(p.getVolume()).toBe(100);
+      expect(p.getVolume()).toBe(40);
     });
 
     it('does nothing when the volume is already there', () => {

@@ -77,6 +77,18 @@ describe('CalibrationSheet: a player an earlier round left muted', () => {
     expect(adapter.getVolume()).toBe(100);
   });
 
+  it('leaves a volume the player lowered itself alone', () => {
+    vi.useFakeTimers();
+    const adapter = new FakePlayerAdapter(213000);
+    adapter.setVolume(40);
+    adapter.calls.length = 0;
+
+    sheetOn(adapter);
+    act(() => vi.advanceTimersByTime(FADE_IN_MS));
+
+    expect(adapter.calls).toEqual([]);
+  });
+
   it('leaves a player at full volume alone', () => {
     vi.useFakeTimers();
     const adapter = new FakePlayerAdapter(213000);
