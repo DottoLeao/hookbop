@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { Activity } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FADE_IN_MS } from '@/lib/game/timing';
 import { track } from '@/lib/metrics/track';
@@ -386,6 +387,35 @@ describe('CalibrationSheet', () => {
 
       tap('Salvar');
       await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+      expect(track).toHaveBeenCalledExactlyOnceWith('calibration_done', { youtubeId: ID });
+    });
+
+    it('is not tracked again when the page is hidden and shown again: Next keeps the route it left in an Activity', async () => {
+      const adapter = new FakePlayerAdapter(213000);
+      adapter.seekTo(26000);
+      const onSaved = vi.fn();
+      const sheet = (mode: 'visible' | 'hidden') => (
+        <Activity mode={mode}>
+          <CalibrationSheet
+            youtubeId={ID}
+            adapter={adapter}
+            playerStarted
+            firstLine={FIRST_LINE}
+            audioSearchUrl={AUDIO_SEARCH}
+            saveOffsetVote={vi.fn<Save>().mockResolvedValue(25700)}
+            onSaved={onSaved}
+            onSkip={vi.fn()}
+          />
+        </Activity>
+      );
+      const { rerender } = render(sheet('visible'));
+      tap('Começou!');
+      tap('Salvar');
+      await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+
+      rerender(sheet('hidden'));
+      rerender(sheet('visible'));
+
       expect(track).toHaveBeenCalledExactlyOnceWith('calibration_done', { youtubeId: ID });
     });
 

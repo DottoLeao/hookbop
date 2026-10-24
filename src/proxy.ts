@@ -7,6 +7,13 @@ import { updateSession } from '@/lib/supabase/middleware';
 // sends signed-in people who are not members (no invite yet, or removed) to
 // sign-in with an explanation. When the membership cannot be checked at all,
 // sign-in says it did not work this time, never that there is no invite.
+//
+// The public paths (src/lib/auth/paths.ts) are let through with no session and
+// no membership check. One of them is not a page but a route that does its own
+// checks: POST /api/events, which the app calls in the background (and with
+// sendBeacon as a page is left). It answers 401 or 403 itself, because a
+// redirect to the sign-in page is no answer for a request that no one reads.
+// The session is still refreshed on it, as on every path.
 export async function proxy(request: NextRequest) {
   const publicPath = isPublicPath(request.nextUrl.pathname);
   const session = await updateSession(request, { checkMembership: !publicPath });

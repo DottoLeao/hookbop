@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { StrictMode } from 'react';
+import { Activity, StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { selectBlanks } from '@/lib/game/blanks';
 import { MemoryStorage } from '@/lib/game/fakeStorage';
@@ -356,5 +356,43 @@ describe('SongScreen: game_finished', () => {
     pick('Escolha', 'Médio');
 
     expect(tracked()).not.toContain('game_finished');
+  });
+});
+
+// Next keeps the page it leaves in an <Activity>, hidden, and "Voltar" shows it again with its state and its effects
+// made anew: the player and the lyrics are asked for again. None of that is a second opening, start or end.
+describe('SongScreen: hidden and shown again', () => {
+  const page = (deps: SongScreenDeps, mode: 'visible' | 'hidden') => (
+    <Activity mode={mode}>
+      <SongScreen youtubeId={ID} deps={deps} />
+    </Activity>
+  );
+
+  it('song_opened is tracked once', async () => {
+    const deps = makeDeps();
+    const { rerender } = render(page(deps, 'visible'));
+    await screen.findByRole('button', { name: 'Jogar' });
+
+    rerender(page(deps, 'hidden'));
+    rerender(page(deps, 'visible'));
+    await waitFor(() => expect(deps.resolve).toHaveBeenCalledTimes(2));
+    await screen.findByRole('button', { name: 'Jogar' });
+
+    expect(tracked()).toEqual(['song_opened']);
+  });
+
+  it('mode_selected, game_started and game_finished are tracked once for the game that was played', async () => {
+    const deps = makeDeps();
+    const { rerender } = render(page(deps, 'visible'));
+    await screen.findByRole('button', { name: 'Jogar' });
+    pick('Escolha', 'Médio');
+    await finishGame();
+    expect(tracked()).toEqual(['song_opened', 'mode_selected', 'game_started', 'game_finished']);
+
+    rerender(page(deps, 'hidden'));
+    rerender(page(deps, 'visible'));
+    await waitFor(() => expect(deps.resolve).toHaveBeenCalledTimes(2));
+
+    expect(tracked()).toEqual(['song_opened', 'mode_selected', 'game_started', 'game_finished']);
   });
 });

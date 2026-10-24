@@ -97,7 +97,8 @@ describe('track: batching', () => {
     expect(url).toBe(ENDPOINT);
     expect(init.method).toBe('POST');
     expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
-    expect(init.keepalive).toBe(true);
+    // Only a request sent as the page goes has to outlive it.
+    expect(init.keepalive).toBe(false);
     const body = await fetchBody();
     expect(body.sessionId).toMatch(UUID);
     expect(body.events).toEqual([{ name: 'app_opened' }, { name: 'song_opened', youtubeId: 'aaaaaaaaaaa' }]);
@@ -167,6 +168,15 @@ describe('track: leaving the page', () => {
     vi.advanceTimersByTime(60_000);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(beaconMock).toHaveBeenCalledOnce();
+  });
+
+  it('the 20th event, which sends at once while the page stays, is not made to outlive the page either', async () => {
+    const track = await freshTrack();
+
+    for (let i = 0; i < 20; i++) track('app_opened');
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect((fetchMock.mock.calls[0][1] as RequestInit).keepalive).toBe(false);
   });
 
   it('sends nothing on pagehide when nothing is waiting', async () => {

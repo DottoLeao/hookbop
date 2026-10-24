@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { Activity } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { InstallPrompt } from './InstallPrompt';
 
@@ -83,6 +84,21 @@ describe('InstallPrompt', () => {
       render(<InstallPrompt platform="other" standalone={false} onInstall={vi.fn()} onShown={onShown} />);
 
       expect(onShown).not.toHaveBeenCalled();
+    });
+
+    it('is called once when the page is hidden and shown again: Next keeps the route it left in an Activity', () => {
+      const onShown = vi.fn();
+      const page = (mode: 'visible' | 'hidden') => (
+        <Activity mode={mode}>
+          <InstallPrompt platform="ios" standalone={false} onShown={onShown} />
+        </Activity>
+      );
+      const { rerender } = render(page('visible'));
+
+      rerender(page('hidden'));
+      rerender(page('visible'));
+
+      expect(onShown).toHaveBeenCalledTimes(1);
     });
 
     it('is called only with the latest function given, when it changes between renders', () => {

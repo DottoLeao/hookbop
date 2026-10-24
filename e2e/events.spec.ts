@@ -73,6 +73,26 @@ test.describe('the app records what a member does', () => {
     page,
     seed,
   }) => {
+    // Counts, in the storage of the site (which the next page reads), how the page sent to the events route: by
+    // sendBeacon (the page is going) or by fetch (the 5 s timer). The calls go on to the real ones.
+    await page.addInitScript(() => {
+      const count = (key: string) => localStorage.setItem(key, String(Number(localStorage.getItem(key) ?? 0) + 1));
+      const sendBeacon = navigator.sendBeacon.bind(navigator);
+      navigator.sendBeacon = (url, data) => {
+        if (String(url).includes('/api/events')) count('e2e_beacons');
+        return sendBeacon(url, data);
+      };
+      const realFetch = window.fetch.bind(window);
+      window.fetch = (input, init) => {
+        if (String(input instanceof Request ? input.url : input).includes('/api/events')) count('e2e_fetches');
+        return realFetch(input, init);
+      };
+    });
+    const sent = () =>
+      page.evaluate(() => ({
+        beacons: Number(localStorage.getItem('e2e_beacons') ?? 0),
+        fetches: Number(localStorage.getItem('e2e_fetches') ?? 0),
+      }));
     const suffix = uniqueSuffix();
     const maria = await seed.member({ name: `Maria ${suffix}` });
 
@@ -83,6 +103,7 @@ test.describe('the app records what a member does', () => {
       await page.goto('/convidar');
       await page.getByRole('button', { name: 'Criar convite' }).click();
       await expect(page.getByRole('region', { name: 'Meus convites' }).getByRole('listitem')).toHaveCount(1);
+      const before = await sent();
 
       // The page is left at once: the timer of the client never gets to run, so only the beacon can bring the event.
       await page.goto('/privacidade');
@@ -101,6 +122,11 @@ test.describe('the app records what a member does', () => {
           { timeout: 15_000 },
         )
         .toBe(1);
+
+      // The way it went: one more beacon, and no request by fetch since the invite was made.
+      const after = await sent();
+      expect(after.beacons).toBe(before.beacons + 1);
+      expect(after.fetches).toBe(before.fetches);
     } finally {
       await seed.db.from('app_events').delete().eq('user_id', maria.id);
     }

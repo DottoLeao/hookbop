@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { Activity } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { track } from '@/lib/metrics/track';
 import { clearInstallEvent, listenForInstallEvent } from '@/lib/pwa/installEvent';
@@ -202,6 +203,39 @@ describe('InstallPromptGate: what the owner’s panel hears', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Instalar' }));
 
     await waitFor(() => expect(tracked()).toEqual(['install_prompt_shown', 'install_accepted']));
+  });
+
+  it('neither is tracked again when the page is hidden and shown again: Next keeps the route it left in an Activity', async () => {
+    pretendToBe(ANDROID_UA);
+    const page = (mode: 'visible' | 'hidden') => (
+      <Activity mode={mode}>
+        <InstallPromptGate />
+      </Activity>
+    );
+    const { rerender } = render(page('visible'));
+    offerInstall('accepted');
+    fireEvent.click(await screen.findByRole('button', { name: 'Instalar' }));
+    await waitFor(() => expect(tracked()).toEqual(['install_prompt_shown', 'install_accepted']));
+
+    rerender(page('hidden'));
+    rerender(page('visible'));
+
+    expect(tracked()).toEqual(['install_prompt_shown', 'install_accepted']);
+  });
+
+  it('install_prompt_shown: once when the page is hidden and shown again with the prompt still on it', () => {
+    pretendToBe(IPHONE_UA);
+    const page = (mode: 'visible' | 'hidden') => (
+      <Activity mode={mode}>
+        <InstallPromptGate />
+      </Activity>
+    );
+    const { rerender } = render(page('visible'));
+
+    rerender(page('hidden'));
+    rerender(page('visible'));
+
+    expect(track).toHaveBeenCalledExactlyOnceWith('install_prompt_shown');
   });
 
   it('install_accepted: not when the player cancels the browser’s dialog, nor when "Agora não" is tapped', async () => {

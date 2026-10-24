@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { Activity } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { track } from '@/lib/metrics/track';
 import { createInviteAction } from './actions';
@@ -72,6 +73,28 @@ describe('CreateInviteForm', () => {
 
       await waitFor(() => expect(track).toHaveBeenCalledTimes(2));
       expect(vi.mocked(track).mock.calls).toEqual([['invite_created'], ['invite_created']]);
+    });
+
+    it('is not tracked again when the page is hidden and shown again: Next keeps the route it left in an Activity', async () => {
+      vi.mocked(createInviteAction).mockImplementation(async () => ({ failed: false }));
+      const page = (mode: 'visible' | 'hidden') => (
+        <Activity mode={mode}>
+          <CreateInviteForm />
+        </Activity>
+      );
+      const { rerender } = render(page('visible'));
+      create();
+      await waitFor(() => expect(track).toHaveBeenCalledTimes(1));
+
+      // To the home page and Back: the form keeps its state, and its effects are cleaned up and made again.
+      rerender(page('hidden'));
+      rerender(page('visible'));
+      expect(track).toHaveBeenCalledTimes(1);
+
+      // An invite made after that still counts.
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Criar convite' })).toBeEnabled());
+      create();
+      await waitFor(() => expect(track).toHaveBeenCalledTimes(2));
     });
 
     it('is not tracked when the invite could not be made', async () => {

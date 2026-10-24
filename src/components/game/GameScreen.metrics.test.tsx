@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { StrictMode } from 'react';
+import { Activity, StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HelpError } from '@/lib/help/helpError';
 import type { HelpRequest } from '@/lib/help/helpService';
@@ -9,6 +9,7 @@ import { layOutPage } from '@/lib/motion/laidOutPage';
 import { track } from '@/lib/metrics/track';
 import { FakePlayerAdapter } from '@/lib/player/fakeAdapter';
 import { DEFAULT_SETTINGS, saveSettings } from '@/lib/settings';
+import type { SavedProgress } from '@/lib/game/savedProgress';
 import type { Blank, LyricLine } from '@/lib/types';
 import { GameScreen, type GameScreenProps } from './GameScreen';
 
@@ -26,6 +27,7 @@ const LINES: LyricLine[] = [
 ];
 const LET: Blank = { id: '0:2', lineIndex: 0, tokenIndex: 2, answer: 'let' };
 const GAVE: Blank = { id: '1:1', lineIndex: 1, tokenIndex: 1, answer: 'gave' };
+const FERRY: Blank = { id: '2:2', lineIndex: 2, tokenIndex: 2, answer: 'ferry' };
 
 const BUILD_LINES: LyricLine[] = [
   { index: 0, startMs: 0, endMs: 4000, text: 'Please come back home tonight' },
@@ -327,5 +329,94 @@ describe('GameScreen: game_abandoned', () => {
     await settle();
 
     expect(track).toHaveBeenCalledExactlyOnceWith('game_abandoned', { youtubeId: ID, mode: 'escolha' });
+  });
+});
+
+describe('GameScreen: a game that goes on from a saved one (ruling S43)', () => {
+  /** The game as the device kept it: Escolha on Médio, the first blank right, the clock in the second line. */
+  const SAVED: SavedProgress = {
+    version: 1,
+    youtubeId: ID,
+    mode: 'escolha',
+    difficulty: 'medio',
+    savedAt: 1_800_000_000_000,
+    lastTickMs: 5200,
+    status: { [LET.id]: 'correct', [GAVE.id]: 'pending', [FERRY.id]: 'pending' },
+    attempted: { [LET.id]: true },
+    hinted: {},
+    tilesPlaced: {},
+    score: {
+      combo: 1,
+      maxCombo: 1,
+      xp: 12,
+      firstTryCorrect: 1,
+      totalBlanks: 3,
+      records: [{ blankId: LET.id, kind: 'first', correct: true, beforeLineEnd: true }],
+    },
+  };
+  const resumed = () => renderGame({ blanks: [LET, GAVE, FERRY], resume: SAVED });
+
+  it('tells the panel about nothing when it starts: the song screen already counted this game', async () => {
+    resumed();
+    await settle();
+
+    // It did go on from the saved game: the clip started again at the line it was in.
+    expect(fake.calls).toContain('seek:4000');
+    expect(track).not.toHaveBeenCalled();
+  });
+
+  it('is abandoned once when the screen goes away, with neither mode_selected nor game_started', async () => {
+    const { unmount } = resumed();
+
+    unmount();
+    await settle();
+
+    expect(vi.mocked(track).mock.calls).toEqual([['game_abandoned', { youtubeId: ID, mode: 'escolha' }]]);
+  });
+
+  it('is abandoned once when the page is left (pagehide), and not again when the screen then goes away', async () => {
+    const { unmount } = resumed();
+
+    act(() => {
+      window.dispatchEvent(new Event('pagehide'));
+    });
+    unmount();
+    await settle();
+
+    expect(vi.mocked(track).mock.calls).toEqual([['game_abandoned', { youtubeId: ID, mode: 'escolha' }]]);
+  });
+});
+
+describe('GameScreen: hidden and shown again', () => {
+  // Next keeps the page it leaves in an <Activity>, hidden, and "Voltar" shows it with its effects made anew.
+  it('reports the end of the song once, which is what game_finished is told from', async () => {
+    const onEnd = vi.fn<GameScreenProps['onEnd']>();
+    const game = (mode: 'visible' | 'hidden') => (
+      <Activity mode={mode}>
+        <GameScreen
+          adapter={fake}
+          mode="karaoke"
+          difficulty="medio"
+          lines={LINES}
+          blanks={[]}
+          video={VIDEO}
+          timeToReadyMs={1200}
+          onEnd={onEnd}
+          requestHelp={helpService()}
+        />
+      </Activity>
+    );
+    const { rerender } = render(game('visible'));
+    act(() => vi.advanceTimersByTime(300));
+    act(() => fake.emitState('ended'));
+    expect(onEnd).toHaveBeenCalledOnce();
+
+    rerender(game('hidden'));
+    rerender(game('visible'));
+    act(() => vi.advanceTimersByTime(1000));
+    await settle();
+
+    expect(onEnd).toHaveBeenCalledOnce();
+    expect(tracked()).not.toContain('game_abandoned');
   });
 });

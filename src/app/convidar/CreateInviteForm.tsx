@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useEffect } from 'react';
+import { useActionState, useEffect, useRef } from 'react';
 import { t } from '@/i18n/t';
 import { track } from '@/lib/metrics/track';
 import { createInviteAction, type CreateInviteState } from './actions';
@@ -10,10 +10,17 @@ const NOTHING_FAILED: CreateInviteState = { failed: false };
 export function CreateInviteForm() {
   const [state, formAction, pending] = useActionState(createInviteAction, NOTHING_FAILED);
 
-  // Each answer of the action is a new object, so this runs once per invite made. The action stays the form's own, so
-  // the form keeps working before the page is ready; the owner's panel hears of the invite from here.
+  // Each answer of the action is a new object, so each invite made is told once. The action stays the form's own, so the
+  // form keeps working before the page is ready; the owner's panel hears of the invite from here.
+  //
+  // The effect runs again with the same answer when React takes the page down and puts it back: Next keeps the page it
+  // leaves in an <Activity>, and "Voltar" shows it with its state, effects made anew. So the answer already told is
+  // remembered (a ref outlives both that and StrictMode).
+  const toldRef = useRef<CreateInviteState | null>(null);
   useEffect(() => {
-    if (state !== NOTHING_FAILED && !state.failed) track('invite_created');
+    if (state === NOTHING_FAILED || state.failed || toldRef.current === state) return;
+    toldRef.current = state;
+    track('invite_created');
   }, [state]);
 
   return (

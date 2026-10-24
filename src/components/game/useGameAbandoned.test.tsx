@@ -1,5 +1,5 @@
 import { act, render } from '@testing-library/react';
-import { StrictMode } from 'react';
+import { Activity, StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { track } from '@/lib/metrics/track';
 import type { Mode } from '@/lib/types';
@@ -144,6 +144,42 @@ describe('useGameAbandoned', () => {
     await settle();
 
     expect(track).toHaveBeenCalledExactlyOnceWith('game_abandoned', { youtubeId: 'aaaaaaaaaaa', mode: 'escolha' });
+  });
+
+  it('counts a screen Next hides to keep it (an <Activity>, when the player follows a link) as a game left, once', async () => {
+    const screenIn = (mode: 'visible' | 'hidden') => (
+      <Activity mode={mode}>
+        <Probe {...OPTIONS} />
+      </Activity>
+    );
+    const { rerender } = render(screenIn('visible'));
+    await settle();
+    expect(track).not.toHaveBeenCalled();
+
+    rerender(screenIn('hidden'));
+    await settle();
+    expect(track).toHaveBeenCalledExactlyOnceWith('game_abandoned', { youtubeId: 'aaaaaaaaaaa', mode: 'escolha' });
+
+    // "Voltar" shows it again, and it goes away again: the game was left once.
+    rerender(screenIn('visible'));
+    rerender(screenIn('hidden'));
+    pagehide();
+    await settle();
+    expect(track).toHaveBeenCalledOnce();
+  });
+
+  it('does not count a screen that finished before Next hid it', async () => {
+    const screenIn = (mode: 'visible' | 'hidden') => (
+      <Activity mode={mode}>
+        <Probe {...OPTIONS} finished={() => true} />
+      </Activity>
+    );
+    const { rerender } = render(screenIn('visible'));
+
+    rerender(screenIn('hidden'));
+    await settle();
+
+    expect(track).not.toHaveBeenCalled();
   });
 
   it('takes its pagehide listener off when the screen is gone', async () => {

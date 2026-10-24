@@ -53,8 +53,9 @@ function sessionId(): string {
 
 /**
  * One request with these events. When the page is going, it is `sendBeacon`, which the browser finishes after the page
- * is gone (same-origin, so the session cookies go along); otherwise, or when the browser will not take the beacon, a
- * `fetch` that is allowed to outlive the page. A failure is not retried: a lost event is a missing number on a panel.
+ * is gone (same-origin, so the session cookies go along); when the browser will not take the beacon, a `fetch` that is
+ * allowed to outlive the page (`keepalive`, which only a request sent as the page goes needs). A failure is not retried:
+ * a lost event is a missing number on a panel.
  */
 function send(events: QueuedEvent[], beacon: boolean): void {
   const body = JSON.stringify({ sessionId: sessionId(), events });
@@ -65,7 +66,7 @@ function send(events: QueuedEvent[], beacon: boolean): void {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body,
-    keepalive: true,
+    keepalive: beacon,
   }).catch(() => {});
 }
 

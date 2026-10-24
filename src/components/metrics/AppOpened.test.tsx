@@ -1,5 +1,5 @@
 import { render } from '@testing-library/react';
-import { StrictMode } from 'react';
+import { Activity, StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The same mock across the fresh pages below (loading the modules again would otherwise make a new one each time).
@@ -72,6 +72,21 @@ describe('AppOpened', () => {
         <AppOpened />
       </StrictMode>,
     );
+
+    expect(track).toHaveBeenCalledOnce();
+  });
+
+  it('tracks it once when the page is hidden and shown again: Next keeps the route it left in an Activity', async () => {
+    const AppOpened = await freshPage();
+    const page = (mode: 'visible' | 'hidden') => (
+      <Activity mode={mode}>
+        <AppOpened />
+      </Activity>
+    );
+    const { rerender } = render(page('visible'));
+
+    rerender(page('hidden'));
+    rerender(page('visible'));
 
     expect(track).toHaveBeenCalledOnce();
   });
