@@ -62,6 +62,25 @@ describe('SongThumb', () => {
     expect(disc).toHaveAttribute('aria-hidden', 'true');
   });
 
+  it('draws the disc dark, with its groove and its lime center, at 28 px in the middle of its box', () => {
+    render(<SongThumb youtubeId="not a video id" title="Invented Song" />);
+
+    const svg = screen.getByTestId('song-disc').querySelector('svg')!;
+    expect(Object.fromEntries(svg.getAttributeNames().map((name) => [name, svg.getAttribute(name)]))).toEqual({
+      width: '28',
+      height: '28',
+      viewBox: '0 0 44 44',
+      focusable: 'false',
+    });
+    expect(
+      [...svg.children].map((part) => [part.tagName, ...part.getAttributeNames().map((name) => `${name}=${part.getAttribute(name)}`)]),
+    ).toEqual([
+      ['circle', 'cx=22', 'cy=22', 'r=21', 'fill=#26262C'],
+      ['circle', 'cx=22', 'cy=22', 'r=14', 'fill=none', 'stroke=#6E6E78', 'stroke-width=1.5', 'opacity=0.6'],
+      ['circle', 'cx=22', 'cy=22', 'r=5', 'fill=#C8FF2E'],
+    ]);
+  });
+
   // The ids come from a table every member can write to, so one that is not a video id never reaches an address.
   it.each([
     ['too short', 'aaaaaaaaaa'],

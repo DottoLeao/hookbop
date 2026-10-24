@@ -2,6 +2,7 @@
 
 import Image from 'next/image';
 import { useState } from 'react';
+import { DARK_DISC, Disc } from '@/components/brand/Disc';
 import { t } from '@/i18n/t';
 import { isVideoId } from '@/lib/youtube/parseUrl';
 
@@ -10,18 +11,14 @@ const WIDTH = 80;
 const HEIGHT = 45;
 
 /** The disc: what the card shows when there is no picture to show. */
-function Disc() {
+function DiscInPlaceOfPicture() {
   return (
     <span
       aria-hidden="true"
       data-testid="song-disc"
       className="flex h-[45px] w-20 shrink-0 items-center justify-center rounded-blank bg-border"
     >
-      <svg width="28" height="28" viewBox="0 0 44 44" focusable="false">
-        <circle cx="22" cy="22" r="21" fill="#26262C" />
-        <circle cx="22" cy="22" r="14" fill="none" stroke="#6E6E78" strokeWidth="1.5" opacity="0.6" />
-        <circle cx="22" cy="22" r="5" fill="#C8FF2E" />
-      </svg>
+      <Disc palette={DARK_DISC} width="28" height="28" />
     </span>
   );
 }
@@ -40,7 +37,7 @@ function Disc() {
 export function SongThumb({ youtubeId, title }: { youtubeId: string; title: string }) {
   const [failed, setFailed] = useState(false);
   // The id comes from a table every member can write to: only the shape of a video id gets to be part of an address.
-  if (failed || !isVideoId(youtubeId)) return <Disc />;
+  if (failed || !isVideoId(youtubeId)) return <DiscInPlaceOfPicture />;
   return (
     <Image
       src={`https://i.ytimg.com/vi/${encodeURIComponent(youtubeId)}/mqdefault.jpg`}
