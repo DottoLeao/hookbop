@@ -52,3 +52,42 @@
     color-scheme: dark;
   }
 }
+
+/* The cards of the home list come in one after another (spec §3), by CSS alone: the list is drawn on the server and shown
+   before the page is taken over, so what plays from the page the server sends cannot wait for a script, and no card is
+   blank or flashes while one loads. Each card says where it is in the sequence in --i (0 to 5, set by the list); the
+   cards end where they are drawn (fill-mode both: the first frame during the delay, the last one after it). Only
+   opacity and transform. The last card starts 250 ms after the first and is in a fade after that. */
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes card-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.card-in {
+  animation: card-in 320ms cubic-bezier(0.215, 0.61, 0.355, 1) both;
+  animation-delay: calc(var(--i, 0) * 50ms);
+}
+
+/* "Reduzir movimento": a fade only, all the cards together. */
+@media (prefers-reduced-motion: reduce) {
+  .card-in {
+    animation-name: card-fade;
+    animation-duration: 200ms;
+    animation-delay: 0s;
+  }
+}

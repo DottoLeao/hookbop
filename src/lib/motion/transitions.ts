@@ -5,8 +5,9 @@ import { gsap, useGSAP } from './gsap';
 import { prefersReducedMotion } from './useReducedMotion';
 
 // How things come in: a sheet rises from below, a screen takes the place of another, cards come one after another, a
-// ring sweeps into place. All of it is `transform` and `opacity`, and none of it ever waits for anything: a thing that
-// is coming in is already there to be tapped, only drawn a little lower and a little fainter for a moment.
+// ring fills. All of it is `transform` and `opacity`, with one exception (ruling S34): the end screen's ring fills by its
+// dash offset. And none of it ever waits for anything: a thing that is coming in is already there to be tapped, only
+// drawn a little lower and a little fainter for a moment.
 //
 // With "reduzir movimento" on, every one of them is the same short fade and nothing moves. The setting is read as the
 // transition starts (`prefersReducedMotion`) and not followed while it runs: a transition lasts a third of a second.
@@ -33,10 +34,8 @@ const CARD = 0.32;
 const CARD_STEP = 0.05;
 const CARD_MAX_STEPS = 5;
 
-/** A ring sweeps into place in 0.9 s, from a place at least 120° and at most 270° behind. */
-const SWEEP = 0.9;
-const SWEEP_MIN_DEG = 120;
-const SWEEP_MAX_DEG = 270;
+/** A ring fills in 0.9 s. */
+const FILL = 0.9;
 
 /** Comes in from `rise` px below, or only fades in when motion is reduced. */
 function comeIn(targets: gsap.TweenTarget, rise: number, duration: number, extra: gsap.TweenVars = {}) {
@@ -93,33 +92,34 @@ export function useScreenSwap(screenRef: ElementRef, screen: string): void {
 /**
  * The elements of `listRef` that match `selector` (cards, blocks of a result) come in one after another, each 0.05 s
  * after the one before, for the first five and together after those. With reduced motion they fade in all at once.
- * `key` is what the elements are: when it changes (a list with other songs in it) they come in again, and an
- * element new in the page never stays out of sight.
+ *
+ * For what is drawn only once the page is running (the picker and the end screen are). A list that is drawn on the
+ * server and shown before the page is taken over has to come in by itself, with no script: see `card-in` in
+ * `globals.css`, for the home page.
  */
-export function useCardsIn(listRef: ElementRef, selector: string, key = ''): void {
+export function useCardsIn(listRef: ElementRef, selector: string): void {
   useGSAP(
     () => {
       const cards = Array.from(listRef.current?.querySelectorAll<HTMLElement>(selector) ?? []);
       if (cards.length === 0) return;
       comeIn(cards, CARD_RISE, CARD, { stagger: (index: number) => Math.min(index, CARD_MAX_STEPS) * CARD_STEP });
     },
-    { dependencies: [key], scope: listRef, revertOnUpdate: true },
+    { scope: listRef },
   );
 }
 
 /**
- * A ring's arc (the element `arcRef`, holding the arc drawn from the top, clockwise, for `degrees`) sweeps into place
- * as the ring fills: it comes round the ring from behind, slowing as it lands, and fades in as it starts. `center` is the
- * ring's center in the drawing's own units (`svgOrigin`), what it turns about.
+ * A ring's arc (the circle `arcRef`, drawn with a dash as long as the arc, `length`) fills as the end screen comes in:
+ * its dash offset goes from `length`, which leaves none of it drawn, to 0, which leaves all of it, in 0.9 s, slowing
+ * as it lands. The ring fills to the player's result and not by a set amount, since the arc is as long as the result.
  *
- * A fill that grows the arc (its dash, its length) would change the shape of the arc and not only where it is drawn, so
- * the arc keeps its shape and turns: only `transform` and `opacity`. With reduced motion it just fades in.
+ * Ruling S34: this is the one animation that is not `transform` and `opacity`. The dash offset is paint only, on one
+ * small SVG, with no layout: what the rule is there to avoid. The offset is cleared at the end, so the arc is left
+ * as it was drawn.
  *
- * In a browser, GSAP turns an SVG element through its `transform` attribute, which it takes off at the end; it also
- * leaves two markers on the element (`data-svg-origin` and a `transform-origin` style), which do nothing without a
- * transform to turn about.
+ * With reduced motion the ring is drawn at its final value from the first frame, and only fades in.
  */
-export function useRingSweep(arcRef: ElementRef, degrees: number, center: string): void {
+export function useRingFill(arcRef: ElementRef, length: number): void {
   useGSAP(
     () => {
       const arc = arcRef.current;
@@ -128,11 +128,10 @@ export function useRingSweep(arcRef: ElementRef, degrees: number, center: string
         gsap.fromTo(arc, { opacity: 0 }, { opacity: 1, duration: FADE, ease: 'power1.out', clearProps: CLEAR });
         return;
       }
-      const behind = Math.min(Math.max(degrees, SWEEP_MIN_DEG), SWEEP_MAX_DEG);
       gsap.fromTo(
         arc,
-        { rotation: -behind, svgOrigin: center, opacity: 0 },
-        { rotation: 0, svgOrigin: center, opacity: 1, duration: SWEEP, ease: 'power3.out', clearProps: CLEAR },
+        { strokeDashoffset: length },
+        { strokeDashoffset: 0, duration: FILL, ease: 'power3.out', clearProps: 'strokeDashoffset' },
       );
     },
     { scope: arcRef },

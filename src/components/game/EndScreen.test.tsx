@@ -217,24 +217,35 @@ describe('EndScreen: the ring fills and the result comes in', () => {
     );
   }
 
-  it('turns the arc of the ring into place about the ring’s center, fading in, with rotation and opacity only', () => {
+  /** The circle that draws the arc of the ring, the one after the track. */
+  function arcOf(pct: number) {
+    return Array.from(ringOf(pct).querySelectorAll('circle'))[1];
+  }
+
+  it('fills the ring: the arc is drawn by its dash offset, from none of it to all of it, as far as the result (ruling S34)', () => {
     setup();
 
-    const arc = ringOf(92).querySelector('g')!;
-    const [sweep, ...more] = animations().filter(({ targets }) => targets.includes(arc));
+    const arc = arcOf(92);
+    const [fill, ...more] = animations().filter(({ targets }) => targets.includes(arc));
     expect(more).toHaveLength(0);
-    expect(arc).toContainElement(ringOf(92).querySelectorAll('circle')[1] as unknown as HTMLElement);
-    expect(sweep.from.rotation).toBeLessThan(0);
-    expect(sweep.from.svgOrigin).toBe('70 70');
-    expect(sweep.from.opacity).toBe(0);
-    expect(sweep.to).toEqual(expect.objectContaining({ rotation: 0, opacity: 1 }));
-    expect(Object.keys(sweep.from).sort()).toEqual(['opacity', 'rotation', 'svgOrigin']);
-    expect(
-      Object.keys(sweep.to)
-        .filter((name) => !['duration', 'ease', 'clearProps', 'svgOrigin'].includes(name))
-        .sort(),
-    ).toEqual(['opacity', 'rotation']);
-    expect(sweep.to.duration).toBeLessThanOrEqual(1);
+    // The arc is as long as the result, and it is that long that the offset starts from, so none of it shows at first.
+    const [filled] = (arc.getAttribute('stroke-dasharray') ?? '').split(' ').map(Number);
+    expect(filled).toBeGreaterThan(0);
+    expect(fill.from.strokeDashoffset).toBeCloseTo(filled, 5);
+    expect(fill.to).toEqual(expect.objectContaining({ strokeDashoffset: 0 }));
+    expect(Object.keys(fill.from)).toEqual(['strokeDashoffset']);
+    expect(fill.to.clearProps).toBe('strokeDashoffset');
+    expect(fill.to.duration).toBeLessThanOrEqual(1);
+  });
+
+  it('fills a ring as far as its own result: a short arc starts its offset from a short length', () => {
+    setup({ summary: { ...SUMMARY, pct: 20, firstTryCorrect: 2 } });
+
+    const arc = arcOf(20);
+    const [filled] = (arc.getAttribute('stroke-dasharray') ?? '').split(' ').map(Number);
+    const fill = animations().find(({ targets }) => targets.includes(arc))!;
+    expect(fill.from.strokeDashoffset).toBeCloseTo(filled, 5);
+    expect(filled / (2 * Math.PI * 60)).toBeCloseTo(0.2, 2);
   });
 
   it('leaves the arc itself as it was: the same circle, with the same dash and the same turn to start from the top', () => {
@@ -246,15 +257,29 @@ describe('EndScreen: the ring fills and the result comes in', () => {
     expect(arc.getAttribute('stroke-linecap')).toBe('round');
     expect(arc.getAttribute('stroke-dasharray')).toMatch(/^\d/);
     expect(arc).toHaveClass('stroke-lime');
+    expect(arc.parentElement).toBe(ringOf(92));
     expect(ringOf(92)).toHaveAttribute('aria-label', '92% de acerto');
   });
 
-  it('has no arc to turn at 0%, where the ring is only its track', () => {
+  it('has no arc to fill at 0%, where the ring is only its track', () => {
     setup({ summary: { ...SUMMARY, pct: 0, firstTryCorrect: 0 } });
 
     expect(ringOf(0).querySelectorAll('circle')).toHaveLength(1);
-    expect(ringOf(0).querySelector('g')).toBeNull();
-    expect(animations().some(({ from }) => 'rotation' in from)).toBe(false);
+    expect(animations().some(({ from }) => 'strokeDashoffset' in from)).toBe(false);
+  });
+
+  it('draws the ring at its final value from the first frame, and only fades it in, when motion is reduced', () => {
+    reduceMotion();
+    setup();
+
+    const arc = arcOf(92);
+    const fill = animations().find(({ targets }) => targets.includes(arc))!;
+    expect(Object.keys(fill.from)).toEqual(['opacity']);
+    expect(Object.keys(fill.to)).not.toContain('strokeDashoffset');
+    // The dash is the final one and nothing sets an offset: all of the arc is there.
+    const [filled, whole] = (arc.getAttribute('stroke-dasharray') ?? '').split(' ').map(Number);
+    expect(filled / whole).toBeCloseTo(0.92, 2);
+    expect(arc.style.strokeDashoffset).toBe('');
   });
 
   it('brings the ring, DJ Bop’s line, the numbers and the Dobrar o XP spot in one after another, in the order of the page', () => {
@@ -298,15 +323,20 @@ describe('EndScreen: the ring fills and the result comes in', () => {
     expect(props.onPlayAgain).toHaveBeenCalledOnce();
   });
 
-  it('changes nothing but transform and opacity, and leaves none of it on the page once it is over', () => {
+  it('changes nothing but transform and opacity, the ring’s fill apart, and leaves none of it on the page once it is over', () => {
     setup();
 
     expect(animations().length).toBeGreaterThan(0);
-    for (const { from, to } of animations()) {
+    for (const { targets, from, to } of animations()) {
       const named = [...Object.keys(from), ...Object.keys(to)].filter(
-        (name) => !['duration', 'ease', 'clearProps', 'stagger', 'svgOrigin'].includes(name),
+        (name) => !['duration', 'ease', 'clearProps', 'stagger'].includes(name),
       );
-      expect([...new Set(named)].every((name) => ['opacity', 'y', 'rotation'].includes(name))).toBe(true);
+      if (targets.includes(arcOf(92))) {
+        // Ruling S34: the one exception, paint only, on the one small SVG.
+        expect([...new Set(named)]).toEqual(['strokeDashoffset']);
+        continue;
+      }
+      expect([...new Set(named)].every((name) => ['opacity', 'y'].includes(name))).toBe(true);
       expect(to.clearProps).toEqual(expect.stringContaining('transform'));
       expect(to.clearProps).toEqual(expect.stringContaining('opacity'));
     }
@@ -320,7 +350,7 @@ describe('EndScreen: the ring fills and the result comes in', () => {
     for (const { from, to } of animations()) {
       expect(Object.keys(from)).toEqual(['opacity']);
       expect(Object.keys(to)).not.toContain('y');
-      expect(Object.keys(to)).not.toContain('rotation');
+      expect(Object.keys(to)).not.toContain('strokeDashoffset');
       expect(Object.keys(to)).not.toContain('stagger');
     }
   });

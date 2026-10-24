@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import gsap from 'gsap';
 import { useRef } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { useCardsIn, useRingSweep, useScreenSwap, useSheetEnter } from './transitions';
+import { useCardsIn, useRingFill, useScreenSwap, useSheetEnter } from './transitions';
 
 // The real GSAP, in jsdom: nothing plays here, but the tweens are made, started, killed and reverted for real.
 
@@ -197,7 +197,7 @@ describe('useScreenSwap', () => {
 
 function Cards({ ids, selector = 'li' }: { ids: string[]; selector?: string }) {
   const ref = useRef<HTMLUListElement>(null);
-  useCardsIn(ref, selector, ids.join());
+  useCardsIn(ref, selector);
   return (
     <ul ref={ref}>
       {ids.map((id) => (
@@ -295,14 +295,6 @@ describe('useCardsIn', () => {
     expect(gsap.getTweensOf(screen.getByTestId('a'))).toEqual([first]);
   });
 
-  it('brings a new list in, every card of it, and leaves nothing out of sight', () => {
-    const { rerender } = render(<Cards ids={['a', 'b']} />);
-
-    rerender(<Cards ids={['a', 'b', 'c']} />);
-
-    for (const id of ['a', 'b', 'c']) expect(gsap.getTweensOf(screen.getByTestId(id))).toHaveLength(1);
-  });
-
   it('leaves no tween and no style behind when the cards go away mid-sequence', () => {
     const { unmount } = render(<Cards ids={['a', 'b', 'c']} />);
     const cards = ['a', 'b', 'c'].map((id) => screen.getByTestId(id));
@@ -324,62 +316,80 @@ describe('useCardsIn', () => {
   });
 });
 
-function Ring({ degrees }: { degrees: number }) {
-  const ref = useRef<SVGGElement>(null);
-  useRingSweep(ref, degrees, '70 70');
+function Ring({ length = 331 }: { length?: number }) {
+  const ref = useRef<SVGCircleElement>(null);
+  useRingFill(ref, length);
   return (
     <svg viewBox="0 0 140 140" role="img" aria-label="Anel">
-      <g ref={ref} data-testid="arc">
-        <circle cx="70" cy="70" r="60" />
-      </g>
+      <circle
+        ref={ref}
+        data-testid="arc"
+        cx="70"
+        cy="70"
+        r="60"
+        strokeDasharray={`${length} 377`}
+        transform="rotate(-90 70 70)"
+      />
     </svg>
   );
 }
 
-describe('useRingSweep', () => {
-  it('turns the arc into place about the ring’s center, fading in, with rotation and opacity only', () => {
-    render(<Ring degrees={200} />);
+describe('useRingFill (ruling S34: the one animation that is not transform and opacity)', () => {
+  it('draws the arc from nothing to its length by its dash offset, which is all it changes', () => {
+    render(<Ring length={331} />);
 
     const [tween] = gsap.getTweensOf(screen.getByTestId('arc'));
     const { from, to } = asked(tween);
-    expect(from.rotation).toBeLessThan(0);
-    expect(from.opacity).toBe(0);
-    expect(from.svgOrigin).toBe('70 70');
-    expect(to).toEqual(expect.objectContaining({ rotation: 0, opacity: 1 }));
-    expect(changed(tween).sort()).toEqual(['opacity', 'rotation']);
+    // An offset as long as the arc leaves none of it drawn; none at all leaves all of it.
+    expect(from.strokeDashoffset).toBe(331);
+    expect(to).toEqual(expect.objectContaining({ strokeDashoffset: 0 }));
+    expect(changed(tween)).toEqual(['strokeDashoffset']);
+    expect(tween.duration()).toBeLessThanOrEqual(1);
   });
 
-  it('comes round from further for a longer arc, but never a whole turn, and always from some way behind', () => {
-    const behind = (degrees: number) => {
-      const { unmount } = render(<Ring degrees={degrees} />);
+  it('fills as far as the arc is long: a short arc starts from its own length, not from a whole turn', () => {
+    const offsetFrom = (length: number) => {
+      const { unmount } = render(<Ring length={length} />);
       const [tween] = gsap.getTweensOf(screen.getAllByTestId('arc').at(-1)!);
-      const from = Number(asked(tween).from.rotation);
+      const from = asked(tween).from.strokeDashoffset;
       unmount();
-      return -from;
+      return from;
     };
 
-    expect(behind(10)).toBeGreaterThanOrEqual(120);
-    expect(behind(180)).toBe(180);
-    expect(behind(360)).toBeLessThanOrEqual(270);
+    expect(offsetFrom(40)).toBe(40);
+    expect(offsetFrom(377)).toBe(377);
   });
 
-  it('only fades when motion is reduced', () => {
+  it('leaves the arc as it was drawn: the dash and the turn that starts it from the top stay, and the offset is cleared', () => {
+    render(<Ring length={331} />);
+
+    const arc = screen.getByTestId('arc');
+    expect(arc.getAttribute('stroke-dasharray')).toBe('331 377');
+    expect(arc.getAttribute('transform')).toBe('rotate(-90 70 70)');
+    const [tween] = gsap.getTweensOf(arc);
+    expect(asked(tween).to.clearProps).toContain('strokeDashoffset');
+  });
+
+  it('draws the ring at its final value, and only fades it in, when motion is reduced', () => {
     preferReducedMotion(true);
-    render(<Ring degrees={200} />);
+    render(<Ring length={331} />);
 
-    const [tween] = gsap.getTweensOf(screen.getByTestId('arc'));
-    expect(changed(tween)).toEqual(['opacity']);
-  });
-
-  it('does not set the geometry of the arc: it keeps its shape, and the style is clear once the sweep is over', () => {
-    const { unmount } = render(<Ring degrees={200} />);
     const arc = screen.getByTestId('arc');
     const [tween] = gsap.getTweensOf(arc);
-    expect(asked(tween).to.clearProps).toContain('transform');
-    expect(arc.querySelector('circle')!.getAttributeNames().sort()).toEqual(['cx', 'cy', 'r']);
+    expect(changed(tween)).toEqual(['opacity']);
+    // Nothing of the fill is set: the arc is its final length from the first frame.
+    expect(arc.style.strokeDashoffset).toBe('');
+    expect(arc.getAttribute('stroke-dasharray')).toBe('331 377');
+  });
+
+  it('leaves no tween and no style behind when the screen goes away mid-fill', () => {
+    const { unmount } = render(<Ring />);
+    const arc = screen.getByTestId('arc');
+    expect(arc.style.strokeDashoffset).not.toBe('');
 
     unmount();
 
     expect(gsap.getTweensOf(arc)).toHaveLength(0);
+    expect(arc.style.strokeDashoffset).toBe('');
   });
 });

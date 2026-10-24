@@ -5,7 +5,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { DjBop, type DjBopExpression } from '@/components/brand/DjBop';
 import { t, type MessageKey } from '@/i18n/t';
 import type { Entitlement } from '@/lib/entitlements';
-import { useCardsIn, useRingSweep } from '@/lib/motion/transitions';
+import { useCardsIn, useRingFill } from '@/lib/motion/transitions';
 import type { Mode, PlaySummary } from '@/lib/types';
 import { focusRing } from './styles';
 
@@ -52,37 +52,32 @@ function verdict(pct: number | null): { line: MessageKey; expression: DjBopExpre
 
 const RING_RADIUS = 60;
 const RING_LENGTH = 2 * Math.PI * RING_RADIUS;
-/** The ring is drawn in a 140 x 140 box, around its center. */
-const RING_CENTER = '70 70';
 
 /**
- * The share of blanks right on the first try, as a ring (design/canvas/FimDaMusica.dc.html). As the screen comes in
- * the arc sweeps into place about the center (`useRingSweep`): it is the group around the arc that turns, so the arc
- * keeps the turn that starts it from the top, and it keeps its shape.
+ * The share of blanks right on the first try, as a ring (design/canvas/FimDaMusica.dc.html). As the screen comes in the
+ * ring fills to the result (`useRingFill`, by the dash offset of the arc, which is drawn as long as the result).
  */
 function Ring({ pct }: { pct: number }) {
-  const arcRef = useRef<SVGGElement>(null);
-  const share = Math.min(100, Math.max(0, pct)) / 100;
-  const filled = share * RING_LENGTH;
-  useRingSweep(arcRef, share * 360, RING_CENTER);
+  const arcRef = useRef<SVGCircleElement>(null);
+  const filled = (Math.min(100, Math.max(0, pct)) / 100) * RING_LENGTH;
+  useRingFill(arcRef, filled);
   return (
     <svg width="140" height="140" viewBox="0 0 140 140" role="img" aria-label={t('fim.ring', { pct })}>
       <circle cx="70" cy="70" r={RING_RADIUS} fill="none" strokeWidth="12" className="stroke-elevated" />
       {/* A zero-length arc with round ends would still draw a dot. */}
       {filled > 0 && (
-        <g ref={arcRef}>
-          <circle
-            cx="70"
-            cy="70"
-            r={RING_RADIUS}
-            fill="none"
-            strokeWidth="12"
-            strokeLinecap="round"
-            strokeDasharray={`${filled} ${RING_LENGTH}`}
-            transform="rotate(-90 70 70)"
-            className="stroke-lime"
-          />
-        </g>
+        <circle
+          ref={arcRef}
+          cx="70"
+          cy="70"
+          r={RING_RADIUS}
+          fill="none"
+          strokeWidth="12"
+          strokeLinecap="round"
+          strokeDasharray={`${filled} ${RING_LENGTH}`}
+          transform="rotate(-90 70 70)"
+          className="stroke-lime"
+        />
       )}
       <text x="70" y="80" textAnchor="middle" fontSize="28" fontWeight="700" className="fill-text font-heading">
         {t('fim.ringValue', { pct })}

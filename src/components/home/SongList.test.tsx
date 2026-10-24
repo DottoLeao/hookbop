@@ -1,18 +1,17 @@
 import { render, screen, within } from '@testing-library/react';
 import gsap from 'gsap';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { renderToString } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { VideoRecord } from '@/lib/lyrics/resolveSong';
 import { SongList, SongListUnavailable } from './SongList';
 
-// jsdom has no animation, so GSAP is only watched: what the list asks it to animate, and how.
+// The list comes in by CSS, with no script: GSAP is mocked only to see that the list never asks it for anything.
 vi.mock('gsap');
 const fromTo = vi.mocked(gsap.fromTo);
 
-type Vars = Record<string, unknown>;
-
 afterEach(() => {
-  vi.unstubAllGlobals();
   fromTo.mockClear();
 });
 
@@ -55,87 +54,64 @@ describe('SongList', () => {
   });
 });
 
-describe('SongList: the cards come in one after another', () => {
+describe('SongList: the cards come in one after another, by CSS alone (ruling S35)', () => {
   const SONGS = [
     song('aaaaaaaaaaa', 'First Invented Song'),
     song('bbbbbbbbbbb', 'Second Invented Song'),
     song('ccccccccccc', 'Third Invented Song'),
   ];
 
-  function asked() {
-    const calls = fromTo.mock.calls as unknown as [HTMLElement[], Vars, Vars][];
-    expect(calls).toHaveLength(1);
-    const [targets, from, to] = calls[0];
-    return { targets, from, to };
-  }
+  const cards = () => within(screen.getByRole('list')).getAllByRole('listitem');
+  const place = (card: HTMLElement) => Number(card.style.getPropertyValue('--i'));
 
-  it('brings every card in, in the order of the list, with a rise and a fade one step after the other', () => {
+  it('marks every card for the entrance, and says where it is in the sequence through --i, in the order of the list', () => {
     render(<SongList songs={SONGS} />);
 
-    const { targets, from, to } = asked();
-    expect(targets).toEqual(within(screen.getByRole('list')).getAllByRole('listitem'));
-    expect(from.y).toBeGreaterThan(0);
-    expect(from.opacity).toBe(0);
-    expect(to).toEqual(expect.objectContaining({ y: 0, opacity: 1 }));
-    const stagger = to.stagger as (index: number) => number;
-    expect(stagger(0)).toBe(0);
-    expect(stagger(2)).toBeGreaterThan(stagger(1));
+    expect(cards()).toHaveLength(3);
+    for (const card of cards()) expect(card).toHaveClass('card-in');
+    expect(cards().map(place)).toEqual([0, 1, 2]);
   });
 
-  it('changes nothing but transform and opacity, and leaves none of it on the cards when it is over', () => {
-    render(<SongList songs={SONGS} />);
+  it('keeps the sequence short: past the sixth card they all start together', () => {
+    const many = Array.from({ length: 12 }, (_, i) => song(`${String.fromCharCode(97 + i).repeat(11)}`, `Invented Song ${i}`));
+    render(<SongList songs={many} />);
 
-    const { from, to } = asked();
-    expect(Object.keys(from).sort()).toEqual(['opacity', 'y']);
-    expect(Object.keys(to).filter((name) => !['duration', 'ease', 'clearProps', 'stagger'].includes(name)).sort()).toEqual([
-      'opacity',
-      'y',
-    ]);
-    expect(to.clearProps).toEqual(expect.stringContaining('transform'));
-    expect(to.clearProps).toEqual(expect.stringContaining('opacity'));
-    expect(to.duration).toBeLessThanOrEqual(0.33);
+    const places = cards().map(place);
+    expect(places.slice(0, 6)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(Math.max(...places)).toBe(5);
+    expect(places.slice(5)).toEqual(Array(7).fill(5));
   });
 
-  it('only fades them, all together, when motion is reduced', () => {
-    vi.stubGlobal(
-      'matchMedia',
-      vi.fn((query: string) => ({
-        matches: query === '(prefers-reduced-motion: reduce)',
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-      })),
-    );
-    render(<SongList songs={SONGS} />);
-
-    const { from, to } = asked();
-    expect(Object.keys(from)).toEqual(['opacity']);
-    expect(Object.keys(to)).not.toContain('y');
-    expect(Object.keys(to)).not.toContain('stagger');
-  });
-
-  it('is drawn out of sight on the server, so the cards never show for a moment before they come in', () => {
+  it('puts the place in the page the server sends, in the style of each card, for the CSS to play before any script', () => {
     const html = renderToString(<SongList songs={SONGS} />);
 
-    expect(html.match(/<li style="opacity:0"/g)).toHaveLength(3);
+    expect(html.match(/<li class="card-in" style="--i:\d"/g)).toEqual([
+      '<li class="card-in" style="--i:0"',
+      '<li class="card-in" style="--i:1"',
+      '<li class="card-in" style="--i:2"',
+    ]);
   });
 
-  it('brings the cards in again for a list with other songs in it, and not for the same list', () => {
-    const { rerender } = render(<SongList songs={SONGS} />);
-    expect(fromTo).toHaveBeenCalledTimes(1);
+  it('draws no card out of sight itself: nothing inline hides it, so no card is blank until a script runs', () => {
+    const html = renderToString(<SongList songs={SONGS} />);
 
-    rerender(<SongList songs={[...SONGS]} />);
-    expect(fromTo).toHaveBeenCalledTimes(1);
+    expect(html).not.toMatch(/opacity|visibility|display:none/);
+  });
 
-    rerender(<SongList songs={[song('ddddddddddd', 'Fourth Invented Song'), ...SONGS]} />);
-    expect(fromTo).toHaveBeenCalledTimes(2);
-    expect((fromTo.mock.calls.at(-1)![0] as unknown as HTMLElement[]).length).toBe(4);
+  it('uses no script to do it: GSAP is not asked for anything, and the list is a server component', () => {
+    render(<SongList songs={SONGS} />);
+
+    expect(fromTo).not.toHaveBeenCalled();
+    const source = readFileSync(join(process.cwd(), 'src/components/home/SongList.tsx'), 'utf8');
+    expect(source).not.toMatch(/^\s*['"]use client['"]/m);
+    expect(source).not.toMatch(/motion\/transitions|from 'gsap'|useGSAP/);
   });
 
   it('leaves the invitation and the quiet line as they are: nothing to bring in', () => {
     render(<SongList songs={[]} />);
     render(<SongListUnavailable />);
 
-    expect(fromTo).not.toHaveBeenCalled();
+    expect(document.querySelector('.card-in')).toBeNull();
   });
 
   it('keeps the links, the heading and the names of the list', () => {
