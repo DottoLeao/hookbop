@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { selectBlanks } from '@/lib/game/blanks';
@@ -725,6 +725,119 @@ describe('SongScreen: the page in the background (ruling R84)', () => {
     setVisibility('hidden');
 
     expect(fake.calls.slice(before)).toEqual([]);
+  });
+
+  it('pauses the clip on the end screen when the page is hidden, and once more as it comes back (ruling S19)', async () => {
+    await playToTheEnd(makeDeps());
+    await screen.findByRole('button', { name: 'Jogar de novo' });
+    act(() => fake.emitState('playing'));
+    const before = fake.calls.length;
+
+    setVisibility('hidden');
+    setVisibility('visible');
+
+    expect(fake.calls.slice(before)).toEqual(['pause', 'pause']);
+  });
+});
+
+// Android, or the YouTube player itself, can play the clip again a moment after the page is back, after the pause the
+// screen sends then (ruling S19). Outside the game, a play reported within 2 s of the return is paused too, unless the
+// player tapped the clip for it (ruling S54).
+describe('SongScreen: a play the phone starts as the page comes back (ruling S54)', () => {
+  afterEach(() => {
+    // Unmount while the fake timers are still installed, so the timer of the guard is cleared on them.
+    cleanup();
+    vi.useRealTimers();
+    setVisibility('visible');
+  });
+
+  /** From here on the screen's own timers are fake, for the 2 s after the return. */
+  function fakeTimers() {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  }
+
+  /** YouTube's iframe in the player box, which a tap on the clip gives the focus to. */
+  function clipFrame() {
+    const frame = document.createElement('iframe');
+    screen.getByTestId('player').append(frame);
+    return frame;
+  }
+
+  async function openCalibration() {
+    render(<SongScreen youtubeId={ID} deps={makeDeps({ resolve: vi.fn<SongScreenDeps['resolve']>().mockResolvedValue(NEEDS_CALIBRATION) })} />);
+    await screen.findByRole('button', { name: 'Começou!' });
+  }
+
+  async function openPicker() {
+    render(<SongScreen youtubeId={ID} deps={makeDeps()} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+  }
+
+  async function openEndScreen() {
+    await playToTheEnd(makeDeps());
+    await screen.findByRole('button', { name: 'Jogar de novo' });
+  }
+
+  it.each([
+    ['the calibration', openCalibration],
+    ['the mode picker', openPicker],
+    ['the end screen', openEndScreen],
+  ])('pauses a play the phone reports 200 ms after the page is back, in %s', async (_screen, open) => {
+    await open();
+    act(() => fake.emitState('playing'));
+    fakeTimers();
+    setVisibility('hidden');
+    setVisibility('visible');
+    act(() => vi.advanceTimersByTime(200));
+
+    act(() => fake.emitState('playing'));
+
+    expect(fake.getPlayerState()).toBe('paused');
+    expect(fake.calls.at(-1)).toBe('pause');
+  });
+
+  it('leaves alone a play the player taps the clip for in those 2 s', async () => {
+    await openPicker();
+    const frame = clipFrame();
+    fakeTimers();
+    setVisibility('hidden');
+    setVisibility('visible');
+    act(() => vi.advanceTimersByTime(500));
+    const before = fake.calls.length;
+
+    frame.focus();
+    window.dispatchEvent(new Event('blur'));
+    act(() => fake.emitState('playing'));
+
+    expect(fake.getPlayerState()).toBe('playing');
+    expect(fake.calls.slice(before)).toEqual([]);
+  });
+
+  it('leaves the game that "Jogar" starts in those 2 s to the game screen', async () => {
+    await openPicker();
+    fakeTimers();
+    setVisibility('hidden');
+    setVisibility('visible');
+    pick('Escolha');
+    const before = fake.calls.length;
+
+    // The game screen plays the clip from the top.
+    act(() => fake.emitState('playing'));
+
+    expect(fake.getPlayerState()).toBe('playing');
+    expect(fake.calls.slice(before)).toEqual([]);
+  });
+
+  it('leaves a play reported after those 2 s alone', async () => {
+    await openPicker();
+    fakeTimers();
+    setVisibility('hidden');
+    setVisibility('visible');
+    act(() => vi.advanceTimersByTime(2000));
+
+    act(() => fake.emitState('playing'));
+
+    expect(fake.getPlayerState()).toBe('playing');
   });
 });
 

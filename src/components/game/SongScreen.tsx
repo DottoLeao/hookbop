@@ -24,7 +24,7 @@ import type { SongResolution, VideoRecord } from '@/lib/lyrics/resolveSong';
 import { track } from '@/lib/metrics/track';
 import { useScreenSwap } from '@/lib/motion/transitions';
 import type { PlayerAdapter, PlayerError } from '@/lib/player/adapter';
-import { usePauseWhenHidden } from '@/lib/player/usePauseWhenHidden';
+import { useStayPaused } from '@/lib/player/useStayPaused';
 import { createYouTubeAdapter, PlayerLoadError } from '@/lib/player/youtubeAdapter';
 import { FIRST_FINISH_KEY } from '@/lib/pwa/firstFinish';
 import { postSong } from '@/lib/song/postSong';
@@ -327,12 +327,11 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
   // When the game on screen started (`now`), for how long it took.
   const gameStartedAtRef = useRef(0);
 
-  // The clip never plays in the background (spec §4, ruling R84). Outside a game (calibrating, picking a mode, or any
-  // other state with a player) the screen pauses it when the page is hidden; during a game the game screen does it
-  // through its own commands. Nothing plays it again when the page comes back, and it is paused once more then, since
-  // Android plays a video again by itself as the page comes back (ruling S19).
-  const pausePlayer = useCallback(() => adapter?.pause(), [adapter]);
-  usePauseWhenHidden(pausePlayer, adapter !== null && phase.kind !== 'game', pausePlayer);
+  // The clip never plays in the background nor comes back by itself (spec §4, ruling R84). Outside a game
+  // (calibrating, picking a mode, or any other state with a player) the screen pauses it when the page is hidden, once
+  // more as the page comes back (ruling S19), and any play the phone starts in the 2 s after that (ruling S54; see
+  // `useStayPaused`). During a game the game screen does it through its own commands.
+  useStayPaused(adapter, phase.kind !== 'game', playerBoxRef);
 
   // The clock for timeToReadyMs starts when the screen opens, and retries do not restart it.
   useEffect(() => {
