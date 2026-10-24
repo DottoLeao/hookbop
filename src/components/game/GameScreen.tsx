@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { createPortal, flushSync } from 'react-dom';
 import { DjBop, type DjBopExpression } from '@/components/brand/DjBop';
 import { t } from '@/i18n/t';
-import { getEntitlements } from '@/lib/entitlements';
 import { tokenize } from '@/lib/game/blanks';
 import { awaitsAnswer, clipPlays, gameReducer, summaryOf, type GameEvent, type GameState } from '@/lib/game/reducer';
 import type { ProgressStorage, SavedProgress } from '@/lib/game/savedProgress';
@@ -48,9 +47,6 @@ const REACTION_MS = 1000;
 
 /** DJ Bop makes his combo face each time the combo reaches a multiple of this. */
 const COMBO_CHEER = 5;
-
-/** What the player can use in this phase, which is fixed when the app is built. */
-const entitlements = getEntitlements(process.env.NEXT_PUBLIC_APP_PHASE);
 
 export interface GameScreenProps {
   /** The player the song screen owns; the game drives it but never destroys it. */
@@ -159,8 +155,8 @@ const ANSWER_START = [
  * comes in as TICK every 100 ms (ignored for 300 ms after a seek) and its state as PLAYER_STATE.
  *
  * Karaokê has no blanks and no points: the scrolling lyrics of `KaraokeView` take the place of the lyric panel and the
- * answer area, "Livre" the place of the combo, and the translation switch the place of "Dica". It follows the game's
- * clock like the other modes, and plays through to the end report.
+ * answer area, "Livre" the place of the combo, and the translation switch a third tool beside 0.75x and "Repetir verso".
+ * It follows the game's clock like the other modes, and plays through to the end report.
  *
  * The AI help (`useLineHelp`) runs only when the player asks: "Não entendi", a tapped word and "Não entendi a ordem"
  * open DJ Bop's explanation in place of the game area, and "Traduzir verso" puts the translation under the line. With
@@ -175,8 +171,8 @@ const ANSWER_START = [
  * Coming back to the app (spec §6), the lyrics go to where the clip is, the music never comes back by itself, and a big
  * "Continuar" in the game area brings it back with its volume rising (see `useAwayAndBack`).
  *
- * The game in progress is kept on the device (`progressStorage`, see `useSavedProgress`) after each answer, tile and
- * hint, every 5 s, and as the app goes away, and forgotten when the song ends. Given a saved game (`resume`) that is this
+ * The game in progress is kept on the device (`progressStorage`, see `useSavedProgress`) after each answer and tile,
+ * every 5 s, and as the app goes away, and forgotten when the song ends. Given a saved game (`resume`) that is this
  * game's, it goes on from there, the clip starting again at the line it was in.
  */
 export function GameScreen({
@@ -305,7 +301,7 @@ export function GameScreen({
     return areaRef.current?.querySelector<HTMLElement>(ANSWER_START) ?? repeatRef.current;
   }, []);
 
-  // The game in progress is kept on the device (see `useSavedProgress`): here after every answer, tile and hint; the hook
+  // The game in progress is kept on the device (see `useSavedProgress`): here after every answer and tile; the hook
   // saves it every 5 s and as the app goes away, and forgets it when the song ends.
   const persist = useSavedProgress({
     gameRef,
@@ -463,8 +459,8 @@ export function GameScreen({
   function dispatchAnswer(event: GameEvent, correctedIndices: number[] = []) {
     const before = gameRef.current;
     const next = dispatch(event);
-    // Whatever the event was, an answer, a tile in the row or a hint, the game is kept as it is now: a hint given and
-    // then the back link must not come back as a first try.
+    // Whatever the event was, an answer or a tile in the row, the game is kept as it is now: a tile placed and then the
+    // back link must not come back with the row empty.
     persist();
     const record = next.score.records.at(-1);
     if (!record || next.score.records.length === before.score.records.length) return;
@@ -492,11 +488,6 @@ export function GameScreen({
   /** Monte o verso: the game decides whether the tile is the next word, and answers the line when the row is full. */
   function placeTile(placing: Blank, word: string) {
     dispatchAnswer({ type: 'TILE', blankId: placing.id, word, atMs: adapter.getCurrentTimeMs() });
-  }
-
-  // In Monte o verso the hint places the next word, which can finish the line: that is an answer like any other.
-  function hint() {
-    if (blank && !solved) dispatchAnswer({ type: 'HINT', blankId: blank.id });
   }
 
   function toggleSlow() {
@@ -646,15 +637,15 @@ export function GameScreen({
             slow={slow}
             onSlow={toggleSlow}
             onRepeat={() => dispatch({ type: 'REPEAT_LINE' })}
-            {...(karaoke
-              ? {
-                  // No blanks, so no hint: its place is the switch for the translations.
-                  action: {
+            // Karaokê has no blanks, so a third tool: the switch for the translations.
+            action={
+              karaoke
+                ? {
                     label: t(showTranslations ? 'karaoke.hideTranslation' : 'karaoke.showTranslation'),
                     onClick: () => setShowTranslations((shown) => !shown),
-                  },
-                }
-              : { onHint: hint, hintPerk: entitlements.hint, hintDisabled: !blank || solved || hinted })}
+                  }
+                : undefined
+            }
           />
         </div>
       </section>

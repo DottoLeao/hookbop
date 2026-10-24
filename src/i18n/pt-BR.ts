@@ -128,8 +128,6 @@ export const ptBR = {
   'jogo.explain': 'Não entendi',
   'jogo.slow': '0.75x',
   'jogo.repeat': 'Repetir verso',
-  'jogo.hint': 'Dica',
-  'jogo.hintAd': 'Dica · anúncio',
   'config.alwaysShowTranslation': 'Mostrar tradução sempre',
   'config.autoRepeatOnMiss': 'Repetir sozinho depois de errar',
   'config.sounds': 'Sons',

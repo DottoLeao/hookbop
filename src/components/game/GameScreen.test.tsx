@@ -219,6 +219,14 @@ function allTiles() {
   return within(screen.getByRole('group', { name: 'Coloque as palavras na ordem' })).getAllByRole('button');
 }
 
+/** What the tools under the answers say, in order: the buttons of the row "Repetir verso" is in. */
+function toolLabels() {
+  const bar = screen.getByRole('button', { name: 'Repetir verso' }).parentElement!;
+  return within(bar)
+    .getAllByRole('button')
+    .map((button) => button.textContent);
+}
+
 /** What a sighted player can read: the page's text without what is only there for screen readers. */
 function visibleText() {
   const copy = document.body.cloneNode(true) as HTMLElement;
@@ -1574,25 +1582,13 @@ describe('GameScreen: Escolha', () => {
     expect(fake.calls.slice(before)).toEqual(['seek:0', 'play', ...FADE_IN_STEPS]);
   });
 
-  it('shows Dica with a dashed border; the free hint greys out one wrong option and the answer counts as helped', () => {
-    const onEnd = renderGame();
-    const hint = screen.getByRole('button', { name: 'Dica' });
-    expect(hint).toHaveClass('border-dashed');
+  it('has no hint button: the tools are 0.75x and Repetir verso', () => {
+    renderGame();
 
-    fireEvent.click(hint);
-
-    const greyed = [option('late'), option('lead')].filter((button) => button.hasAttribute('disabled'));
-    expect(greyed).toHaveLength(1);
-    expect(option('let')).toBeEnabled();
-    // One hint per blank. The button stays in the tab order, so a keyboard user does not lose their place (as R58).
-    expect(hint).toHaveAttribute('aria-disabled', 'true');
-    expect(hint).toBeEnabled();
-    fireEvent.click(hint);
-    expect([option('late'), option('lead')].filter((button) => button.hasAttribute('disabled'))).toHaveLength(1);
-
-    fireEvent.click(option('let'));
-    act(() => fake.emitState('ended'));
-    expect(onEnd.mock.calls[0][1]).toEqual([{ blankId: LET.id, kind: 'helped', correct: true, beforeLineEnd: true }]);
+    expect(screen.queryByRole('button', { name: /Dica/ })).not.toBeInTheDocument();
+    expect(toolLabels()).toEqual(['0.75x', 'Repetir verso']);
+    // A game with no hint given: every option is there to pick.
+    expect([option('late'), option('lead'), option('let')].filter((button) => button.hasAttribute('disabled'))).toHaveLength(0);
   });
 
   it('works the options out only for the blank in play, once per blank', () => {
@@ -1716,43 +1712,17 @@ describe('GameScreen: Digitação', () => {
     ]);
   });
 
-  it('after a miss, Dica empties the field and shows the first letter, and gives the focus back to it', async () => {
-    const onEnd = await renderTyping();
-    type('got');
-    expect(fieldBox()).toHaveClass('bg-error');
-    const hint = screen.getByRole('button', { name: 'Dica' });
-    // The tap on the button takes the focus from the field.
-    hint.focus();
-    expect(field()).not.toHaveFocus();
+  it('has no hint button: the field shows no first letter, and the tools are 0.75x and Repetir verso', async () => {
+    await renderTyping();
 
-    fireEvent.click(hint);
-
-    expect(field()).toHaveValue('');
-    expect(field()).toHaveAttribute('placeholder', 'g');
-    expect(fieldBox()).not.toHaveClass('bg-error');
-    expect(fieldBox().querySelector('[data-icon]')).toBeNull();
-    expect(field()).toHaveFocus();
-
-    // The next try counts as helped.
-    type('get');
-    act(() => fake.emitState('ended'));
-    expect(onEnd.mock.calls[0][1]).toEqual([
-      { blankId: GET.id, kind: 'first', correct: false, beforeLineEnd: true },
-      { blankId: GET.id, kind: 'helped', correct: true, beforeLineEnd: true },
-    ]);
-  });
-
-  it('shows the first letter in the field after Dica, and the answer counts as helped', async () => {
-    const onEnd = await renderTyping();
+    expect(screen.queryByRole('button', { name: /Dica/ })).not.toBeInTheDocument();
+    expect(toolLabels()).toEqual(['0.75x', 'Repetir verso']);
     expect(field()).not.toHaveAttribute('placeholder');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Dica' }));
-    expect(field()).toHaveAttribute('placeholder', 'g');
-    expect(screen.getByRole('button', { name: 'Dica' })).toHaveAttribute('aria-disabled', 'true');
-
-    type('get');
-    act(() => fake.emitState('ended'));
-    expect(onEnd.mock.calls[0][1]).toEqual([{ blankId: GET.id, kind: 'helped', correct: true, beforeLineEnd: true }]);
+    // Not even after a miss.
+    type('got');
+    expect(fieldBox()).toHaveClass('bg-error');
+    expect(screen.queryByRole('button', { name: /Dica/ })).not.toBeInTheDocument();
   });
 
   it('goes on to the next blank with a new field that has the focus, and brings a right one back as it was', async () => {
@@ -1975,47 +1945,17 @@ describe('GameScreen: Monte o verso', () => {
     expect(screen.getByRole('button', { name: 'Não entendi a ordem' })).toBeInTheDocument();
   });
 
-  it('Dica places the next right tile by itself, and the answer counts as helped', () => {
-    const onEnd = renderBuild();
-    const hint = screen.getByRole('button', { name: 'Dica' });
-
-    fireEvent.click(hint);
-
-    expect(placedRow()).toEqual(['Please']);
-    expect(isBlocked(tile('Please'))).toBe(true);
-    // One hint per line, and the tile it placed makes no sound.
-    expect(hint).toHaveAttribute('aria-disabled', 'true');
-    fireEvent.click(hint);
-    expect(placedRow()).toEqual(['Please']);
-    expect(playHit).not.toHaveBeenCalled();
-
-    placeWords(BUILD_WORDS.slice(1));
-    act(() => fake.emitState('ended'));
-    expect(onEnd.mock.calls[0][1]).toEqual([{ blankId: WHOLE_0.id, kind: 'helped', correct: true, beforeLineEnd: true }]);
-  });
-
-  it('Dica after a miss takes the red cross off the tile and places the next tile', () => {
+  it('has no hint button: the tools are 0.75x and Repetir verso, with a miss or a row half built too', () => {
     renderBuild();
+    expect(screen.queryByRole('button', { name: /Dica/ })).not.toBeInTheDocument();
+    expect(toolLabels()).toEqual(['0.75x', 'Repetir verso']);
+
     fireEvent.click(tile('tonight'));
     expect(tile('tonight, errou')).toHaveClass('bg-error');
+    placeWords(['Please', 'come']);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Dica' }));
-
-    expect(screen.queryByRole('button', { name: /errou/ })).not.toBeInTheDocument();
-    expect(placedRow()).toEqual(['Please']);
-    expect(screen.getByRole('status')).toBeEmptyDOMElement();
-  });
-
-  it('Dica on the last word finishes the line, with the sound and DJ Bop of a line that is right', () => {
-    renderBuild();
-    placeWords(BUILD_WORDS.slice(0, -1));
-    expect(playHit).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Dica' }));
-
-    expect(placedRow()).toEqual(BUILD_WORDS);
-    expect(playHit).toHaveBeenCalledOnce();
-    expect(dj()).toHaveAttribute('data-expression', 'acertou');
+    expect(screen.queryByRole('button', { name: /Dica/ })).not.toBeInTheDocument();
+    expect(toolLabels()).toEqual(['0.75x', 'Repetir verso']);
   });
 
   it('plays no sound at all while "Sons" is off', () => {
@@ -2356,16 +2296,16 @@ describe('GameScreen: the game kept on the device', () => {
       expect(stored()?.score.records.map((record) => record.kind)).toEqual(['first', 'retry']);
     });
 
-    it('saves the answer that fills a row in Monte o verso, and the hint that places the last word', () => {
+    it('saves the answer that fills a row in Monte o verso', () => {
       renderBuild({ blanks: [WHOLE_0, WHOLE_1], progressStorage: storage });
 
       placeWords(BUILD_WORDS.slice(0, -1));
       // Four of the five words are in the row: kept, with no answer yet.
       expect(stored()?.score.records).toEqual([]);
-      fireEvent.click(screen.getByRole('button', { name: 'Dica' }));
+      placeWords(BUILD_WORDS.slice(-1));
 
       expect(stored()?.status).toEqual({ [WHOLE_0.id]: 'correct', [WHOLE_1.id]: 'pending' });
-      expect(stored()?.score.records).toEqual([{ blankId: WHOLE_0.id, kind: 'helped', correct: true, beforeLineEnd: true }]);
+      expect(stored()?.score.records).toEqual([{ blankId: WHOLE_0.id, kind: 'first', correct: true, beforeLineEnd: true }]);
     });
 
     it('saves where the clock is every 5 s of play, and not before', () => {
@@ -2493,16 +2433,6 @@ describe('GameScreen: the game kept on the device', () => {
       expect(loadProgress(storage, ID, 424242)?.savedAt).toBe(424242);
     });
 
-    it('saves a hint when it is given, not only the next time it saves, so leaving by the back link keeps it', () => {
-      renderGame({ blanks: [LET, GAVE], progressStorage: storage });
-      expect(storage.keys()).toEqual([]);
-
-      fireEvent.click(screen.getByRole('button', { name: 'Dica' }));
-
-      expect(stored()?.hinted).toEqual({ [LET.id]: true });
-      expect(stored()?.score.records).toEqual([]);
-    });
-
     it('saves each tile placed in Monte o verso as it is placed', () => {
       renderBuild({ blanks: [WHOLE_0, WHOLE_1], progressStorage: storage });
 
@@ -2510,22 +2440,6 @@ describe('GameScreen: the game kept on the device', () => {
 
       expect(stored()?.tilesPlaced).toEqual({ [WHOLE_0.id]: BUILD_WORDS.slice(0, 2), [WHOLE_1.id]: [] });
       expect(stored()?.score.records).toEqual([]);
-    });
-
-    it('a hint given and then the back link: the game goes on from the save, and the answer is still a helped one', () => {
-      renderGame({ blanks: [LET], progressStorage: storage });
-      fireEvent.click(screen.getByRole('button', { name: 'Dica' }));
-      // The back link takes the screen away, within the 5 s, with no other save.
-      cleanup();
-      const resume = stored();
-      expect(resume).not.toBeNull();
-
-      const onEnd = renderGame({ blanks: [LET], resume: resume!, progressStorage: storage });
-      fireEvent.click(option('let'));
-      act(() => fake.emitState('ended'));
-
-      expect(onEnd.mock.calls[0][1]).toEqual([{ blankId: LET.id, kind: 'helped', correct: true, beforeLineEnd: true }]);
-      expect(onEnd.mock.calls[0][0]).toMatchObject({ firstTryCorrect: 0, xp: 0, maxCombo: 0 });
     });
 
     it('a miss with auto-repeat: the save written right after it goes on from that blank’s line, not from the next one', () => {
@@ -2584,6 +2498,46 @@ describe('GameScreen: the game kept on the device', () => {
       expect(screen.getByTestId('line-previous')).toHaveTextContent("Grandpa won't let geese drive");
       expect(screen.getByTestId('line-current')).toHaveTextContent('She lacuna each kite a name');
       expect(option('gave')).toBeInTheDocument();
+    });
+
+    // The button is gone, but the hint stays in the game for saves that carry one (ruling S29): the area shows it, and the
+    // answer counts as helped.
+    describe('a saved game with a hint already given', () => {
+      const hintedFirst = () =>
+        savedGame({
+          lastTickMs: 1000,
+          status: { [LET.id]: 'pending' },
+          attempted: {},
+          hinted: { [LET.id]: true },
+          score: { combo: 0, maxCombo: 0, xp: 0, firstTryCorrect: 0, totalBlanks: 1, records: [] },
+        });
+
+      it('Escolha greys out one wrong option, never the answer, and the answer counts as helped', () => {
+        const onEnd = renderGame({ blanks: [LET], resume: hintedFirst(), progressStorage: storage });
+
+        expect([option('late'), option('lead')].filter((button) => button.hasAttribute('disabled'))).toHaveLength(1);
+        expect(option('let')).toBeEnabled();
+        expect(screen.queryByRole('button', { name: /Dica/ })).not.toBeInTheDocument();
+
+        fireEvent.click(option('let'));
+        act(() => fake.emitState('ended'));
+
+        expect(onEnd.mock.calls[0][1]).toEqual([{ blankId: LET.id, kind: 'helped', correct: true, beforeLineEnd: true }]);
+        expect(onEnd.mock.calls[0][0]).toMatchObject({ firstTryCorrect: 0, xp: 0, maxCombo: 0 });
+      });
+
+      it('Digitação shows the first letter in the field, and the answer counts as helped', async () => {
+        const resume = { ...hintedFirst(), mode: 'digitacao' as const };
+        const onEnd = await renderTyping({ blanks: [GET], resume, progressStorage: storage });
+
+        expect(field()).toHaveAttribute('placeholder', 'g');
+        expect(screen.queryByRole('button', { name: /Dica/ })).not.toBeInTheDocument();
+
+        type('get');
+        act(() => fake.emitState('ended'));
+
+        expect(onEnd.mock.calls[0][1]).toEqual([{ blankId: GET.id, kind: 'helped', correct: true, beforeLineEnd: true }]);
+      });
     });
 
     it('brings the music up from silence, as every round starts', () => {
@@ -4067,6 +4021,7 @@ describe('GameScreen: Karaokê', () => {
     expect(screen.getByRole('button', { name: 'Repetir verso' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Esconder tradução' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Dica/ })).not.toBeInTheDocument();
+    expect(toolLabels()).toEqual(['0.75x', 'Repetir verso', 'Esconder tradução']);
   });
 
   it('"Esconder tradução" becomes "Mostrar tradução" and back, and nothing is saved', () => {
@@ -4279,26 +4234,62 @@ describe('GameScreen: Karaokê', () => {
 });
 
 describe('ToolsBar', () => {
-  function renderTools(hintPerk: 'free' | 'ad' | 'off') {
-    const handlers = { onSlow: vi.fn(), onRepeat: vi.fn(), onHint: vi.fn() };
-    render(<ToolsBar {...handlers} hintPerk={hintPerk} slow={false} />);
-    return handlers;
-  }
+  describe('in the modes with a blank to answer', () => {
+    function renderTools() {
+      const handlers = { onSlow: vi.fn(), onRepeat: vi.fn() };
+      render(<ToolsBar {...handlers} slow={false} />);
+      return handlers;
+    }
 
-  describe('with an action of the mode in place of the hint', () => {
+    it('has 0.75x and Repetir verso, and no hint', () => {
+      renderTools();
+
+      expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual(['0.75x', 'Repetir verso']);
+      expect(screen.queryByRole('button', { name: /Dica/ })).not.toBeInTheDocument();
+    });
+
+    it('hands each tap to its own tool', () => {
+      const { onSlow, onRepeat } = renderTools();
+
+      fireEvent.click(screen.getByRole('button', { name: '0.75x' }));
+      expect(onSlow).toHaveBeenCalledOnce();
+      expect(onRepeat).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Repetir verso' }));
+      expect(onRepeat).toHaveBeenCalledOnce();
+      expect(onSlow).toHaveBeenCalledOnce();
+    });
+
+    it('splits the whole row between the two, each at least 44 px tall and on one line', () => {
+      renderTools();
+
+      for (const button of screen.getAllByRole('button')) {
+        expect(button).toHaveClass('flex-1', 'min-h-11', 'whitespace-nowrap');
+      }
+    });
+
+    it('marks 0.75x as pressed while the clip plays at that speed, in the lime of the brand', () => {
+      render(<ToolsBar onSlow={vi.fn()} onRepeat={vi.fn()} slow />);
+
+      const slow = screen.getByRole('button', { name: '0.75x' });
+      expect(slow).toHaveAttribute('aria-pressed', 'true');
+      expect(slow).toHaveClass('bg-lime', 'text-bg');
+      expect(screen.getByRole('button', { name: 'Repetir verso' })).not.toHaveAttribute('aria-pressed');
+    });
+  });
+
+  describe('with an action of the mode as a third tool', () => {
     function renderAction() {
       const onClick = vi.fn();
       render(<ToolsBar onSlow={vi.fn()} onRepeat={vi.fn()} slow={false} action={{ label: 'Esconder tradução', onClick }} />);
       return onClick;
     }
 
-    it('shows the action, drawn like the other tools, and no hint', () => {
+    it('shows the action, drawn like the other tools', () => {
       const onClick = renderAction();
 
       const action = screen.getByRole('button', { name: 'Esconder tradução' });
       expect(action).toHaveClass('bg-card', 'min-h-11');
-      // The dashed lime border is the mark of an ad spot, and this is not one.
-      expect(action).not.toHaveClass('border-dashed');
       expect(action).not.toHaveAttribute('aria-pressed');
       fireEvent.click(action);
       expect(onClick).toHaveBeenCalledOnce();
@@ -4330,56 +4321,5 @@ describe('ToolsBar', () => {
       expect(screen.getByRole('button', { name: 'Esconder tradução' })).not.toHaveClass('whitespace-nowrap');
       expect(screen.getByRole('button', { name: 'Repetir verso' })).toHaveClass('whitespace-nowrap');
     });
-  });
-
-  it('the free hint is "Dica" in a dashed lime border', () => {
-    const { onHint } = renderTools('free');
-
-    const hint = screen.getByRole('button', { name: 'Dica' });
-    expect(hint).toHaveClass('border-dashed', 'border-lime');
-    fireEvent.click(hint);
-    expect(onHint).toHaveBeenCalledOnce();
-  });
-
-  it('a free hint with nothing to help with greys out but keeps the focus: aria-disabled, and a tap does nothing', () => {
-    const onHint = vi.fn();
-    render(<ToolsBar onSlow={vi.fn()} onRepeat={vi.fn()} onHint={onHint} hintPerk="free" hintDisabled slow={false} />);
-
-    const hint = screen.getByRole('button', { name: 'Dica' });
-    hint.focus();
-    expect(hint).toHaveAttribute('aria-disabled', 'true');
-    expect(hint).toBeEnabled();
-    expect(hint).toHaveClass('aria-disabled:border-border', 'aria-disabled:text-faint');
-    fireEvent.click(hint);
-    expect(onHint).not.toHaveBeenCalled();
-    expect(hint).toHaveFocus();
-  });
-
-  it('a free hint that can be used carries no aria-disabled', () => {
-    renderTools('free');
-
-    expect(screen.getByRole('button', { name: 'Dica' })).not.toHaveAttribute('aria-disabled');
-  });
-
-  it('a hint behind an ad shows the ad spot but gives nothing until ads exist', () => {
-    const { onHint } = renderTools('ad');
-
-    const hint = screen.getByRole('button', { name: 'Dica · anúncio' });
-    // The ad spot keeps its lime dashed border (ruling R46), never the grey of a tool that is off.
-    expect(hint).toHaveClass('border-dashed', 'border-lime');
-    expect(hint.className).not.toMatch(/disabled:border-border|aria-disabled:border-border/);
-    expect(hint).toBeDisabled();
-    fireEvent.click(hint);
-    expect(onHint).not.toHaveBeenCalled();
-  });
-
-  it('shows no hint when it is off', () => {
-    renderTools('off');
-    expect(screen.queryByRole('button', { name: /Dica/ })).not.toBeInTheDocument();
-  });
-
-  it('keeps every tool at least 44 px tall', () => {
-    renderTools('free');
-    for (const button of screen.getAllByRole('button')) expect(button).toHaveClass('min-h-11');
   });
 });
