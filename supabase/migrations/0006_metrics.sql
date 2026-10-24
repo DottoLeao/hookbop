@@ -9,6 +9,8 @@
 -- no privilege on the tables, their sequences or the views. The app writes the rows from its own routes and reads
 -- the summaries on the server, after checking that the caller is the owner. No member ever reads them.
 --
+-- Rows are kept for 12 months. purge_old_metrics() deletes what is older, and pg_cron runs it once a day (ruling S40).
+--
 -- Days are counted in Brasília time (America/Sao_Paulo, UTC-3 all year since 2019): a game at 22:30 belongs to that
 -- evening, not to the next day in UTC.
 
@@ -207,7 +209,8 @@ on conflict (key) do nothing;
 -- ---------------------------------------------------------------------------
 
 -- Deletes the rows of ai_usage and app_events that are more than 12 months old and says how many went from each.
--- It runs with the rights of its caller, the service key, which has the privileges on both tables.
+-- It runs with the rights of its caller, which has the privileges on both tables: the service key, or postgres when
+-- the daily job below calls it.
 create function public.purge_old_metrics()
 returns table (ai_usage_deleted bigint, app_events_deleted bigint)
 language plpgsql
@@ -227,6 +230,14 @@ begin
   return query select v_ai_usage, v_app_events;
 end;
 $$;
+
+-- Runs the purge once a day at 06:17 UTC (03:17 in Brasília), when nobody is playing. The job has a fixed name, and
+-- cron.schedule replaces the job of the same name instead of adding one, so applying this migration again leaves a
+-- single job. It runs as the role that scheduled it (postgres), which owns the function and both tables, so it does not
+-- depend on the grants below. Only that role can use the cron schema: no browser role can read or change the job.
+create extension if not exists pg_cron;
+
+select cron.schedule('hookbop_purge_old_metrics', '17 6 * * *', 'select * from public.purge_old_metrics()');
 
 -- ---------------------------------------------------------------------------
 -- Access: the service key only

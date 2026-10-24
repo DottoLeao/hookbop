@@ -1,4 +1,4 @@
--- pgTAP tests for supabase/migrations/0006_metrics.sql (rulings S3 and S39)
+-- pgTAP tests for supabase/migrations/0006_metrics.sql (rulings S3, S39 and S40)
 -- Run with: npx supabase test db
 --
 -- One transaction, rolled back at the end. Users are simulated the way PostgREST does it: switch to the
@@ -8,7 +8,7 @@
 
 begin;
 
-select plan(90);
+select plan(97);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (superuser)
@@ -160,6 +160,31 @@ select isnt_definer('public', 'purge_old_metrics', array[]::text[],
 
 select matches((select value from public.app_config where key = 'brl_rate'), '^[0-9]+(\.[0-9]+)?$',
   'app_config holds a brl_rate, a decimal number kept as text');
+
+-- ---------------------------------------------------------------------------
+-- The daily purge job (ruling S40)
+-- ---------------------------------------------------------------------------
+
+select has_extension('pg_cron', 'pg_cron is installed');
+-- A role that cannot use the cron schema can neither read the jobs nor schedule one: scheduled SQL runs as postgres.
+select ok(
+  not has_schema_privilege('anon', 'cron', 'usage') and not has_schema_privilege('authenticated', 'cron', 'usage'),
+  'neither anon nor a signed-in session can use the cron schema');
+select is((select count(*) from cron.job where jobname = 'hookbop_purge_old_metrics'), 1::bigint,
+  'one job is named hookbop_purge_old_metrics');
+-- Compared as jsonb: the text columns of cron.job carry a collation of their own, which results_eq cannot compare.
+select is(
+  (select jsonb_build_object('schedule', j.schedule, 'command', j.command, 'active', j.active, 'database', j.database)
+   from cron.job j where j.jobname = 'hookbop_purge_old_metrics'),
+  jsonb_build_object('schedule', '17 6 * * *', 'command', 'select * from public.purge_old_metrics()',
+                     'active', true, 'database', current_database()),
+  'it runs purge_old_metrics every day at 06:17 UTC (03:17 in Brasilia), and is active');
+-- The statement of the migration, run a second time: the job of that name is replaced, not added.
+select lives_ok(
+  $$select cron.schedule('hookbop_purge_old_metrics', '17 6 * * *', 'select * from public.purge_old_metrics()')$$,
+  'the migration can schedule the job again');
+select is((select count(*) from cron.job where jobname = 'hookbop_purge_old_metrics'), 1::bigint,
+  'and still leaves one job');
 
 -- ---------------------------------------------------------------------------
 -- The checks (rows are written the way the server does: with the service key)
@@ -453,6 +478,10 @@ select results_eq(
   'purging again finds nothing more');
 
 reset role;
+
+-- The job runs the command stored with it; it must be one that works.
+select lives_ok((select command from cron.job where jobname = 'hookbop_purge_old_metrics'),
+  'the command of the daily job runs');
 
 select * from finish();
 
