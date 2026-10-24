@@ -39,8 +39,8 @@ describe('PrivacidadePage', () => {
   it('says how to reach the person responsible, with a mail link', () => {
     render(<PrivacidadePage />);
 
-    const contact = screen.getAllByRole('link').find((link) => link.getAttribute('href')?.startsWith('mailto:'));
-    expect(contact).toBeDefined();
+    const contact = screen.getByRole('link', { name: 'dottodeveloper@gmail.com' });
+    expect(contact).toHaveAttribute('href', 'mailto:dottodeveloper@gmail.com');
   });
 
   it('leads back to the app', () => {

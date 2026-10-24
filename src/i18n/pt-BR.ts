@@ -210,7 +210,7 @@ export const ptBR = {
   'privacidade.title': 'Política de privacidade',
   'privacidade.updated': 'Atualizada em 24 de outubro de 2026.',
   'privacidade.back': 'Voltar para o Hookbop',
-  'privacidade.contactEmail': 'SEU-EMAIL-DE-CONTATO@exemplo.com',
+  'privacidade.contactEmail': 'dottodeveloper@gmail.com',
 
   'privacidade.quem.title': 'Quem somos',
   'privacidade.quem.p1':
