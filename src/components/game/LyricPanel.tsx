@@ -1,13 +1,13 @@
 'use client';
 
-import { Fragment, type MouseEvent } from 'react';
+import { Fragment, useEffect, useRef, type MouseEvent } from 'react';
 import { t } from '@/i18n/t';
 import type { BlankStatus } from '@/lib/game/reducer';
 import type { Blank, LyricLine } from '@/lib/types';
 import { CorrectedWord } from './CorrectedWord';
 import { pieces, tappable } from './lineWords';
 import { ResultIcon } from './ResultIcon';
-import { focusOutline, focusRing } from './styles';
+import { focusRing } from './styles';
 
 interface LyricPanelProps {
   lines: LyricLine[];
@@ -189,13 +189,22 @@ function LineText({ text, blanks, status, inPlay = false, onExplain, inPlayId, c
   });
 }
 
-/** The one thing to do now: lime, so it reads as the way back to the music. The focus ring is dark, as on any lime. */
+/**
+ * The one thing to do now: lime, so it reads as the way back to the music. It takes the focus when it appears, since
+ * the "Traduzir verso" the player tapped goes away; without scrolling, as the page is where the player left it. The
+ * ring is the page's lime one, offset from the button: on the dark page around it a dark ring would not show.
+ */
 function ContinueButton({ onClick }: { onClick: () => void }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    ref.current?.focus({ preventScroll: true });
+  }, []);
   return (
     <button
+      ref={ref}
       type="button"
       onClick={onClick}
-      className={`min-h-11 rounded-full bg-lime px-3.5 text-body font-bold text-bg ${focusOutline} focus-visible:outline-bg`}
+      className={`min-h-11 rounded-full bg-lime px-3.5 text-body font-bold text-bg ${focusRing}`}
     >
       {t('jogo.continue')}
     </button>

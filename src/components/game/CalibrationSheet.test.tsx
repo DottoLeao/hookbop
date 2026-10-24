@@ -1,5 +1,6 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { FADE_IN_MS } from '@/lib/game/timing';
 import { FakePlayerAdapter } from '@/lib/player/fakeAdapter';
 import { CalibrationSheet } from './CalibrationSheet';
 
@@ -43,6 +44,48 @@ function tap(name: string) {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe('CalibrationSheet: a player an earlier round left muted', () => {
+  function sheetOn(adapter: FakePlayerAdapter) {
+    render(
+      <CalibrationSheet
+        youtubeId={ID}
+        adapter={adapter}
+        playerStarted
+        firstLine={FIRST_LINE}
+        audioSearchUrl={AUDIO_SEARCH}
+        saveOffsetVote={vi.fn<Save>()}
+        onSaved={vi.fn()}
+        onSkip={vi.fn()}
+      />,
+    );
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('brings the volume back up, so the first line can be heard when the player presses play', () => {
+    vi.useFakeTimers();
+    const adapter = new FakePlayerAdapter(213000);
+    adapter.setVolume(0);
+
+    sheetOn(adapter);
+    act(() => vi.advanceTimersByTime(FADE_IN_MS));
+
+    expect(adapter.getVolume()).toBe(100);
+  });
+
+  it('leaves a player at full volume alone', () => {
+    vi.useFakeTimers();
+    const adapter = new FakePlayerAdapter(213000);
+
+    sheetOn(adapter);
+    act(() => vi.advanceTimersByTime(FADE_IN_MS));
+
+    expect(adapter.calls).toEqual([]);
+  });
 });
 
 describe('CalibrationSheet', () => {

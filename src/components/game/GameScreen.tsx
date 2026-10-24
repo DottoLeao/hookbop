@@ -210,8 +210,11 @@ export function GameScreen({
           case 'play':
             if (command.fade) {
               // A fade-out that has not ended has not paused the clip yet: it still plays, and only its volume rises.
-              if (fader.fading() === 'out') fader.cancel();
-              else adapter.play();
+              // Unless the player stopped it meanwhile, with its own pause button: then it has to be played.
+              const fadingOut = fader.fading() === 'out';
+              if (fadingOut) fader.cancel();
+              const state = adapter.getPlayerState();
+              if (!fadingOut || (state !== 'playing' && state !== 'buffering')) adapter.play();
               fader.fadeIn(FADE_IN_MS);
             } else {
               adapter.play();
@@ -302,10 +305,13 @@ export function GameScreen({
     [adapter, dispatch, fader],
   );
 
-  // "Jogar" starts the round from the top of the clip.
+  // "Jogar" starts the round from the top of the clip. A player an earlier round left with the volume down (the song
+  // ended inside the fade of its last wait) must not start muted, so the volume comes up if it needs to: at full
+  // volume that sends nothing to the player.
   useEffect(() => {
     run([{ type: 'seek', ms: 0 }, { type: 'play' }]);
-  }, [run]);
+    fader.fadeIn(FADE_IN_MS);
+  }, [run, fader]);
 
   // The player's raw clock goes to the game as TICK, except just after a seek, when it may still be the old
   // position. Nothing on screen reads it directly: the screen follows the game's clock (`lastTickMs`).

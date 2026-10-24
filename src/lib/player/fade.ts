@@ -1,7 +1,8 @@
 import type { PlayerAdapter } from './adapter';
 
 const FULL_VOLUME = 100;
-const DEFAULT_STEP_MS = 50;
+/** The time between two volume steps of a fader, unless it is given another. */
+export const DEFAULT_STEP_MS = 50;
 
 /**
  * Whether a program can set the volume of the player on this device. iOS Safari ignores it, on an iPhone and on

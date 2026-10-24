@@ -10,7 +10,7 @@ import { HelpError } from '@/lib/help/helpError';
 import type { HelpRequest } from '@/lib/help/helpService';
 import type { HelpRequester } from '@/lib/help/useLineHelp';
 import type { VideoRecord } from '@/lib/lyrics/resolveSong';
-import { supportsVolume } from '@/lib/player/fade';
+import { DEFAULT_STEP_MS, supportsVolume } from '@/lib/player/fade';
 import { FakePlayerAdapter } from '@/lib/player/fakeAdapter';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from '@/lib/settings';
 import type { Blank, LyricLine } from '@/lib/types';
@@ -252,12 +252,9 @@ function count(call: string) {
   return fake.calls.filter((c) => c === call).length;
 }
 
-/** The fader's default time between two volume steps. */
-const FADE_STEP_MS = 50;
-
-/** What the fake player logs when the volume goes from `from` to `to` over `ms`, one step every `FADE_STEP_MS`. */
+/** What the fake player logs when the volume goes from `from` to `to` over `ms`, one step every fader step. */
 function volumeSteps(from: number, to: number, ms: number) {
-  const steps = ms / FADE_STEP_MS;
+  const steps = ms / DEFAULT_STEP_MS;
   return Array.from({ length: steps }, (_, i) => `volume:${Math.round(from + ((to - from) * (i + 1)) / steps)}`);
 }
 
@@ -513,6 +510,116 @@ describe('GameScreen: smooth fades (spec sections 1 and 2)', () => {
       expect(fake.calls.at(-1)).toBe('play');
       expect(volumesIn(fake.calls)).toEqual([]);
     });
+
+    it('on a device that ignores the volume, an answer before the 2 s are up cancels the pause', () => {
+      device.canSetVolume = false;
+      renderGame();
+      playTo(3850);
+      act(() => vi.advanceTimersByTime(FADE_OUT_MS / 2));
+      const before = fake.calls.length;
+
+      fireEvent.click(option('let'));
+      finishFadeOut();
+
+      // The clip never stopped, so there is nothing to play, and the pause that was coming never does.
+      expect(fake.calls.slice(before)).toEqual([]);
+    });
+
+    it('Repetir verso while the music is going down plays the line again from its start: no pause, no play', () => {
+      renderGame();
+      playTo(3850);
+      act(() => vi.advanceTimersByTime(1000));
+      const level = fake.getVolume();
+      expect(level).toBeGreaterThan(0);
+      expect(level).toBeLessThan(100);
+      const before = fake.calls.length;
+
+      fireEvent.click(screen.getByRole('button', { name: 'Repetir verso' }));
+      finishFadeIn();
+      finishFadeOut();
+
+      const after = fake.calls.slice(before);
+      expect(after[0]).toBe('seek:0');
+      expect(after).not.toContain('pause');
+      expect(after).not.toContain('play');
+      const rising = volumesIn(after);
+      expect(rising[0]).toBeGreaterThan(level);
+      expect(rising.at(-1)).toBe(100);
+    });
+
+    it('plays a clip the player paused during the fade when the answer comes, with the volume rising', () => {
+      renderGame();
+      playTo(3850);
+      act(() => vi.advanceTimersByTime(1000));
+      const level = fake.getVolume();
+      // YouTube's own pause button, while the music was going down.
+      act(() => fake.emitState('paused'));
+      const before = fake.calls.length;
+
+      fireEvent.click(option('let'));
+      finishFadeIn();
+      finishFadeOut();
+
+      const after = fake.calls.slice(before);
+      expect(after.filter((call) => call === 'play')).toHaveLength(1);
+      expect(after).not.toContain('pause');
+      expect(fake.getPlayerState()).toBe('playing');
+      expect(volumesIn(after)[0]).toBeGreaterThan(level);
+      expect(fake.getVolume()).toBe(100);
+    });
+  });
+
+  describe('at a blank, with a player that stalls', () => {
+    it('does not play a clip that is only buffering when the answer comes: it is still the music that rises', () => {
+      renderGame();
+      playTo(3850);
+      act(() => vi.advanceTimersByTime(500));
+      act(() => fake.emitState('buffering'));
+      const before = fake.calls.length;
+
+      fireEvent.click(option('let'));
+      finishFadeIn();
+
+      const after = fake.calls.slice(before);
+      expect(after).not.toContain('play');
+      expect(after).not.toContain('pause');
+      expect(volumesIn(after).at(-1)).toBe(100);
+    });
+  });
+
+  describe('a round that starts on a player an earlier round left muted', () => {
+    it('brings the volume up from 0 as the round begins, and a round at full volume asks for no volume at all', () => {
+      renderGame();
+      playTo(3850);
+      finishFadeOut();
+      expect(fake.getVolume()).toBe(0);
+      // The round is over, and "Jogar de novo" mounts the game again on the same player.
+      cleanup();
+      const before = fake.calls.length;
+
+      renderGame();
+      finishFadeIn();
+
+      expect(fake.calls.slice(before)).toEqual(['seek:0', 'play', ...FADE_IN_STEPS]);
+      expect(fake.getVolume()).toBe(100);
+
+      cleanup();
+      const full = fake.calls.length;
+      renderGame();
+      finishFadeIn();
+      expect(fake.calls.slice(full)).toEqual(['seek:0', 'play']);
+    });
+
+    it('on a device that ignores the volume, starts with no volume call', () => {
+      device.canSetVolume = false;
+      fake.setVolume(0);
+      const before = fake.calls.length;
+
+      renderGame();
+      finishFadeIn();
+
+      expect(fake.calls.slice(before)).toEqual(['seek:0', 'play']);
+    });
   });
 
   describe('the device', () => {
@@ -638,6 +745,33 @@ describe('GameScreen: smooth fades (spec sections 1 and 2)', () => {
       expect(volumesIn(fake.calls)).toEqual([]);
     });
 
+    it('on a device that ignores the volume, "Continuar" before the 2 s are up cancels the pause', async () => {
+      device.canSetVolume = false;
+      renderTranslating();
+      playTo(1000);
+      translate();
+      await settleHelp();
+      act(() => vi.advanceTimersByTime(FADE_OUT_MS / 2));
+      const before = fake.calls.length;
+
+      fireEvent.click(continueButton()!);
+      finishFadeOut();
+
+      expect(fake.calls.slice(before)).toEqual([]);
+      expect(continueButton()).not.toBeInTheDocument();
+    });
+
+    it('moves the focus to "Continuar", since the pill it was on goes away', async () => {
+      renderTranslating();
+      playTo(1000);
+      expect(screen.getByRole('button', { name: 'Traduzir verso' })).not.toHaveFocus();
+
+      translate();
+      await settleHelp();
+
+      expect(continueButton()).toHaveFocus();
+    });
+
     it('translates and nothing else while the game waits for an answer, and answering still lets the music go', async () => {
       renderTranslating();
       playTo(3850);
@@ -689,11 +823,12 @@ describe('GameScreen: smooth fades (spec sections 1 and 2)', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Não entendi' }));
       await settleHelp();
       finishFadeOut();
+      const sheetOpen = fake.calls.length;
       fireEvent.click(screen.getByRole('button', { name: 'Valeu' }));
       finishFadeIn();
 
       expect(continueButton()).not.toBeInTheDocument();
-      expect(fake.calls.at(-1)).toBe(FADE_IN_STEPS.at(-1));
+      expect(fake.calls.slice(sheetOpen)).toEqual(['play', ...FADE_IN_STEPS]);
       expect(fake.getVolume()).toBe(100);
     });
 
@@ -726,11 +861,11 @@ describe('GameScreen: smooth fades (spec sections 1 and 2)', () => {
       finishFadeOut();
       expect(fake.calls.slice(before).filter((call) => call === 'pause')).toHaveLength(1);
       expect(fake.calls.at(-1)).toBe('pause');
+      const afterWait = fake.calls.length;
 
       fireEvent.click(option('let'));
       finishFadeIn();
-      expect(fake.calls.at(-1)).toBe(FADE_IN_STEPS.at(-1));
-      expect(fake.calls).toContain('play');
+      expect(fake.calls.slice(afterWait)).toEqual(['play', ...FADE_IN_STEPS]);
       expect(fake.getVolume()).toBe(100);
       expect(continueButton()).not.toBeInTheDocument();
     });
@@ -1456,7 +1591,7 @@ describe('GameScreen: the clock right after a seek (ruling R44)', () => {
       vi.advanceTimersByTime(100);
     });
     // No wait began from it: the music is only rising (a wait would bring it down), and the clip was not paused again.
-    act(() => vi.advanceTimersByTime(FADE_STEP_MS));
+    act(() => vi.advanceTimersByTime(DEFAULT_STEP_MS));
     const rising = volumesIn(fake.calls.slice(before));
     expect(rising.length).toBeGreaterThan(0);
     expect(rising.every((volume, i) => volume > (rising[i - 1] ?? -1))).toBe(true);
@@ -1483,7 +1618,7 @@ describe('GameScreen: the clock right after a seek (ruling R44)', () => {
       vi.advanceTimersByTime(100);
     });
     // A wait would have started a fade-out, whose first step comes within 50 ms.
-    act(() => vi.advanceTimersByTime(FADE_STEP_MS));
+    act(() => vi.advanceTimersByTime(DEFAULT_STEP_MS));
     expect(volumesIn(fake.calls)).toEqual([]);
     expect(count('pause')).toBe(0);
   });
@@ -1934,6 +2069,26 @@ describe('GameScreen: help with a line', () => {
       expect(fake.calls.slice(before)).toEqual(['play', ...FADE_IN_STEPS]);
     });
 
+    it('opened while the music goes down for a wait, neither pauses again nor starts the fade over', async () => {
+      renderHelped();
+      answerFirst();
+      playTo(3850);
+      const before = fake.calls.length;
+      act(() => vi.advanceTimersByTime(500));
+
+      fireEvent.click(word('rain'));
+      await settleHelp();
+      finishFadeOut();
+
+      // The wait's own fade went on as it was: the same steps over the same 2 s, and the one pause at the end.
+      expect(fake.calls.slice(before)).toEqual([...FADE_OUT_STEPS, 'pause']);
+      const waiting = fake.calls.length;
+
+      fireEvent.click(screen.getByRole('button', { name: 'Valeu' }));
+      finishFadeIn();
+      expect(fake.calls.slice(waiting)).toEqual([]);
+    });
+
     it('does not play on after "Valeu" when the game began to wait for an answer while the sheet was open', async () => {
       fake = new SlowToReportPlayer(DURATION_MS);
       renderHelped();
@@ -2157,9 +2312,20 @@ describe('LyricPanel', () => {
 
       const button = screen.getByRole('button', { name: 'Continuar' });
       expect(button).toHaveClass('min-h-11');
+      // The ring is lime and offset from the button: a dark one would vanish on the dark page.
+      expect(button).toHaveClass('focus-visible:outline-2', 'focus-visible:outline-offset-2', 'focus-visible:outline-lime');
+      expect(button).not.toHaveClass('focus-visible:outline-bg');
       expect(inOrder(screen.getByTestId('translation'), button, screen.getByTestId('line-next'))).toBe(true);
       fireEvent.click(button);
       expect(onContinue).toHaveBeenCalledOnce();
+    });
+
+    it('takes the focus when it appears, without scrolling the page to it', () => {
+      const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+      renderPanel({ onContinue: vi.fn() });
+
+      expect(screen.getByRole('button', { name: 'Continuar' })).toHaveFocus();
+      expect(focus).toHaveBeenCalledWith({ preventScroll: true });
     });
 
     it('stays while the translation is on its way, next to "Traduzir verso" when that is still there', () => {

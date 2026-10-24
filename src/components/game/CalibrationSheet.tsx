@@ -1,9 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { t } from '@/i18n/t';
+import { FADE_IN_MS } from '@/lib/game/timing';
 import { MAX_OFFSET_MS } from '@/lib/lyrics/offset';
 import type { PlayerAdapter } from '@/lib/player/adapter';
+import { createFader, supportsVolume } from '@/lib/player/fade';
 
 /** One tap on −0,5 s or +0,5 s. */
 const NUDGE_MS = 500;
@@ -52,6 +54,15 @@ export function CalibrationSheet({
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
   const [tooFar, setTooFar] = useState(false);
+
+  // The player presses play on the clip itself, and the player may be one a game left with the volume down (the song
+  // ended inside the fade of its last wait). It must be heard, to find the first line, so the volume comes up if it
+  // needs to; at full volume that sends nothing to the player.
+  useEffect(() => {
+    const fader = createFader(adapter, { volume: supportsVolume(navigator) });
+    fader.fadeIn(FADE_IN_MS);
+    return () => fader.cancel();
+  }, [adapter]);
 
   function markStart() {
     setOffsetMs(adapter.getCurrentTimeMs() - firstLine.startMs);
