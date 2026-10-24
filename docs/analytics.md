@@ -153,7 +153,7 @@ O painel mostra um período de 7 ou 30 dias (`?dias=7` ou `?dias=30`; qualquer o
 | Tempo médio de resposta | Média de `ai_usage.latency_ms` só nas linhas com `source = 'model'` e `outcome = 'ok'` do período. |
 | Modos mais jogados | Por modo, soma de `games_started` (e de `mode_selections`), do maior para o menor. |
 | Partidas por modo: começadas, terminadas, saídas | Somas de `games_started`, `games_finished` e `games_abandoned` por modo. |
-| Conclusão | `games_finished ÷ games_started` do modo. **Nunca** terminadas ÷ (terminadas + saídas). |
+| Conclusão | `games_finished ÷ games_started` do modo. **Nunca** terminadas ÷ (terminadas + saídas). O painel mostra no máximo 100%, porque uma partida retomada não grava `game_started` de novo e pode terminar num período depois daquele em que começou, e aí as terminadas passam das começadas. |
 | Acerto médio | `avg_pct` ponderado por `games_finished`: soma de `avg_pct × games_finished` ÷ soma de `games_finished`, nas linhas em que `avg_pct` não é null. |
 | Duração média | `avg_duration_ms` ponderado do mesmo jeito. |
 | Músicas mais jogadas | Por música, somas de `games_started`, `games_finished` e `song_opens`; ordem por partidas começadas e depois por aberturas; as 10 primeiras. |

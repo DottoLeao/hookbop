@@ -73,7 +73,7 @@ export interface ModeSummary {
   finished: number;
   /** Games with a `game_abandoned`: the player left at least once ("saídas"). A game can also have finished. */
   abandoned: number;
-  /** Finished over started. */
+  /** Finished over started, at most 1. */
   completion: number | null;
   /** The average score of the finished games that had blanks, 0 to 100 (Karaokê has none: null). */
   avgPct: number | null;
@@ -143,6 +143,10 @@ function n(value: number | null | undefined): number {
 
 function ratio(part: number, whole: number): number | null {
   return whole > 0 ? part / whole : null;
+}
+
+function atMostOne(share: number | null): number | null {
+  return share === null ? null : Math.min(1, share);
 }
 
 /** Dollars to the 6 decimals `ai_usage.cost_usd` keeps, so a sum of days carries no floating point noise. */
@@ -226,8 +230,9 @@ function summarizeModes(rows: ModeRow[]): ModeSummary[] {
   return [...byMode.values()]
     .map(({ summary, pct, duration }) => ({
       ...summary,
-      // Never finished over finished plus saídas: a game left once and then finished has both.
-      completion: ratio(summary.finished, summary.started),
+      // Never finished over finished plus saídas: a game left once and then finished has both. At most 100%: a game
+      // resumed from a saved one has no start of its own (ruling S43), and can finish in a later period than it began.
+      completion: atMostOne(ratio(summary.finished, summary.started)),
       avgPct: pct.value,
       avgDurationMs: duration.value,
     }))

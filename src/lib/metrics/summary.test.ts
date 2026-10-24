@@ -289,6 +289,16 @@ describe('buildPanel: modes', () => {
     expect(digitacao.completion).toBe(0);
   });
 
+  it('caps completion at 100%: a game resumed from a saved one finishes without a new start, maybe in a later period', () => {
+    const modes = [
+      modeDay('2026-10-24', 'montar', { mode_selections: 1, games_started: 1, games_finished: 3, avg_duration_ms: 90_000 }),
+    ];
+
+    const [montar] = buildPanel(input({ modes })).modes;
+
+    expect(montar).toMatchObject({ started: 1, finished: 3, completion: 1 });
+  });
+
   it('weighs the daily score and length by the games finished each day', () => {
     const [escolha, karaoke, digitacao] = buildPanel(input()).modes;
 
