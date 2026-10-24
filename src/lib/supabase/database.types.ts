@@ -25,14 +25,14 @@ export type Database = {
           Tables: {
             "ai_usage": {
                   Row: {
-                    "cost_usd": number,"created_at": string,"id": number,"input_tokens": number,"kind": string | null,"latency_ms": number | null,"line_index": number,"model": string | null,"outcome": string | null,"output_tokens": number,"source": string | null,"user_id": string,"youtube_id": string
+                    "cost_usd": number,"created_at": string,"id": number,"input_tokens": number,"kind": string,"latency_ms": number | null,"line_index": number,"model": string | null,"outcome": string,"output_tokens": number,"source": string,"user_id": string,"youtube_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "cost_usd"?: number,"created_at"?: string,"id"?: number,"input_tokens"?: number,"kind"?: string | null,"latency_ms"?: number | null,"line_index": number,"model"?: string | null,"outcome"?: string | null,"output_tokens"?: number,"source"?: string | null,"user_id": string,"youtube_id": string
+                    "cost_usd"?: number,"created_at"?: string,"id"?: number,"input_tokens"?: number,"kind": string,"latency_ms"?: number | null,"line_index": number,"model"?: string | null,"outcome"?: string,"output_tokens"?: number,"source": string,"user_id": string,"youtube_id": string
                   }
                   Update: {
-                    "cost_usd"?: number,"created_at"?: string,"id"?: number,"input_tokens"?: number,"kind"?: string | null,"latency_ms"?: number | null,"line_index"?: number,"model"?: string | null,"outcome"?: string | null,"output_tokens"?: number,"source"?: string | null,"user_id"?: string,"youtube_id"?: string
+                    "cost_usd"?: number,"created_at"?: string,"id"?: number,"input_tokens"?: number,"kind"?: string,"latency_ms"?: number | null,"line_index"?: number,"model"?: string | null,"outcome"?: string,"output_tokens"?: number,"source"?: string,"user_id"?: string,"youtube_id"?: string
                   }
                   Relationships: [
                     
@@ -273,6 +273,11 @@ isOneToOne: false
                            },
 "is_member":
 { Args: Record<PropertyKey, never>; Returns: boolean
+                           },
+"metrics_active_people":
+{ Args: { "p_from": string,"p_to": string }; Returns: {
+              "games_finished": number,"games_started": number,"people": number
+            }[]
                            },
 "purge_old_metrics":
 { Args: Record<PropertyKey, never>; Returns: {

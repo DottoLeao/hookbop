@@ -1,4 +1,4 @@
--- pgTAP tests for supabase/migrations/0006_metrics.sql (rulings S3, S39 and S40)
+-- pgTAP tests for supabase/migrations/0006_metrics.sql (rulings S3, S39, S40 and S41)
 -- Run with: npx supabase test db
 --
 -- One transaction, rolled back at the end. Users are simulated the way PostgREST does it: switch to the
@@ -8,7 +8,7 @@
 
 begin;
 
-select plan(97);
+select plan(116);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (superuser)
@@ -45,8 +45,9 @@ select columns_are('public', 'app_events', array[
 select is(
   (select array_agg(a.attname::text order by a.attname) from pg_attribute a
    where a.attrelid = 'public.ai_usage'::regclass and a.attnum > 0 and not a.attisdropped and a.attnotnull),
-  array['cost_usd', 'created_at', 'id', 'input_tokens', 'line_index', 'output_tokens', 'user_id', 'youtube_id'],
-  'ai_usage requires who, when, which song and line, and the tokens and cost');
+  array['cost_usd', 'created_at', 'id', 'input_tokens', 'kind', 'line_index', 'outcome', 'output_tokens', 'source',
+        'user_id', 'youtube_id'],
+  'ai_usage requires who, when, which song and line, the kind, source and outcome, and the tokens and cost');
 select is(
   (select array_agg(a.attname::text order by a.attname) from pg_attribute a
    where a.attrelid = 'public.app_events'::regclass and a.attnum > 0 and not a.attisdropped and a.attnotnull),
@@ -155,6 +156,26 @@ select isnt_definer('public', 'purge_old_metrics', array[]::text[],
   'purge_old_metrics runs with the rights of its caller, not its owner');
 
 -- ---------------------------------------------------------------------------
+-- metrics_active_people: who may call it, and how it is declared
+-- ---------------------------------------------------------------------------
+
+select function_privs_are('public', 'metrics_active_people', array['timestamp with time zone', 'timestamp with time zone'],
+  'service_role', array['EXECUTE'], 'the service key may count the people of a period');
+select function_privs_are('public', 'metrics_active_people', array['timestamp with time zone', 'timestamp with time zone'],
+  'authenticated', array[]::text[], 'a signed-in session may not count the people of a period');
+select function_privs_are('public', 'metrics_active_people', array['timestamp with time zone', 'timestamp with time zone'],
+  'anon', array[]::text[], 'anon may not count the people of a period');
+select ok(not has_function_privilege('public', 'public.metrics_active_people(timestamp with time zone, timestamp with time zone)', 'execute'),
+  'the PUBLIC role may not count the people of a period');
+select is((select proconfig from pg_proc
+           where oid = 'public.metrics_active_people(timestamp with time zone, timestamp with time zone)'::regprocedure),
+  array['search_path=""'], 'metrics_active_people runs with an empty search_path');
+select isnt_definer('public', 'metrics_active_people', array['timestamp with time zone', 'timestamp with time zone'],
+  'metrics_active_people runs with the rights of its caller, not its owner');
+select volatility_is('public', 'metrics_active_people', array['timestamp with time zone', 'timestamp with time zone'],
+  'stable', 'metrics_active_people only reads');
+
+-- ---------------------------------------------------------------------------
 -- app_config: the exchange rate the owner edits
 -- ---------------------------------------------------------------------------
 
@@ -193,8 +214,8 @@ select is((select count(*) from cron.job where jobname = 'hookbop_purge_old_metr
 set local role service_role;
 
 select lives_ok(
-  $$insert into public.ai_usage (user_id, youtube_id, line_index)
-    values ('e0000000-0000-0000-0000-000000000011', 'vidmet00001', 1)$$,
+  $$insert into public.ai_usage (user_id, youtube_id, line_index, kind, source)
+    values ('e0000000-0000-0000-0000-000000000011', 'vidmet00001', 1, 'explain', 'cache')$$,
   'the service key writes an AI use with only the required columns');
 select lives_ok(
   $$insert into public.app_events (user_id, session_id, name)
@@ -204,26 +225,40 @@ select lives_ok(
 reset role;
 
 select ok(
-  (select input_tokens = 0 and output_tokens = 0 and cost_usd = 0 and created_at is not null
+  (select input_tokens = 0 and output_tokens = 0 and cost_usd = 0 and outcome = 'ok' and created_at is not null
    from public.ai_usage where user_id = 'e0000000-0000-0000-0000-000000000011'),
-  'an AI use with no tokens or cost is zero, and is stamped with the time');
+  'an AI use with no tokens or cost is zero, counts as ok, and is stamped with the time');
 select ok(
   (select props = '{}'::jsonb and created_at is not null
    from public.app_events where user_id = 'e0000000-0000-0000-0000-000000000011'),
   'an event with no props has empty ones, and is stamped with the time');
 
 select throws_ok(
-  $$insert into public.ai_usage (user_id, youtube_id, line_index, kind)
-    values ('e0000000-0000-0000-0000-000000000011', 'vidmet00001', 1, 'summarize')$$,
+  $$insert into public.ai_usage (user_id, youtube_id, line_index, kind, source)
+    values ('e0000000-0000-0000-0000-000000000011', 'vidmet00001', 1, 'summarize', 'model')$$,
   '23514', null, 'an AI use of a kind other than explain or translate is refused');
 select throws_ok(
-  $$insert into public.ai_usage (user_id, youtube_id, line_index, source)
-    values ('e0000000-0000-0000-0000-000000000011', 'vidmet00001', 1, 'internet')$$,
+  $$insert into public.ai_usage (user_id, youtube_id, line_index, kind, source)
+    values ('e0000000-0000-0000-0000-000000000011', 'vidmet00001', 1, 'explain', 'internet')$$,
   '23514', null, 'an AI use from a source other than model, cache or reuse is refused');
 select throws_ok(
-  $$insert into public.ai_usage (user_id, youtube_id, line_index, outcome)
-    values ('e0000000-0000-0000-0000-000000000011', 'vidmet00001', 1, 'timeout')$$,
+  $$insert into public.ai_usage (user_id, youtube_id, line_index, kind, source, outcome)
+    values ('e0000000-0000-0000-0000-000000000011', 'vidmet00001', 1, 'explain', 'model', 'timeout')$$,
   '23514', null, 'an AI use with an outcome other than ok, declined or error is refused');
+
+-- Every AI use has a kind, a source and an outcome, so each one lands in a bucket of the summaries.
+select throws_ok(
+  $$insert into public.ai_usage (user_id, youtube_id, line_index, kind, source)
+    values ('e0000000-0000-0000-0000-000000000011', 'vidmet00001', 1, null, 'model')$$,
+  '23502', null, 'an AI use with no kind is refused');
+select throws_ok(
+  $$insert into public.ai_usage (user_id, youtube_id, line_index, kind, source)
+    values ('e0000000-0000-0000-0000-000000000011', 'vidmet00001', 1, 'explain', null)$$,
+  '23502', null, 'an AI use with no source is refused');
+select throws_ok(
+  $$insert into public.ai_usage (user_id, youtube_id, line_index, kind, source, outcome)
+    values ('e0000000-0000-0000-0000-000000000011', 'vidmet00001', 1, 'explain', 'model', null)$$,
+  '23502', null, 'an AI use whose outcome is said to be nothing is refused, though a missing outcome means ok');
 
 select throws_ok(
   $$insert into public.app_events (user_id, session_id, name)
@@ -285,8 +320,8 @@ select throws_ok(format('select * from public.%I', r), '42501', null, 'a member 
 from unnest(array['ai_usage', 'app_events', 'metrics_ai_daily', 'metrics_usage_daily', 'metrics_modes',
                   'metrics_songs', 'metrics_help']) as r;
 select throws_ok(
-  $$insert into public.ai_usage (user_id, youtube_id, line_index)
-    values ('e0000000-0000-0000-0000-000000000002', 'vidmet00001', 1)$$,
+  $$insert into public.ai_usage (user_id, youtube_id, line_index, kind, source)
+    values ('e0000000-0000-0000-0000-000000000002', 'vidmet00001', 1, 'explain', 'model')$$,
   '42501', null, 'a member cannot write ai_usage, not even in their own name');
 select throws_ok(
   $$insert into public.app_events (user_id, session_id, name)
@@ -298,6 +333,8 @@ select throws_ok($$select nextval('public.app_events_id_seq')$$, '42501', null,
   'a member cannot draw from the app_events sequence');
 select throws_ok($$select * from public.purge_old_metrics()$$, '42501', null,
   'a member cannot purge');
+select throws_ok($$select * from public.metrics_active_people(now() - interval '30 days', now())$$, '42501', null,
+  'a member cannot count the people of a period');
 
 set local request.jwt.claims = '{"sub":"e0000000-0000-0000-0000-000000000001","email":"owner@example.com"}';
 
@@ -305,13 +342,15 @@ select throws_ok(format('select * from public.%I', r), '42501', null, 'the owner
 from unnest(array['ai_usage', 'app_events', 'metrics_ai_daily', 'metrics_usage_daily', 'metrics_modes',
                   'metrics_songs', 'metrics_help']) as r;
 select throws_ok(
-  $$insert into public.ai_usage (user_id, youtube_id, line_index)
-    values ('e0000000-0000-0000-0000-000000000001', 'vidmet00001', 1)$$,
+  $$insert into public.ai_usage (user_id, youtube_id, line_index, kind, source)
+    values ('e0000000-0000-0000-0000-000000000001', 'vidmet00001', 1, 'explain', 'model')$$,
   '42501', null, 'the owner cannot write ai_usage through the browser');
 select throws_ok(
   $$insert into public.app_events (user_id, session_id, name)
     values ('e0000000-0000-0000-0000-000000000001', 'e1000000-0000-0000-0000-000000000001', 'app_opened')$$,
   '42501', null, 'the owner cannot write app_events through the browser');
+select throws_ok($$select * from public.metrics_active_people(now() - interval '30 days', now())$$, '42501', null,
+  'the owner cannot count the people of a period through the browser');
 
 reset role;
 set local role anon;
@@ -320,8 +359,8 @@ select throws_ok(format('select * from public.%I', r), '42501', null, 'anon cann
 from unnest(array['ai_usage', 'app_events', 'metrics_ai_daily', 'metrics_usage_daily', 'metrics_modes',
                   'metrics_songs', 'metrics_help']) as r;
 select throws_ok(
-  $$insert into public.ai_usage (user_id, youtube_id, line_index)
-    values ('e0000000-0000-0000-0000-000000000009', 'vidmet00001', 1)$$,
+  $$insert into public.ai_usage (user_id, youtube_id, line_index, kind, source)
+    values ('e0000000-0000-0000-0000-000000000009', 'vidmet00001', 1, 'explain', 'model')$$,
   '42501', null, 'anon cannot write ai_usage');
 select throws_ok(
   $$insert into public.app_events (user_id, session_id, name)
@@ -329,6 +368,8 @@ select throws_ok(
   '42501', null, 'anon cannot write app_events');
 select throws_ok($$select * from public.purge_old_metrics()$$, '42501', null,
   'anon cannot purge');
+select throws_ok($$select * from public.metrics_active_people(now() - interval '30 days', now())$$, '42501', null,
+  'anon cannot count the people of a period');
 
 reset role;
 
@@ -432,6 +473,40 @@ select results_eq(
     ('2026-03-10'::date, 'type', 'explain', 1::bigint, 1::bigint, 1::bigint, null::numeric)$$,
   'metrics_help counts help requests by mode, kind and day, and averages the line they were asked on');
 
+-- A call has exactly one source, so the three buckets add up to all the calls.
+select ok(
+  (select count(*) from public.metrics_ai_daily) = 2
+  and not exists (select 1 from public.metrics_ai_daily where calls <> calls_model + calls_cache + calls_reuse),
+  'every call of metrics_ai_daily lands in exactly one source');
+
+-- People over a period. u1 is active on both days, so the two days add up to four people but the period has three.
+select results_eq(
+  $$select people, games_started, games_finished
+    from public.metrics_active_people('2026-03-10 00:00:00-03', '2026-03-12 00:00:00-03')$$,
+  $$values (3::bigint, 6::bigint, 5::bigint)$$,
+  'metrics_active_people counts a person active on two days once, and adds up the games of the period');
+select results_eq(
+  $$select people, games_started, games_finished
+    from public.metrics_active_people('2026-03-11 00:00:00-03', '2026-03-12 00:00:00-03')$$,
+  $$values (1::bigint, 2::bigint, 2::bigint)$$,
+  'a period of one day leaves out the people and the games of the day before, even the one at 22:30 Brasilia time');
+-- u3 starts a game at 01:31:00 UTC and finishes it at 01:40:00 UTC: the start of a period is in it, the end is not.
+select results_eq(
+  $$select people, games_started, games_finished
+    from public.metrics_active_people('2026-03-11 01:31:00+00', '2026-03-11 01:40:00+00')$$,
+  $$values (1::bigint, 1::bigint, 0::bigint)$$,
+  'an event at the start of the period is in it and one at its end is not');
+select results_eq(
+  $$select people, games_started, games_finished
+    from public.metrics_active_people('2026-03-11 01:31:00.000001+00', '2026-03-11 01:40:00.000001+00')$$,
+  $$values (1::bigint, 0::bigint, 1::bigint)$$,
+  'moving the period a microsecond later swaps which of the two events it holds');
+select results_eq(
+  $$select people, games_started, games_finished
+    from public.metrics_active_people('2026-01-01 00:00:00-03', '2026-01-02 00:00:00-03')$$,
+  $$values (0::bigint, 0::bigint, 0::bigint)$$,
+  'a period with no event is one row of zeros');
+
 reset role;
 
 -- ---------------------------------------------------------------------------
@@ -442,12 +517,12 @@ delete from public.ai_usage;
 delete from public.app_events;
 
 -- now() is the same all through the transaction, so a row at exactly 12 months is not "more than 12 months".
-insert into public.ai_usage (created_at, user_id, youtube_id, line_index) values
-  (now() - interval '13 months', 'e0000000-0000-0000-0000-000000000011', 'vidmet00001', 1),
-  (now() - interval '12 months' - interval '1 second', 'e0000000-0000-0000-0000-000000000011', 'vidmet00001', 2),
-  (now() - interval '12 months', 'e0000000-0000-0000-0000-000000000011', 'vidmet00001', 3),
-  (now() - interval '11 months', 'e0000000-0000-0000-0000-000000000011', 'vidmet00001', 4),
-  (now(), 'e0000000-0000-0000-0000-000000000011', 'vidmet00001', 5);
+insert into public.ai_usage (created_at, user_id, youtube_id, line_index, kind, source) values
+  (now() - interval '13 months', 'e0000000-0000-0000-0000-000000000011', 'vidmet00001', 1, 'explain', 'model'),
+  (now() - interval '12 months' - interval '1 second', 'e0000000-0000-0000-0000-000000000011', 'vidmet00001', 2, 'explain', 'model'),
+  (now() - interval '12 months', 'e0000000-0000-0000-0000-000000000011', 'vidmet00001', 3, 'explain', 'model'),
+  (now() - interval '11 months', 'e0000000-0000-0000-0000-000000000011', 'vidmet00001', 4, 'explain', 'model'),
+  (now(), 'e0000000-0000-0000-0000-000000000011', 'vidmet00001', 5, 'explain', 'model');
 
 insert into public.app_events (created_at, user_id, session_id, name, mode) values
   (now() - interval '13 months', 'e0000000-0000-0000-0000-000000000011', 'e1000000-0000-0000-0000-000000000001', 'app_opened', 'old'),

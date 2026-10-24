@@ -1,9 +1,9 @@
--- Hookbop: usage metrics for the owner (rulings S3 and S39).
+-- Hookbop: usage metrics for the owner (rulings S3, S39, S40 and S41).
 --
 -- Two tables record what the app does: ai_usage (one row per AI help request: where the answer came from, tokens,
 -- estimated cost, time and outcome) and app_events (one row per action in the app, from a closed list). Five views
--- add them up by day, mode, song and kind of help, for the owner's panel and for an AI assistant that reads the
--- database through the Supabase connector.
+-- add them up by day, mode, song and kind of help, and metrics_active_people() counts the people and games of any
+-- period, for the owner's panel and for an AI assistant that reads the database through the Supabase connector.
 --
 -- Access: the service key only, like help_requests. RLS is on and there is no policy, and anon and authenticated have
 -- no privilege on the tables, their sequences or the views. The app writes the rows from its own routes and reads
@@ -18,23 +18,25 @@
 -- Tables
 -- ---------------------------------------------------------------------------
 
--- One row per AI help request, whatever answered it. `source` is where the answer came from: the model (costs
--- tokens), the per-line cache or a reused chorus line (both free, with 0 tokens and a cost of 0). `outcome` is ok, a
--- declined answer, or an error. The user and the song have no foreign key, so the log outlives them.
+-- One row per AI help request, whatever answered it. `kind` and `source` are always known, so every call lands in
+-- exactly one bucket of the summaries (ruling S41). `source` is where the answer came from: the model (costs tokens),
+-- the per-line cache or a reused chorus line (both free, with 0 tokens and a cost of 0). `outcome` is ok (what a row
+-- that does not say is), a declined answer, or an error. The user and the song have no foreign key, so the log
+-- outlives them.
 create table public.ai_usage (
   id bigserial primary key,
   created_at timestamptz not null default now(),
   user_id uuid not null,
   youtube_id text not null,
   line_index int not null,
-  kind text check (kind in ('explain', 'translate')),
-  source text check (source in ('model', 'cache', 'reuse')),
+  kind text not null check (kind in ('explain', 'translate')),
+  source text not null check (source in ('model', 'cache', 'reuse')),
   model text,
   input_tokens int not null default 0,
   output_tokens int not null default 0,
   cost_usd numeric(12, 6) not null default 0,
   latency_ms int,
-  outcome text check (outcome in ('ok', 'declined', 'error'))
+  outcome text not null default 'ok' check (outcome in ('ok', 'declined', 'error'))
 );
 
 create index ai_usage_created_at_idx on public.ai_usage (created_at);
@@ -187,13 +189,39 @@ group by 1, 2, 3;
 comment on view public.metrics_ai_daily is
   'AI help by day (Brasilia time): calls by source and outcome, tokens and cost in USD. Counts add up across days.';
 comment on view public.metrics_usage_daily is
-  'Use by day: active people, sessions and games started, finished and abandoned. Active people and sessions do not add up across days.';
+  'Use by day: active people, sessions and games started, finished and abandoned. Active people and sessions do not add up across days: for the people of a period use metrics_active_people().';
 comment on view public.metrics_modes is
   'Games by day and mode: selected, started, finished, abandoned; average score and duration of finished games (weigh by games_finished).';
 comment on view public.metrics_songs is
   'Songs by day: opens, games started, finished and abandoned, and players. The title comes from videos.';
 comment on view public.metrics_help is
   'Help requests by day, mode and kind (explain, translate), with the average line asked on.';
+
+-- ---------------------------------------------------------------------------
+-- People over a period (ruling S41)
+-- ---------------------------------------------------------------------------
+
+-- The people active in a period, and the games started and finished in it, counted over app_events from p_from
+-- (included) to p_to (excluded). `people` is distinct users, so a person active on several days counts once: the
+-- daily `active_users` of metrics_usage_daily cannot be added up to get this. The caller chooses the bounds; for whole
+-- days in Brasília time they are midnight there. It always returns one row, of zeros for a period with no event (or
+-- with a null bound). It only reads, and runs with the rights of its caller.
+create function public.metrics_active_people(p_from timestamptz, p_to timestamptz)
+returns table (people bigint, games_started bigint, games_finished bigint)
+language sql
+stable
+set search_path = ''
+as $$
+  select
+    count(distinct e.user_id),
+    count(*) filter (where e.name = 'game_started'),
+    count(*) filter (where e.name = 'game_finished')
+  from public.app_events e
+  where e.created_at >= p_from and e.created_at < p_to;
+$$;
+
+comment on function public.metrics_active_people(timestamptz, timestamptz) is
+  'People active (distinct users) and games started and finished in [p_from, p_to). Service key only.';
 
 -- ---------------------------------------------------------------------------
 -- The exchange rate
@@ -231,14 +259,6 @@ begin
 end;
 $$;
 
--- Runs the purge once a day at 06:17 UTC (03:17 in Brasília), when nobody is playing. The job has a fixed name, and
--- cron.schedule replaces the job of the same name instead of adding one, so applying this migration again leaves a
--- single job. It runs as the role that scheduled it (postgres), which owns the function and both tables, so it does not
--- depend on the grants below. Only that role can use the cron schema: no browser role can read or change the job.
-create extension if not exists pg_cron;
-
-select cron.schedule('hookbop_purge_old_metrics', '17 6 * * *', 'select * from public.purge_old_metrics()');
-
 -- ---------------------------------------------------------------------------
 -- Access: the service key only
 -- ---------------------------------------------------------------------------
@@ -250,13 +270,30 @@ revoke all on sequence public.ai_usage_id_seq, public.app_events_id_seq from pub
 revoke all on public.metrics_ai_daily, public.metrics_usage_daily, public.metrics_modes, public.metrics_songs,
   public.metrics_help from public, anon, authenticated;
 revoke all on function public.purge_old_metrics() from public, anon, authenticated;
+revoke all on function public.metrics_active_people(timestamptz, timestamptz) from public, anon, authenticated;
 
 grant select, insert, delete on public.ai_usage, public.app_events to service_role;
 grant usage on sequence public.ai_usage_id_seq, public.app_events_id_seq to service_role;
 grant select on public.metrics_ai_daily, public.metrics_usage_daily, public.metrics_modes, public.metrics_songs,
   public.metrics_help to service_role;
 grant execute on function public.purge_old_metrics() to service_role;
+grant execute on function public.metrics_active_people(timestamptz, timestamptz) to service_role;
 
 -- RLS on and no policy: even a role that was given a grant by mistake would read and write nothing.
 alter table public.ai_usage enable row level security;
 alter table public.app_events enable row level security;
+
+-- ---------------------------------------------------------------------------
+-- Daily purge (rulings S40 and S41)
+-- ---------------------------------------------------------------------------
+
+-- This block is last on purpose: everything above, the lockdown included, is already in place if creating the
+-- extension ever fails on its own, and the block can be cut off clean.
+--
+-- Runs the purge once a day at 06:17 UTC (03:17 in Brasília), when nobody is playing. The job has a fixed name, and
+-- cron.schedule replaces the job of the same name instead of adding one, so applying this migration again leaves a
+-- single job. It runs as the role that scheduled it (postgres), which owns the function and both tables, so it does not
+-- depend on the grants above. Only that role can use the cron schema: no browser role can read or change the job.
+create extension if not exists pg_cron;
+
+select cron.schedule('hookbop_purge_old_metrics', '17 6 * * *', 'select * from public.purge_old_metrics()');
