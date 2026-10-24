@@ -312,7 +312,7 @@ export const ptBR = {
   // Política de privacidade (/privacidade). Rascunho para o dono revisar.
   'privacidade.link': 'Privacidade',
   'privacidade.title': 'Política de privacidade',
-  'privacidade.updated': 'Atualizada em 24 de outubro de 2026.',
+  'privacidade.updated': 'Atualizada em 25 de outubro de 2026.',
   'privacidade.back': 'Voltar para o Hookbop',
   'privacidade.contactEmail': 'dottodeveloper@gmail.com',
 
@@ -330,12 +330,20 @@ export const ptBR = {
   'privacidade.guarda.calibracao': 'Ajustes de tempo: o ajuste da letra que você escolhe para cada vídeo.',
   'privacidade.guarda.ajuda':
     'Pedidos de ajuda: a hora e o tipo de cada "Não entendi" ou "Traduzir verso", para controlar o limite por hora. As explicações e traduções ficam guardadas por verso, sem dizer quem pediu.',
+  'privacidade.guarda.usoIa':
+    'Registro de uso da IA: a cada pedido de ajuda com IA, guardamos sua conta, o vídeo, o número do verso, se foi explicação ou tradução, se a resposta veio da IA ou de uma resposta já guardada, os tokens usados (a medida de texto que a IA processa), o custo estimado, o tempo de resposta e como terminou.',
+  'privacidade.guarda.usoApp':
+    'Registro de uso do app: sua conta, um código aleatório da sessão e o nome da ação, às vezes com o vídeo e o modo. As ações são abrir o app, abrir uma música, escolher o modo, começar, terminar ou sair no meio de uma partida, pedir ajuda, continuar depois de sair do app, ver o aviso de instalação (e aceitar), criar um convite e ajustar o tempo da letra. De detalhe, só guardamos a porcentagem de acertos, a duração e o número de lacunas ao terminar uma partida, e o número do verso ao pedir ajuda.',
   'privacidade.guarda.aparelho':
-    'No seu aparelho: os cookies que mantêm você conectado e guardam o convite, as suas configurações do jogo e as páginas guardadas para o app abrir sem internet.',
+    'No seu aparelho: os cookies que mantêm você conectado e guardam o convite, as suas configurações do jogo, a partida em andamento de cada música (para você continuar de onde parou), um código aleatório da sessão (que some quando você fecha a aba) e as páginas guardadas para o app abrir sem internet.',
 
   'privacidade.uso.title': 'Para que usamos',
   'privacidade.uso.p1':
     'Usamos esses dados para você entrar, para guardar suas partidas e seus pontos, para mostrar as "Músicas da galera", para limitar o uso da ajuda com IA e para melhorar o app.',
+  'privacidade.uso.registros':
+    'O dono usa os registros de uso para entender o que funciona no app e quanto a IA custa.',
+  'privacidade.uso.registrosLimite':
+    'Esses registros ficam no nosso banco de dados e não vão para nenhum serviço além dos que aparecem em "Quem mais recebe dados". Neles não entra o que você digita nas respostas.',
   'privacidade.uso.p2': 'Não vendemos seus dados e, nesta fase, não mostramos anúncios.',
 
   'privacidade.terceiros.title': 'Quem mais recebe dados',
@@ -353,10 +361,16 @@ export const ptBR = {
   'privacidade.membros.title': 'O que os outros membros veem',
   'privacidade.membros.p1':
     'Seu nome aparece para os outros membros. As músicas jogadas aparecem nas "Músicas da galera", sem dizer quem jogou.',
+  'privacidade.membros.registros':
+    'Nenhum membro vê os registros de uso, nem os seus nem os dos outros. Só o dono vê, em um painel que só ele abre, e pode exportar os dados.',
 
   'privacidade.tempo.title': 'Por quanto tempo',
   'privacidade.tempo.p1':
     'Guardamos seus dados enquanto sua conta existir. Se o seu acesso for pausado, eles continuam guardados até você pedir para apagar.',
+  'privacidade.tempo.registros':
+    'Já os registros de uso ficam guardados por 12 meses. Depois disso, um processo automático, que roda todo dia, apaga os mais antigos.',
+  'privacidade.tempo.aparelho':
+    'No seu aparelho, a partida em andamento de uma música fica guardada por até 24 horas, para você continuar de onde parou. O código da sessão some quando você fecha a aba.',
 
   'privacidade.direitos.title': 'Seus direitos',
   'privacidade.direitos.p1':
