@@ -2,7 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { createElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { useReducedMotion } from './useReducedMotion';
+import { prefersReducedMotion, useReducedMotion } from './useReducedMotion';
 
 const QUERY = '(prefers-reduced-motion: reduce)';
 
@@ -64,6 +64,32 @@ describe('useReducedMotion', () => {
     expect(result.current).toBe(false);
   });
 
+  it('asks the phone for the setting once, however often the component renders: the query is kept', () => {
+    // The Karaokê view renders on every tick of the clock, and each render reads the setting.
+    const { matchMedia } = stubMatchMedia(false);
+    const first = renderHook(() => useReducedMotion());
+
+    for (let i = 0; i < 20; i += 1) first.rerender();
+    const second = renderHook(() => useReducedMotion());
+    second.rerender();
+
+    expect(matchMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps reading the live answer of the kept query, and asks again of a matchMedia that changed', () => {
+    const media = stubMatchMedia(false);
+    const { result } = renderHook(() => useReducedMotion());
+    act(() => media.change(true));
+    expect(result.current).toBe(true);
+
+    // Another page environment (another matchMedia) is another query: it is asked again.
+    const other = stubMatchMedia(false);
+    const { result: again } = renderHook(() => useReducedMotion());
+
+    expect(again.current).toBe(false);
+    expect(other.matchMedia).toHaveBeenCalledTimes(1);
+  });
+
   it('stops listening once nothing uses it', () => {
     const { list } = stubMatchMedia(false);
     const { unmount } = renderHook(() => useReducedMotion());
@@ -90,5 +116,24 @@ describe('useReducedMotion', () => {
     }
 
     expect(renderToString(createElement(Probe))).toBe('false');
+  });
+});
+
+describe('prefersReducedMotion', () => {
+  it('answers with the phone’s setting as it is right now, from the query the hook keeps', () => {
+    const media = stubMatchMedia(false);
+    expect(prefersReducedMotion()).toBe(false);
+
+    media.change(true);
+    expect(prefersReducedMotion()).toBe(true);
+    media.change(false);
+    expect(prefersReducedMotion()).toBe(false);
+    expect(media.matchMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it('is false where there is no matchMedia', () => {
+    expect(window.matchMedia).toBeUndefined();
+
+    expect(prefersReducedMotion()).toBe(false);
   });
 });

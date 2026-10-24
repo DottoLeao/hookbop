@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { DjBop } from '@/components/brand/DjBop';
 import { t } from '@/i18n/t';
 import { helpErrorCopy } from '@/lib/help/helpError';
+import { useSheetEnter } from '@/lib/motion/transitions';
 import { focusRing } from './styles';
 
 interface HelpSheetProps {
@@ -26,12 +27,14 @@ const action = `min-h-11 rounded-button px-4 text-button font-bold ${focusRing}`
  * try again when the service is down (with a button for it), and a general line otherwise.
  *
  * Like the settings, it is a panel in the page and not an overlay: the game screen shows it under the player in place
- * of the game area, because nothing may be drawn over the YouTube player.
+ * of the game area, because nothing may be drawn over the YouTube player. It rises from below as it opens
+ * (`useSheetEnter`) and closes at once, with no way out to wait for.
  */
 export function HelpSheet({ target, load, onClose }: HelpSheetProps) {
   const sheetRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
+  useSheetEnter(sheetRef);
 
   // The sheet takes the focus when it opens, so a screen reader starts in it and Escape reaches it.
   useEffect(() => {

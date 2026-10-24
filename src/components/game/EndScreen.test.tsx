@@ -1,9 +1,19 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import gsap from 'gsap';
 import { StrictMode } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { applyDoubleXp, type PlaysDb } from '@/lib/supabase/plays';
 import type { PlaySummary } from '@/lib/types';
 import { EndScreen, type EndScreenProps, type SaveStatus } from './EndScreen';
+
+// jsdom has no animation, so GSAP is only watched: what the end screen asks it to animate, and how.
+vi.mock('gsap');
+const fromTo = vi.mocked(gsap.fromTo);
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  fromTo.mockClear();
+});
 
 const SUMMARY: PlaySummary = { pct: 92, totalBlanks: 12, firstTryCorrect: 11, maxCombo: 8, xp: 240 };
 const SAVED: SaveStatus = { status: 'saved', playId: 'play-1', xp: 120 };
@@ -180,6 +190,156 @@ describe('EndScreen: the heading and the focus', () => {
     rerender(<EndScreen {...props} save={SAVED} />);
 
     expect(playAgain).toHaveFocus();
+  });
+});
+
+describe('EndScreen: the ring fills and the result comes in', () => {
+  type Vars = Record<string, unknown>;
+
+  /** Every animation the screen asked GSAP for: what it moves, how it starts and where it goes. */
+  function animations() {
+    const calls = fromTo.mock.calls as unknown as [Element | Element[], Vars, Vars][];
+    return calls.map(([target, from, to]) => ({ targets: [target].flat(), from, to }));
+  }
+
+  function ringOf(pct: number) {
+    return screen.getByRole('img', { name: `${pct}% de acerto` });
+  }
+
+  function reduceMotion() {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn((query: string) => ({
+        matches: query === '(prefers-reduced-motion: reduce)',
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    );
+  }
+
+  it('turns the arc of the ring into place about the ring’s center, fading in, with rotation and opacity only', () => {
+    setup();
+
+    const arc = ringOf(92).querySelector('g')!;
+    const [sweep, ...more] = animations().filter(({ targets }) => targets.includes(arc));
+    expect(more).toHaveLength(0);
+    expect(arc).toContainElement(ringOf(92).querySelectorAll('circle')[1] as unknown as HTMLElement);
+    expect(sweep.from.rotation).toBeLessThan(0);
+    expect(sweep.from.svgOrigin).toBe('70 70');
+    expect(sweep.from.opacity).toBe(0);
+    expect(sweep.to).toEqual(expect.objectContaining({ rotation: 0, opacity: 1 }));
+    expect(Object.keys(sweep.from).sort()).toEqual(['opacity', 'rotation', 'svgOrigin']);
+    expect(
+      Object.keys(sweep.to)
+        .filter((name) => !['duration', 'ease', 'clearProps', 'svgOrigin'].includes(name))
+        .sort(),
+    ).toEqual(['opacity', 'rotation']);
+    expect(sweep.to.duration).toBeLessThanOrEqual(1);
+  });
+
+  it('leaves the arc itself as it was: the same circle, with the same dash and the same turn to start from the top', () => {
+    setup();
+
+    const [track, arc] = Array.from(ringOf(92).querySelectorAll('circle'));
+    expect(track.getAttribute('transform')).toBeNull();
+    expect(arc.getAttribute('transform')).toBe('rotate(-90 70 70)');
+    expect(arc.getAttribute('stroke-linecap')).toBe('round');
+    expect(arc.getAttribute('stroke-dasharray')).toMatch(/^\d/);
+    expect(arc).toHaveClass('stroke-lime');
+    expect(ringOf(92)).toHaveAttribute('aria-label', '92% de acerto');
+  });
+
+  it('has no arc to turn at 0%, where the ring is only its track', () => {
+    setup({ summary: { ...SUMMARY, pct: 0, firstTryCorrect: 0 } });
+
+    expect(ringOf(0).querySelectorAll('circle')).toHaveLength(1);
+    expect(ringOf(0).querySelector('g')).toBeNull();
+    expect(animations().some(({ from }) => 'rotation' in from)).toBe(false);
+  });
+
+  it('brings the ring, DJ Bop’s line, the numbers and the Dobrar o XP spot in one after another, in the order of the page', () => {
+    setup();
+
+    const blocks = animations().find(({ targets }) => targets.length > 1)!;
+    expect(blocks.targets).toHaveLength(4);
+    const [ring, dj, numbers, double] = blocks.targets as HTMLElement[];
+    expect(ring).toContainElement(ringOf(92) as unknown as HTMLElement);
+    expect(dj).toContainElement(screen.getByRole('heading', { name: 'Mandou bem!' }));
+    expect(numbers).toHaveTextContent('combo máximo');
+    expect(double).toContainElement(screen.getByRole('button', { name: DOUBLE }));
+    expect(blocks.from.y).toBeGreaterThan(0);
+    expect(blocks.from.opacity).toBe(0);
+    expect(blocks.to).toEqual(expect.objectContaining({ y: 0, opacity: 1 }));
+    const stagger = blocks.to.stagger as (index: number) => number;
+    expect(stagger(0)).toBe(0);
+    expect(stagger(3)).toBeGreaterThan(stagger(1));
+  });
+
+  it('brings only DJ Bop’s line in after Karaokê, where there is no ring and no number', () => {
+    setup({ mode: 'karaoke', summary: { pct: 0, totalBlanks: 0, firstTryCorrect: 0, maxCombo: 0, xp: 0 } });
+
+    expect(animations()).toHaveLength(1);
+    const [blocks] = animations();
+    expect(blocks.targets).toHaveLength(1);
+    expect(blocks.targets[0]).toContainElement(screen.getByRole('heading', { name: 'Mandou bem!' }));
+  });
+
+  it('does not bring the buttons in: they answer a tap from the first frame', () => {
+    const { props } = setup();
+
+    for (const control of [
+      screen.getByRole('button', { name: 'Jogar de novo' }),
+      screen.getByRole('button', { name: 'Outro modo' }),
+      screen.getByRole('link', { name: 'Outra música' }),
+    ]) {
+      expect(animations().some(({ targets }) => targets.some((target) => target.contains(control)))).toBe(false);
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Jogar de novo' }));
+    expect(props.onPlayAgain).toHaveBeenCalledOnce();
+  });
+
+  it('changes nothing but transform and opacity, and leaves none of it on the page once it is over', () => {
+    setup();
+
+    expect(animations().length).toBeGreaterThan(0);
+    for (const { from, to } of animations()) {
+      const named = [...Object.keys(from), ...Object.keys(to)].filter(
+        (name) => !['duration', 'ease', 'clearProps', 'stagger', 'svgOrigin'].includes(name),
+      );
+      expect([...new Set(named)].every((name) => ['opacity', 'y', 'rotation'].includes(name))).toBe(true);
+      expect(to.clearProps).toEqual(expect.stringContaining('transform'));
+      expect(to.clearProps).toEqual(expect.stringContaining('opacity'));
+    }
+  });
+
+  it('only fades, the ring and the rest, when motion is reduced', () => {
+    reduceMotion();
+    setup();
+
+    expect(animations()).toHaveLength(2);
+    for (const { from, to } of animations()) {
+      expect(Object.keys(from)).toEqual(['opacity']);
+      expect(Object.keys(to)).not.toContain('y');
+      expect(Object.keys(to)).not.toContain('rotation');
+      expect(Object.keys(to)).not.toContain('stagger');
+    }
+  });
+
+  it('does not start again when the save comes in or the XP is doubled', async () => {
+    const { props, rerender } = setup({ save: { status: 'saving' } });
+    const before = fromTo.mock.calls.length;
+
+    rerender(<EndScreen {...props} save={SAVED} />);
+    fireEvent.click(await screen.findByRole('button', { name: DOUBLE }));
+    await screen.findByRole('button', { name: 'XP dobrado' });
+
+    expect(fromTo.mock.calls).toHaveLength(before);
+  });
+
+  it('keeps the focus on the result when it comes in: a transition does not take it, nor hold it back', () => {
+    setup();
+
+    expect(screen.getByRole('region', { name: 'Mandou bem!' })).toHaveFocus();
   });
 });
 

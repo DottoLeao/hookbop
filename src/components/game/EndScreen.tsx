@@ -5,6 +5,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { DjBop, type DjBopExpression } from '@/components/brand/DjBop';
 import { t, type MessageKey } from '@/i18n/t';
 import type { Entitlement } from '@/lib/entitlements';
+import { useCardsIn, useRingSweep } from '@/lib/motion/transitions';
 import type { Mode, PlaySummary } from '@/lib/types';
 import { focusRing } from './styles';
 
@@ -51,26 +52,37 @@ function verdict(pct: number | null): { line: MessageKey; expression: DjBopExpre
 
 const RING_RADIUS = 60;
 const RING_LENGTH = 2 * Math.PI * RING_RADIUS;
+/** The ring is drawn in a 140 x 140 box, around its center. */
+const RING_CENTER = '70 70';
 
-/** The share of blanks right on the first try, as a ring (design/canvas/FimDaMusica.dc.html). */
+/**
+ * The share of blanks right on the first try, as a ring (design/canvas/FimDaMusica.dc.html). As the screen comes in
+ * the arc sweeps into place about the center (`useRingSweep`): it is the group around the arc that turns, so the arc
+ * keeps the turn that starts it from the top, and it keeps its shape.
+ */
 function Ring({ pct }: { pct: number }) {
-  const filled = (Math.min(100, Math.max(0, pct)) / 100) * RING_LENGTH;
+  const arcRef = useRef<SVGGElement>(null);
+  const share = Math.min(100, Math.max(0, pct)) / 100;
+  const filled = share * RING_LENGTH;
+  useRingSweep(arcRef, share * 360, RING_CENTER);
   return (
     <svg width="140" height="140" viewBox="0 0 140 140" role="img" aria-label={t('fim.ring', { pct })}>
       <circle cx="70" cy="70" r={RING_RADIUS} fill="none" strokeWidth="12" className="stroke-elevated" />
       {/* A zero-length arc with round ends would still draw a dot. */}
       {filled > 0 && (
-        <circle
-          cx="70"
-          cy="70"
-          r={RING_RADIUS}
-          fill="none"
-          strokeWidth="12"
-          strokeLinecap="round"
-          strokeDasharray={`${filled} ${RING_LENGTH}`}
-          transform="rotate(-90 70 70)"
-          className="stroke-lime"
-        />
+        <g ref={arcRef}>
+          <circle
+            cx="70"
+            cy="70"
+            r={RING_RADIUS}
+            fill="none"
+            strokeWidth="12"
+            strokeLinecap="round"
+            strokeDasharray={`${filled} ${RING_LENGTH}`}
+            transform="rotate(-90 70 70)"
+            className="stroke-lime"
+          />
+        </g>
       )}
       <text x="70" y="80" textAnchor="middle" fontSize="28" fontWeight="700" className="fill-text font-heading">
         {t('fim.ringValue', { pct })}
@@ -98,6 +110,10 @@ const control = `flex w-full items-center justify-center rounded-button px-4 tex
  * Karaokê has no blanks to score and no XP, and a game in another mode may have none either, so those show DJ Bop and
  * the three buttons only. The result shows whether or not the play was saved: while it is not, the XP says so
  * instead of showing a number, and "Dobrar o XP" waits for the play it works on.
+ *
+ * As it appears, the ring fills (see `Ring`) and the blocks of the result (the ring, DJ Bop's line, the numbers and the
+ * XP spot, the elements marked `data-enter`) come in one after another (`useCardsIn`). The buttons are not among them:
+ * "Jogar de novo" and the rest answer a tap from the first frame, and the focus goes to the result at once.
  */
 export function EndScreen({
   mode,
@@ -128,6 +144,7 @@ export function EndScreen({
   useEffect(() => {
     resultRef.current?.focus({ preventScroll: true });
   }, []);
+  useCardsIn(resultRef, '[data-enter]');
   const headingId = useId();
 
   const scored = mode !== 'karaoke' && summary.totalBlanks > 0;
@@ -165,7 +182,7 @@ export function EndScreen({
       className="flex flex-1 flex-col gap-4 focus:outline-hidden"
     >
       {scored && (
-        <div className="flex flex-col items-center gap-1.5">
+        <div data-enter className="flex flex-col items-center gap-1.5">
           <Ring pct={summary.pct} />
           <p className="text-body text-muted">
             {t('fim.blanks', { certas: summary.firstTryCorrect, total: summary.totalBlanks })}
@@ -174,7 +191,7 @@ export function EndScreen({
         </div>
       )}
 
-      <div className="flex items-end justify-center gap-3">
+      <div data-enter className="flex items-end justify-center gap-3">
         <div className="shrink-0">
           <DjBop expression={expression} size={64} />
         </div>
@@ -187,14 +204,14 @@ export function EndScreen({
       </div>
 
       {scored && (
-        <div className="grid grid-cols-2 gap-2">
+        <div data-enter className="grid grid-cols-2 gap-2">
           <Stat value={t('jogo.combo', { n: summary.maxCombo })} label={t('fim.maxCombo')} />
           <Stat value={xpText} label={t('fim.xp')} />
         </div>
       )}
 
       {offered && (
-        <div className="flex flex-col gap-1">
+        <div data-enter className="flex flex-col gap-1">
           <button
             type="button"
             aria-disabled={!ready}

@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import gsap from 'gsap';
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { tokenize } from '@/lib/game/blanks';
@@ -2978,6 +2979,122 @@ describe('GameScreen: settings', () => {
 
     expect(setting('Sons')).toHaveAttribute('aria-checked', 'false');
     expect(setting('Repetir sozinho depois de errar')).toHaveAttribute('aria-checked', 'true');
+  });
+});
+
+describe('GameScreen: the sheets rise as they open and close at once (ruling S33)', () => {
+  /** The sheet rises in the render that opens it: the real GSAP, only watched. */
+  function rising() {
+    return vi.spyOn(gsap, 'fromTo');
+  }
+
+  /** What was animated, the lists flattened. */
+  function animatedBy(spy: ReturnType<typeof rising>): Element[] {
+    return spy.mock.calls.flatMap(([target]) => [target].flat() as Element[]);
+  }
+
+  it('rises the settings from below as they open', () => {
+    renderGame();
+    const fromTo = rising();
+
+    const sheet = openSettings();
+
+    expect(animatedBy(fromTo)).toEqual([sheet]);
+    // It stands in the page as before: tappable and focused from its first frame.
+    expect(sheet).toHaveFocus();
+  });
+
+  it('closes the settings in the very render of the tap: the game area back, the gear focused, nothing animated', () => {
+    renderGame();
+    openSettings();
+    const fromTo = rising();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pronto' }));
+
+    // No wait of any kind: no timer is advanced and no frame is waited for.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByTestId('line-current')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Configurações' })).toHaveFocus();
+    expect(fromTo).not.toHaveBeenCalled();
+  });
+
+  it('closes the settings with Escape just as fast', () => {
+    renderGame();
+    const sheet = openSettings();
+    const fromTo = rising();
+
+    fireEvent.keyDown(sheet, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Configurações' })).toHaveFocus();
+    expect(fromTo).not.toHaveBeenCalled();
+  });
+
+  it('closes the settings on "Continuar" when the music still waits for it, with the focus there at once', () => {
+    renderGame({ blanks: [FERRY] });
+    playTo(2000);
+    openSettings();
+    setVisibility('hidden');
+    setVisibility('visible');
+    const fromTo = rising();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pronto' }));
+
+    expect(resumeButton()).toHaveFocus();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(fromTo).not.toHaveBeenCalled();
+  });
+
+  it('rises DJ Bop’s sheet as it opens, and closes it in the very render of the tap, the focus back on what opened it', async () => {
+    renderGame({ lines: TYPING_LINES, blanks: [GET], requestHelp: helpService() });
+    fireEvent.click(option('late'));
+    const fromTo = rising();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Não entendi' }));
+    await settleHelp();
+    const sheet = helpSheet();
+
+    expect(animatedBy(fromTo)).toEqual([sheet]);
+    expect(sheet).toHaveFocus();
+    fromTo.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Valeu' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByTestId('line-current')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Não entendi' })).toHaveFocus();
+    expect(fromTo).not.toHaveBeenCalled();
+  });
+
+  it('closes DJ Bop’s sheet on "Continuar" when the music still waits for it, with the focus there at once', async () => {
+    renderGame({ lines: TYPING_LINES, blanks: [GET], requestHelp: helpService() });
+    fireEvent.click(option('late'));
+    playTo(1000);
+    // The player's own pause: the sheet then neither pauses the clip nor plays it on closing.
+    act(() => fake.emitState('paused'));
+    fireEvent.click(within(screen.getByTestId('line-current')).getByRole('button', { name: 'rain' }));
+    await settleHelp();
+    setVisibility('hidden');
+    setVisibility('visible');
+    const fromTo = rising();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Valeu' }));
+
+    expect(resumeButton()).toHaveFocus();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(fromTo).not.toHaveBeenCalled();
+  });
+
+  it('opens a sheet again the same way every time', () => {
+    renderGame();
+    const fromTo = rising();
+
+    openSettings();
+    fireEvent.click(screen.getByRole('button', { name: 'Pronto' }));
+    const second = openSettings();
+
+    expect(animatedBy(fromTo)).toHaveLength(2);
+    expect(animatedBy(fromTo)[1]).toBe(second);
   });
 });
 

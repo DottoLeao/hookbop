@@ -1,10 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { useId, useState, type FormEvent } from 'react';
+import { useId, useRef, useState, type FormEvent } from 'react';
 import { t } from '@/i18n/t';
 import { cleanTitle } from '@/lib/lyrics/cleanTitle';
 import type { VideoRecord } from '@/lib/lyrics/resolveSong';
+import { useCardsIn } from '@/lib/motion/transitions';
 import type { Difficulty, Mode } from '@/lib/types';
 
 const MODES: readonly Mode[] = ['escolha', 'digitacao', 'karaoke', 'montar'];
@@ -49,11 +50,17 @@ const savedAction =
  * "Como você quer jogar?": the four modes as cards, the difficulty as pills, and "Jogar"
  * (design/canvas/Main.dc.html in the Limão colors). Karaokê has no blanks, so it asks for no difficulty.
  * A game kept on the device for the song comes first, to go on from or to drop.
+ *
+ * The cards (the song, the saved game when there is one, and the four modes) come in one after another as the picker
+ * appears (`useCardsIn`, the elements marked `data-card`). The buttons are not among them: "Jogar" and the rest answer
+ * a tap from the first frame.
  */
 export function ModePicker({ video, onPlay, onCalibrate, saved, now, onResume, onDiscard }: ModePickerProps) {
   const [mode, setMode] = useState<Mode>('escolha');
   const [difficulty, setDifficulty] = useState<Difficulty>('facil');
   const id = useId();
+  const formRef = useRef<HTMLFormElement>(null);
+  useCardsIn(formRef, '[data-card]');
   const { artist, track } = cleanTitle(video.title, video.channel);
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -62,8 +69,8 @@ export function ModePicker({ video, onPlay, onCalibrate, saved, now, onResume, o
   }
 
   return (
-    <form onSubmit={submit} className="flex flex-1 flex-col gap-4">
-      <div className="flex items-center gap-3 rounded-card bg-card py-3 pr-2 pl-4">
+    <form ref={formRef} onSubmit={submit} className="flex flex-1 flex-col gap-4">
+      <div data-card className="flex items-center gap-3 rounded-card bg-card py-3 pr-2 pl-4">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <p className="truncate text-lyric font-bold">{track}</p>
           <p className="truncate text-label text-muted">{artist}</p>
@@ -86,6 +93,7 @@ export function ModePicker({ video, onPlay, onCalibrate, saved, now, onResume, o
 
       {saved && (
         <section
+          data-card
           aria-labelledby={`${id}-saved`}
           className="flex flex-col gap-2 rounded-card border-[1.5px] border-lime bg-card p-3.5"
         >
@@ -106,6 +114,7 @@ export function ModePicker({ video, onPlay, onCalibrate, saved, now, onResume, o
         {MODES.map((m) => (
           <label
             key={m}
+            data-card
             className={`flex min-h-16 cursor-pointer flex-col justify-center gap-0.5 rounded-card border-[2.5px] bg-card px-3.5 py-2.5 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-lime ${
               mode === m ? 'border-lime' : 'border-transparent'
             }`}

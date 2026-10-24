@@ -20,6 +20,7 @@ import { cleanTitle } from '@/lib/lyrics/cleanTitle';
 import { linesOfVideo } from '@/lib/lyrics/linesOfVideo';
 import { applyOffset } from '@/lib/lyrics/lrc';
 import type { SongResolution, VideoRecord } from '@/lib/lyrics/resolveSong';
+import { useScreenSwap } from '@/lib/motion/transitions';
 import type { PlayerAdapter, PlayerError } from '@/lib/player/adapter';
 import { usePauseWhenHidden } from '@/lib/player/usePauseWhenHidden';
 import { createYouTubeAdapter, PlayerLoadError } from '@/lib/player/youtubeAdapter';
@@ -255,6 +256,11 @@ function PasteAnother({ className }: { className: string }) {
  *
  * The player sits in a 16:9 box (at least 200 px tall, full width, nothing over it) that stays in place
  * in every state, so the clip is never torn down between loading, calibrating, picking and playing.
+ *
+ * The screens (loading, the picker, the game, the end...) take each other's place in the box under the player with a
+ * short change (`useScreenSwap`): that box comes down into place from a few px below, fading in. Only that box is
+ * animated. The player's box is a sibling above it, outside every transition, so a change of screen never remounts,
+ * moves, resizes, covers or animates the player.
  */
 export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: string; deps?: SongScreenDeps }) {
   const { resolve, createAdapter, saveOffsetVote, doubleXp } = deps;
@@ -293,6 +299,7 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
   const [timeToReadyMs, setTimeToReadyMs] = useState<number | null>(null);
   const gameSave = useGameSave(deps.savePlay);
+  const screenRef = useRef<HTMLDivElement>(null);
   // How many songs this screen has finished: only the first one waited for the song to get ready.
   const finishedGamesRef = useRef(0);
 
@@ -594,6 +601,9 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
     }
   }
 
+  // Which screen is on show: a player error takes the place of whatever the phase is. A change of it is the change of screen.
+  useScreenSwap(screenRef, playerError ? `error:${playerError}` : phase.kind);
+
   // The game screen draws its own header.
   const showHeader = playerError !== null || phase.kind !== 'game';
   const title =
@@ -637,7 +647,10 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
         data-testid="player"
         className="aspect-video min-h-[200px] w-full shrink-0 bg-card [&_iframe]:block [&_iframe]:h-full [&_iframe]:w-full"
       />
-      <div className="flex flex-1 flex-col gap-4 px-4">{content()}</div>
+      {/* The screen under the player. This box is what changes between screens; the player's box above is not touched. */}
+      <div ref={screenRef} className="flex flex-1 flex-col gap-4 px-4">
+        {content()}
+      </div>
     </main>
   );
 }

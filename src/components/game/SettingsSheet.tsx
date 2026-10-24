@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef } from 'react';
 import { t, type MessageKey } from '@/i18n/t';
+import { useSheetEnter } from '@/lib/motion/transitions';
 import type { Settings } from '@/lib/settings';
 
 const SWITCHES: ReadonlyArray<{ name: keyof Settings; label: MessageKey }> = [
@@ -22,11 +23,13 @@ interface SettingsSheetProps {
  * The game's three switches: "Mostrar tradução sempre", "Repetir sozinho depois de errar" and "Sons".
  *
  * It is a panel in the page, not an overlay: the game screen shows it under the player in place of the game area,
- * because nothing may be drawn over the YouTube player, not even a dimmed backdrop.
+ * because nothing may be drawn over the YouTube player, not even a dimmed backdrop. It rises from below as it opens
+ * (`useSheetEnter`) and closes at once, with no way out to wait for.
  */
 export function SettingsSheet({ settings, onChange, onClose }: SettingsSheetProps) {
   const titleId = useId();
   const sheetRef = useRef<HTMLDivElement>(null);
+  useSheetEnter(sheetRef);
 
   // The sheet takes the focus when it opens, so a screen reader starts in it and Escape reaches it.
   useEffect(() => {
