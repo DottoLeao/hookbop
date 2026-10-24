@@ -1,5 +1,7 @@
+import Link from 'next/link';
 import { Suspense } from 'react';
 import { Logo } from '@/components/brand/Logo';
+import { focusRing } from '@/components/game/styles';
 import { isLoginError, isLoginState } from '@/lib/auth/paths';
 import { t } from '@/i18n/t';
 import { LoginForm } from './LoginForm';
@@ -38,6 +40,12 @@ export default function EntrarPage({
         <EstadoMessage searchParams={searchParams} />
       </Suspense>
       <LoginForm />
+      <Link
+        href="/privacidade"
+        className={`flex min-h-11 items-center rounded-button px-2 text-label text-muted underline ${focusRing}`}
+      >
+        {t('privacidade.link')}
+      </Link>
     </main>
   );
 }

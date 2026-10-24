@@ -204,4 +204,64 @@ export const ptBR = {
   'admin.remove': 'Remover',
   'admin.removeNamed': 'Remover {nome}',
   'admin.removeError': 'Não rolou. Tenta de novo?',
+
+  // Política de privacidade (/privacidade). Rascunho para o dono revisar.
+  'privacidade.link': 'Privacidade',
+  'privacidade.title': 'Política de privacidade',
+  'privacidade.updated': 'Atualizada em 24 de outubro de 2026.',
+  'privacidade.back': 'Voltar para o Hookbop',
+  'privacidade.contactEmail': 'SEU-EMAIL-DE-CONTATO@exemplo.com',
+
+  'privacidade.quem.title': 'Quem somos',
+  'privacidade.quem.p1':
+    'O Hookbop é um app para aprender inglês com músicas do YouTube. Ele está em fase de testes fechada: só entra quem recebe um convite.',
+  'privacidade.quem.p2': 'Quem cuida do app e dos seus dados é o criador do Hookbop. Para falar com ele, escreva para:',
+
+  'privacidade.guarda.title': 'O que guardamos',
+  'privacidade.guarda.conta':
+    'Sua conta: seu e-mail e o nome que aparece no app. Se você entra com o Google, ele também nos envia seu nome e a foto do seu perfil.',
+  'privacidade.guarda.convites': 'Convites: quem convidou quem, e quando.',
+  'privacidade.guarda.jogo':
+    'Suas partidas: as músicas que você jogou (o endereço do vídeo no YouTube), o modo, a dificuldade, os acertos, os pontos (XP) e cada resposta, dizendo se foi certa, errada ou com ajuda.',
+  'privacidade.guarda.calibracao': 'Ajustes de tempo: o ajuste da letra que você escolhe para cada vídeo.',
+  'privacidade.guarda.ajuda':
+    'Pedidos de ajuda: a hora e o tipo de cada "Não entendi" ou "Traduzir verso", para controlar o limite por hora. As explicações e traduções ficam guardadas por verso, sem dizer quem pediu.',
+  'privacidade.guarda.aparelho':
+    'No seu aparelho: os cookies que mantêm você conectado e guardam o convite, as suas configurações do jogo e as páginas guardadas para o app abrir sem internet.',
+
+  'privacidade.uso.title': 'Para que usamos',
+  'privacidade.uso.p1':
+    'Usamos esses dados para você entrar, para guardar suas partidas e seus pontos, para mostrar as "Músicas da galera", para limitar o uso da ajuda com IA e para melhorar o app.',
+  'privacidade.uso.p2': 'Não vendemos seus dados e, nesta fase, não mostramos anúncios.',
+
+  'privacidade.terceiros.title': 'Quem mais recebe dados',
+  'privacidade.terceiros.p1': 'Alguns serviços trabalham para o Hookbop e recebem só o necessário:',
+  'privacidade.terceiros.supabase': 'Supabase: guarda o banco de dados e cuida do login. Os servidores ficam nos Estados Unidos.',
+  'privacidade.terceiros.vercel': 'Vercel: hospeda o app.',
+  'privacidade.terceiros.google':
+    'Google: faz o login, se você escolher entrar com o Google, e envia os e-mails com o link e o código de entrada.',
+  'privacidade.terceiros.anthropic':
+    'Anthropic (Claude): quando você toca em "Não entendi" ou "Traduzir verso", enviamos só o verso da música e a palavra destacada. Nenhum dado seu vai junto.',
+  'privacidade.terceiros.youtube':
+    'YouTube: os clipes tocam no player oficial do YouTube, que segue a política de privacidade do Google.',
+  'privacidade.terceiros.lrclib': 'LRCLIB: é onde buscamos a letra sincronizada, pelo nome da música. Nenhum dado seu vai junto.',
+
+  'privacidade.membros.title': 'O que os outros membros veem',
+  'privacidade.membros.p1':
+    'Seu nome aparece para os outros membros. As músicas jogadas aparecem nas "Músicas da galera", sem dizer quem jogou.',
+
+  'privacidade.tempo.title': 'Por quanto tempo',
+  'privacidade.tempo.p1':
+    'Guardamos seus dados enquanto sua conta existir. Se o seu acesso for pausado, eles continuam guardados até você pedir para apagar.',
+
+  'privacidade.direitos.title': 'Seus direitos',
+  'privacidade.direitos.p1':
+    'Pela Lei Geral de Proteção de Dados (LGPD), você pode pedir para ver, corrigir, apagar ou levar os seus dados. É só escrever para o e-mail de contato acima. Respondemos em até 15 dias.',
+
+  'privacidade.idade.title': 'Idade',
+  'privacidade.idade.p1':
+    'O Hookbop não é para menores de 13 anos. Se você tem menos de 18, use o app com o conhecimento de um responsável.',
+
+  'privacidade.mudancas.title': 'Mudanças nesta política',
+  'privacidade.mudancas.p1': 'Se esta política mudar, avisamos no app e atualizamos a data no topo desta página.',
 } as const;

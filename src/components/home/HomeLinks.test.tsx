@@ -28,11 +28,17 @@ describe('HomeLinks', () => {
     expect(licences).toHaveAttribute('rel', expect.stringContaining('noopener'));
   });
 
+  it('links the privacy policy', () => {
+    render(<HomeLinks showAdmin={false} />);
+
+    expect(screen.getByRole('link', { name: 'Privacidade' })).toHaveAttribute('href', '/privacidade');
+  });
+
   it('keeps every link at least 44 px tall', () => {
     render(<HomeLinks showAdmin />);
 
     const links = screen.getAllByRole('link');
-    expect(links).toHaveLength(3);
+    expect(links).toHaveLength(4);
     for (const link of links) expect(link.className).toMatch(/\bmin-h-11\b/);
   });
 });

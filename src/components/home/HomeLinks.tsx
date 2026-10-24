@@ -13,10 +13,12 @@ function Pill({ href, children }: { href: string; children: ReactNode }) {
   );
 }
 
+const footLink = `flex min-h-11 items-center rounded-button px-2 text-label text-muted underline ${focusRing}`;
+
 /**
- * The shortcuts at the foot of the home page: "Convidar" for every member, "Admin" for the owner only, and the third-party
- * licences. The licences are a plain text file, which opens in a new tab: an app installed on the phone has no way
- * back from a page that is not its own.
+ * The shortcuts at the foot of the home page: "Convidar" for every member, "Admin" for the owner only, the privacy
+ * policy and the third-party licences. The licences are a plain text file, which opens in a new tab: an app installed
+ * on the phone has no way back from a page that is not its own. The privacy policy is an app page with its own way back.
  */
 export function HomeLinks({ showAdmin }: { showAdmin: boolean }) {
   return (
@@ -25,14 +27,14 @@ export function HomeLinks({ showAdmin }: { showAdmin: boolean }) {
         <Pill href="/convidar">{t('home.invite')}</Pill>
         {showAdmin && <Pill href="/admin">{t('home.admin')}</Pill>}
       </div>
-      <a
-        href="/licencas.txt"
-        target="_blank"
-        rel="noopener noreferrer"
-        className={`flex min-h-11 items-center rounded-button px-2 text-label text-muted underline ${focusRing}`}
-      >
-        {t('home.licenses')}
-      </a>
+      <div className="flex">
+        <Link href="/privacidade" className={footLink}>
+          {t('privacidade.link')}
+        </Link>
+        <a href="/licencas.txt" target="_blank" rel="noopener noreferrer" className={footLink}>
+          {t('home.licenses')}
+        </a>
+      </div>
     </nav>
   );
 }

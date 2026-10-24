@@ -9,6 +9,7 @@ describe('isPublicPath', () => {
     '/manifest.webmanifest',
     '/sw.js',
     '/icons/icon-192.png',
+    '/privacidade',
   ])('lets %s through without a session', (path) => {
     expect(isPublicPath(path)).toBe(true);
   });
@@ -20,7 +21,17 @@ describe('isPublicPath', () => {
     },
   );
 
-  it.each(['/entrar-fake', '/entrar/x', '/authx/callback', '/auth', '/convite', '/icons', '/sw.js.map'])(
+  it.each([
+    '/entrar-fake',
+    '/entrar/x',
+    '/authx/callback',
+    '/auth',
+    '/convite',
+    '/icons',
+    '/sw.js.map',
+    '/privacidade-fake',
+    '/privacidade/x',
+  ])(
     'does not treat the look-alike %s as public',
     (path) => {
       expect(isPublicPath(path)).toBe(false);
