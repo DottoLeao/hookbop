@@ -38,6 +38,11 @@ export interface Fader {
   fadeIn(ms: number): void;
   /** Stops whatever is running, at the volume it reached. It does not call `onDone`. */
   cancel(): void;
+  /**
+   * For when the fader's owner goes away: stops whatever is running, like `cancel`, and if a volume is kept (a fade left
+   * the music below it) sets it at once, with no ramp, and forgets it. With none kept it sets nothing. No timer is left.
+   */
+  restore(): void;
   /** Which way the volume is moving now, or null when it is not. */
   fading(): 'out' | 'in' | null;
 }
@@ -141,6 +146,14 @@ export function createFader(adapter: PlayerAdapter, opts: FaderOptions): Fader {
     schedule();
   }
 
+  function restore(): void {
+    cancel();
+    if (restoreTo === null) return;
+    level = restoreTo;
+    adapter.setVolume(restoreTo);
+    restoreTo = null;
+  }
+
   return {
     fadeOut(ms, onDone) {
       if (!opts.volume) {
@@ -172,6 +185,8 @@ export function createFader(adapter: PlayerAdapter, opts: FaderOptions): Fader {
     },
 
     cancel,
+
+    restore,
 
     fading: () => direction,
   };

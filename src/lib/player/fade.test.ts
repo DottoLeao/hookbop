@@ -232,6 +232,103 @@ describe('createFader', () => {
     });
   });
 
+  describe('restore', () => {
+    it('during a fadeOut, puts the stored volume back at once, with no ramp, and leaves no timer', () => {
+      const p = new FakePlayerAdapter(180000);
+      p.setVolume(70);
+      const done = vi.fn();
+      const fader = createFader(p, { volume: true });
+      fader.fadeOut(1000, done);
+      vi.advanceTimersByTime(500);
+      expect(p.getVolume()).toBeLessThan(70);
+      p.calls.length = 0;
+
+      fader.restore();
+
+      expect(p.calls).toEqual(['volume:70']);
+      expect(p.getVolume()).toBe(70);
+      expect(fader.fading()).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+      vi.advanceTimersByTime(5000);
+      expect(done).not.toHaveBeenCalled();
+      expect(p.calls).toEqual(['volume:70']);
+    });
+
+    it('after a fadeOut that finished, brings the music back from silence', () => {
+      const p = new FakePlayerAdapter(180000);
+      p.setVolume(70);
+      const fader = createFader(p, { volume: true });
+      fader.fadeOut(500, () => {});
+      vi.advanceTimersByTime(500);
+      expect(p.getVolume()).toBe(0);
+
+      fader.restore();
+
+      expect(p.getVolume()).toBe(70);
+    });
+
+    it('during a fadeIn, goes straight to the volume it was climbing to', () => {
+      const p = new FakePlayerAdapter(180000);
+      p.setVolume(0);
+      const fader = createFader(p, { volume: true });
+      fader.fadeIn(800);
+      vi.advanceTimersByTime(300);
+      expect(p.getVolume()).toBeLessThan(100);
+
+      fader.restore();
+
+      expect(p.getVolume()).toBe(100);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('forgets the stored volume: a second restore, or one after a fadeIn that finished, sets nothing', () => {
+      const p = new FakePlayerAdapter(180000);
+      p.setVolume(70);
+      const fader = createFader(p, { volume: true });
+      fader.fadeOut(500, () => {});
+      vi.advanceTimersByTime(250);
+      fader.restore();
+      p.calls.length = 0;
+
+      fader.restore();
+      expect(p.calls).toEqual([]);
+
+      fader.fadeOut(500, () => {});
+      vi.advanceTimersByTime(500);
+      fader.fadeIn(500);
+      vi.advanceTimersByTime(500);
+      p.calls.length = 0;
+      fader.restore();
+      expect(p.calls).toEqual([]);
+    });
+
+    it('with nothing stored, makes no volume call and leaves the player as it is', () => {
+      const p = new FakePlayerAdapter(180000);
+      p.setVolume(40);
+      p.calls.length = 0;
+      const fader = createFader(p, { volume: true });
+
+      fader.restore();
+
+      expect(p.calls).toEqual([]);
+      expect(p.getVolume()).toBe(40);
+    });
+
+    it('without volume control, only drops the wait: no volume call, and done never comes', () => {
+      const p = new FakePlayerAdapter(180000);
+      const done = vi.fn();
+      const fader = createFader(p, { volume: false });
+      fader.fadeOut(1000, done);
+
+      fader.restore();
+      vi.advanceTimersByTime(5000);
+
+      expect(done).not.toHaveBeenCalled();
+      expect(p.calls).toEqual([]);
+      expect(fader.fading()).toBeNull();
+    });
+  });
+
   describe('cancel', () => {
     it('stops a fadeOut in the middle without calling done', () => {
       const p = new FakePlayerAdapter(180000);

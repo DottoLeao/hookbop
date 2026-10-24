@@ -61,7 +61,7 @@ export function CalibrationSheet({
   useEffect(() => {
     const fader = createFader(adapter, { volume: supportsVolume(navigator) });
     fader.fadeIn(FADE_IN_MS);
-    return () => fader.cancel();
+    return () => fader.restore();
   }, [adapter]);
 
   function markStart() {

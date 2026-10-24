@@ -190,9 +190,10 @@ export function GameScreen({
   const [translatePaused, setTranslatePaused] = useState(false);
   const lineHelp = useLineHelp({ youtubeId: video.youtubeId, lyricsRef: video.lyricsRef, lines, request: requestHelp });
 
-  // One fader for the player's volume. A fade still running when the screen goes away must not pause what comes next.
+  // One fader for the player's volume. When the screen goes away a fade still running must not pause what comes next,
+  // and the music must not be left down for the next round (or the calibration), so the volume goes straight back.
   const fader = useMemo(() => createFader(adapter, { volume: supportsVolume(navigator) }), [adapter]);
-  useEffect(() => () => fader.cancel(), [fader]);
+  useEffect(() => () => fader.restore(), [fader]);
 
   const run = useCallback(
     (commands: readonly Command[]) => {

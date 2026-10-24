@@ -48,7 +48,7 @@ afterEach(() => {
 
 describe('CalibrationSheet: a player an earlier round left muted', () => {
   function sheetOn(adapter: FakePlayerAdapter) {
-    render(
+    return render(
       <CalibrationSheet
         youtubeId={ID}
         adapter={adapter}
@@ -75,6 +75,22 @@ describe('CalibrationSheet: a player an earlier round left muted', () => {
     act(() => vi.advanceTimersByTime(FADE_IN_MS));
 
     expect(adapter.getVolume()).toBe(100);
+  });
+
+  it('puts the volume straight back, and leaves no timer, when the sheet goes away mid-fade', () => {
+    vi.useFakeTimers();
+    const adapter = new FakePlayerAdapter(213000);
+    adapter.setVolume(0);
+    const { unmount } = sheetOn(adapter);
+    act(() => vi.advanceTimersByTime(FADE_IN_MS / 2));
+    expect(adapter.getVolume()).toBeLessThan(100);
+    adapter.calls.length = 0;
+
+    unmount();
+    act(() => vi.advanceTimersByTime(FADE_IN_MS));
+
+    expect(adapter.calls).toEqual(['volume:100']);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('leaves a volume the player lowered itself alone', () => {

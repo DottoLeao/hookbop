@@ -587,14 +587,26 @@ describe('GameScreen: smooth fades (spec sections 1 and 2)', () => {
     });
   });
 
-  describe('a round that starts on a player an earlier round left muted', () => {
-    it('brings the volume up from 0 as the round begins, and a round at full volume asks for no volume at all', () => {
+  describe('a round that starts on a player left muted', () => {
+    it('after a round that stopped at a finished wait, starts at the full volume it was given back', () => {
       renderGame();
       playTo(3850);
       finishFadeOut();
       expect(fake.getVolume()).toBe(0);
       // The round is over, and "Jogar de novo" mounts the game again on the same player.
       cleanup();
+      expect(fake.getVolume()).toBe(100);
+      const before = fake.calls.length;
+
+      renderGame();
+      finishFadeIn();
+
+      expect(fake.calls.slice(before)).toEqual(['seek:0', 'play']);
+    });
+
+    it('brings the volume up from 0 as the round begins, and a round at full volume asks for no volume at all', () => {
+      // Something other than the game left the player silent.
+      fake.setVolume(0);
       const before = fake.calls.length;
 
       renderGame();
@@ -640,16 +652,31 @@ describe('GameScreen: smooth fades (spec sections 1 and 2)', () => {
       expect(supportsVolume).toHaveBeenCalledWith(navigator);
     });
 
-    it('is not touched by a fade that was still running when the game screen went away', () => {
+    it('gives the volume back, once, when the game screen goes away mid-fade, and then touches nothing', () => {
       renderGame();
       playTo(3850);
       act(() => vi.advanceTimersByTime(500));
+      expect(fake.getVolume()).toBeLessThan(100);
       const before = fake.calls.length;
 
       cleanup();
       act(() => vi.advanceTimersByTime(FADE_OUT_MS));
 
-      expect(fake.calls.slice(before)).toEqual([]);
+      // No pause, no ramp, no timer left: the volume goes straight back and that is all.
+      expect(fake.calls.slice(before)).toEqual(['volume:100']);
+      expect(fake.getVolume()).toBe(100);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('gives the volume back when the game screen goes away at a finished wait, and leaves the clip paused', () => {
+      renderGame();
+      playTo(3850);
+      finishFadeOut();
+      const before = fake.calls.length;
+
+      cleanup();
+
+      expect(fake.calls.slice(before)).toEqual(['volume:100']);
     });
   });
 
