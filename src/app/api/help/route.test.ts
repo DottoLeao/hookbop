@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { callModel } from '@/lib/help/model';
+import { ModelError } from '@/lib/help/modelError';
 import { createServiceSupabase } from '@/lib/supabase/admin';
 import { createSupabaseHelpStore } from '@/lib/supabase/helpStore';
 import { createServerSupabase } from '@/lib/supabase/server';
@@ -10,6 +11,11 @@ vi.mock('@/lib/supabase/server', () => ({ createServerSupabase: vi.fn() }));
 vi.mock('@/lib/supabase/admin', () => ({ createServiceSupabase: vi.fn(() => ({ marker: 'service-client' })) }));
 vi.mock('@/lib/supabase/helpStore', () => ({ createSupabaseHelpStore: vi.fn() }));
 vi.mock('@/lib/help/model', () => ({ callModel: vi.fn() }));
+
+// Next's `after` only works inside a real request. Here it is a fake that takes its callback and runs nothing, unless
+// a test makes it behave like the platform's `waitUntil`.
+const after = vi.hoisted(() => vi.fn<(callback: () => unknown) => void>());
+vi.mock('next/server', () => ({ after }));
 
 // Invented lines, not lyrics.
 const ASK = {
@@ -53,6 +59,9 @@ function post() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  after.mockReset();
+  store.recordUsage.mockReset();
+  store.recordUsage.mockResolvedValue(undefined);
   vi.mocked(createSupabaseHelpStore).mockReturnValue(store);
   store.getVideo.mockResolvedValue({
     status: 'ok',
@@ -62,6 +71,7 @@ beforeEach(() => {
   });
   store.getCached.mockResolvedValue(null);
   store.reserve.mockResolvedValue(41);
+  store.release.mockResolvedValue(undefined);
   vi.mocked(callModel).mockResolvedValue({
     text: 'Barcos de papel num rio de luz',
     usage: { inputTokens: 210, outputTokens: 40 },
@@ -125,5 +135,126 @@ describe('POST /api/help', () => {
 
     expect((await post()).status).toBe(503);
     warn.mockRestore();
+  });
+});
+
+describe('POST /api/help usage log', () => {
+  /** What the route handed to `after`, which the platform would run once the response is out. */
+  const scheduled = () => after.mock.calls.map(([callback]) => callback);
+
+  it('writes the usage after the response, not before it', async () => {
+    sessionAs('user-1', true);
+
+    const response = await post();
+
+    expect(response.status).toBe(200);
+    expect(after).toHaveBeenCalledOnce();
+    expect(store.recordUsage).not.toHaveBeenCalled();
+
+    await scheduled()[0]();
+
+    expect(store.recordUsage).toHaveBeenCalledExactlyOnceWith({
+      userId: 'user-1',
+      youtubeId: 'aaaaaaaaaaa',
+      lineIndex: 0,
+      kind: 'translate',
+      source: 'model',
+      model: 'claude-haiku-5-5',
+      inputTokens: 210,
+      outputTokens: 40,
+      costUsd: 0.000041,
+      latencyMs: 800,
+      outcome: 'ok',
+    });
+  });
+
+  it('answers without waiting for the write, which still happens', async () => {
+    sessionAs('user-1', true);
+    // As the platform's waitUntil does: the callback starts now, and nobody waits for it. This write never ends.
+    after.mockImplementation((callback) => {
+      void callback();
+    });
+    store.recordUsage.mockReturnValue(new Promise(() => {}));
+
+    const response = await post();
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ content: 'Barcos de papel num rio de luz' });
+    expect(store.recordUsage).toHaveBeenCalledOnce();
+  });
+
+  it('answers the same when the write fails, and says so in the log without failing the callback', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    sessionAs('user-1', true);
+    const failure = new Error('db down');
+    store.recordUsage.mockRejectedValue(failure);
+    let writing: unknown;
+    after.mockImplementation((callback) => {
+      writing = callback();
+    });
+
+    const response = await post();
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ content: 'Barcos de papel num rio de luz' });
+    await expect(writing).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledExactlyOnceWith('Could not record the AI usage.', failure);
+    warn.mockRestore();
+  });
+
+  it('answers the same when after() cannot schedule the write', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    sessionAs('user-1', true);
+    after.mockImplementation(() => {
+      throw new Error('after was called outside a request scope');
+    });
+
+    const response = await post();
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ content: 'Barcos de papel num rio de luz' });
+    expect(warn).toHaveBeenCalledExactlyOnceWith('Could not record the AI usage.', expect.any(Error));
+    warn.mockRestore();
+  });
+
+  it('schedules the write for an answer from the cache, too', async () => {
+    sessionAs('user-1', true);
+    store.getCached.mockResolvedValue('Do cache.');
+
+    const response = await post();
+    await scheduled()[0]();
+
+    expect(response.status).toBe(200);
+    expect(callModel).not.toHaveBeenCalled();
+    expect(after).toHaveBeenCalledOnce();
+    expect(store.recordUsage).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ source: 'cache', inputTokens: 0, costUsd: 0, outcome: 'ok' }),
+    );
+  });
+
+  it('schedules the write for a call that failed, whose response is the failure', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    sessionAs('user-1', true);
+    vi.mocked(callModel).mockRejectedValue(new ModelError('The model service could not be reached'));
+
+    const response = await post();
+    await scheduled()[0]();
+
+    expect(response.status).toBe(503);
+    expect(store.release).toHaveBeenCalledExactlyOnceWith(41);
+    expect(after).toHaveBeenCalledOnce();
+    expect(store.recordUsage).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ source: 'model', inputTokens: 0, costUsd: 0, outcome: 'error' }),
+    );
+    warn.mockRestore();
+  });
+
+  it('writes nothing for a request that never reaches the model or the cache', async () => {
+    sessionAs('user-2', false);
+
+    await post();
+
+    expect(after).not.toHaveBeenCalled();
+    expect(store.recordUsage).not.toHaveBeenCalled();
   });
 });

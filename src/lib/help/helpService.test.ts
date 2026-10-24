@@ -368,6 +368,18 @@ describe('getHelp records its own usage', () => {
     expect(deps.release).toHaveBeenCalledExactlyOnceWith(RESERVATION);
   });
 
+  it.each([
+    ['the call got no answer', new ModelError('The model service could not be reached')],
+    ['the call failed in some other way', new Error('model down')],
+  ])('gives the reservation back before it records the usage when %s, so a slow log cannot hold the budget', async (_name, failure) => {
+    const deps = fakeDeps({ callModel: vi.fn(async () => Promise.reject(failure)) });
+
+    await expect(getHelp(USER, ASK, deps)).rejects.toBe(failure);
+
+    const [released, recorded] = callOrder(deps.release, deps.recordUsage);
+    expect(released).toBeLessThan(recorded);
+  });
+
   it('records a failure that is not a ModelError as an error with no tokens and no time', async () => {
     const failure = new Error('model down');
     const deps = fakeDeps({ callModel: vi.fn(async () => Promise.reject(failure)) });

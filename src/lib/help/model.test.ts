@@ -141,6 +141,32 @@ describe('callModel', () => {
     });
   });
 
+  it.each([
+    ['no usage at all', undefined, { inputTokens: 0, outputTokens: 0 }],
+    ['an empty usage', {}, { inputTokens: 0, outputTokens: 0 }],
+    ['no output tokens', { input_tokens: 50 }, { inputTokens: 50, outputTokens: 0 }],
+    ['no input tokens', { output_tokens: 20 }, { inputTokens: 0, outputTokens: 20 }],
+    ['null tokens', { input_tokens: null, output_tokens: null }, { inputTokens: 0, outputTokens: 0 }],
+  ])('still gives back the answer when the response has %s, counting 0 for what is missing', async (_name, given, counted) => {
+    create.mockResolvedValue(answer({ usage: given as unknown as Anthropic.Usage }));
+
+    const result = await callModel('s', 'u');
+
+    expect(result.text).toBe('Barcos de papel num rio de luz');
+    expect(result.usage).toEqual(counted);
+  });
+
+  it('keeps a refusal declined, not a TypeError that would give the budget back, when the response has no usage', async () => {
+    create.mockResolvedValue(answer({ stop_reason: 'refusal', usage: undefined }));
+
+    const failure = await callModel('s', 'u').catch((e: unknown) => e);
+
+    expect(failure).toBeInstanceOf(ModelError);
+    expect((failure as ModelError).declined).toBe(true);
+    expect((failure as ModelError).answered).toBe(true);
+    expect((failure as ModelError).usage).toEqual({ inputTokens: 0, outputTokens: 0 });
+  });
+
   it.each(['refusal', 'max_tokens', 'pause_turn', 'stop_sequence'] as const)(
     'carries the tokens and the time of the call on the error when the model stopped with %s, since it was billed',
     async (stopReason) => {

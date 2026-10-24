@@ -2,7 +2,7 @@ import 'server-only';
 import Anthropic from '@anthropic-ai/sdk';
 import type { ModelAnswer } from './helpService';
 import { ModelError } from './modelError';
-import { HELP_MODEL } from './pricing';
+import { HELP_MODEL, type TokenUsage } from './pricing';
 
 // The marker import above makes the build fail if a Client Component ever pulls this module in, so the key
 // (ANTHROPIC_API_KEY, which the SDK reads from the environment) is only ever read on the server.
@@ -30,6 +30,16 @@ function reasonOf(error: unknown): string {
   if (error instanceof Anthropic.APIConnectionError) return 'The model service could not be reached';
   if (error instanceof Anthropic.APIError) return `The model service answered ${error.status}`;
   return 'The model call failed';
+}
+
+/**
+ * The tokens an answer took, from `response.usage`. A response with no `usage`, or with a count missing, counts 0 for
+ * it: the usage log is no reason to lose an answer that was billed (it would become a failure that gives the budget
+ * back). The API always sends both, and the SDK types say so, but this reading only feeds the log.
+ */
+function tokensOf(response: Anthropic.Message): TokenUsage {
+  const usage: Partial<Anthropic.Usage> | undefined = response.usage;
+  return { inputTokens: usage?.input_tokens ?? 0, outputTokens: usage?.output_tokens ?? 0 };
 }
 
 /**
@@ -66,7 +76,7 @@ export async function callModel(system: string, user: string): Promise<ModelAnsw
 
   // The call, retries included, is over here; the rest is reading the answer.
   const latencyMs = Math.round(performance.now() - startedAt);
-  const usage = { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens };
+  const usage = tokensOf(response);
 
   const stopReason = response.stop_reason;
   if (stopReason === 'refusal' || stopReason === 'max_tokens') {
