@@ -14,6 +14,13 @@ export const PAUSE_LEAD_MS = 150;
 const SEEK_JUMP_MS = 1500;
 
 /**
+ * The furthest back the music goes to replay a line the fade ran into: the fade lasts 2000 ms (the game screen sets it)
+ * and the clock can be a tick or two late. A line further back than this was not heard in the fade, as when the stopped
+ * clip was scrubbed far ahead during the wait, so the music plays on from where it is.
+ */
+const WAY_BACK_MAX_MS = 3000;
+
+/**
  * `skipped`: the player went past the line without answering (a seek, or playing on from the player's own
  * controls during a wait). It still counts in the total and can still be answered, as a first try if it never was.
  * Like a miss with auto-repeat, it is waited for again when the clip plays through its line's end.
@@ -43,6 +50,12 @@ export interface GameState {
   playerState: PlayerState;
   /** `playerState` is `playing`. */
   playerPlaying: boolean;
+  /**
+   * The clip runs, as far as the player has told. `playing` sets it, `buffering` leaves it as it was (a stall in the
+   * middle of a play, or the start of one from a stopped clip), and any other state clears it. Starts set, like
+   * `playerState`. A `playing` during a wait with it cleared is the player's own play.
+   */
+  clipRunning: boolean;
   autoRepeat: boolean;
   score: ScoreState;
   /** What the screen must tell the player to do, produced by the last event only. */
@@ -81,6 +94,7 @@ export function initGame(p: { mode: Mode; lines: LyricLine[]; blanks: Blank[]; a
     lastTickMs: 0,
     playerState: 'playing',
     playerPlaying: true,
+    clipRunning: true,
     autoRepeat: p.autoRepeat,
     score: createScore(blanks.length),
     commands: [],
@@ -162,8 +176,9 @@ function skipPending(s: GameState, passed: (line: LyricLine) => boolean): Record
 function onTick(s: GameState, timeMs: number): GameState {
   const previousMs = s.lastTickMs;
   // The clip moves on by itself while it plays or buffers, so a jump then is a seek. A jump while it is stopped is not,
-  // nor one during a wait: the player's own controls end a wait through the player's state, and a stall of the
-  // clock during the fade must not skip the lines it jumps over.
+  // nor one during a wait: the clip only plays then to fade out, the player's own controls end a wait through the
+  // player's state (see `onPlayerState`), and a stall of the clock during the fade must not skip the lines it jumps
+  // over.
   const moving = s.playerState === 'playing' || s.playerState === 'buffering';
   const seeked = s.phase === 'playing' && moving && timeMs - previousMs > SEEK_JUMP_MS;
   const next: GameState = {
@@ -203,13 +218,17 @@ export function awaitsAnswer(s: GameState, blank: Blank): boolean {
 
 function onPlayerState(s: GameState, playerState: PlayerState): GameState {
   const playerPlaying = playerState === 'playing';
-  const next: GameState = { ...s, playerState, playerPlaying };
+  // `buffering` does not say whether the clip was running: `playing, buffering, playing` is a stall, and
+  // `paused, buffering, playing` is the player starting a stopped clip. So it leaves `clipRunning` as it was.
+  const clipRunning = playerState === 'buffering' ? s.clipRunning : playerPlaying;
+  const next: GameState = { ...s, playerState, playerPlaying, clipRunning };
   if (playerState === 'ended') return onClipEnded(next);
 
-  // The game never plays during a wait, so a stopped player that starts again was started from its own controls:
-  // the player moves on. A `playing` while it already played (the clip still plays the fade, or a late or repeated
-  // report around the game's own pause) is not that.
-  if (playerPlaying && s.phase === 'waiting' && !s.playerPlaying) {
+  // The game never plays during a wait, so a clip that was stopped and plays again was started from the player's own
+  // controls: the player moves on, and the music comes back up, as the fade left its volume at 0. A `playing` while
+  // the clip was running (it still plays the fade, it stalled and went on, or a late or repeated report around the
+  // game's own pause) is not that.
+  if (playerPlaying && s.phase === 'waiting' && !s.clipRunning) {
     // The blanks at or past their pause point are skipped; one dragged back before it stays pending and pauses
     // there again.
     return {
@@ -217,6 +236,7 @@ function onPlayerState(s: GameState, playerState: PlayerState): GameState {
       status: skipPending(s, (line) => s.lastTickMs >= line.endMs - PAUSE_LEAD_MS),
       phase: 'playing',
       waitingBlankId: null,
+      commands: [playWithFade()],
     };
   }
   return next;
@@ -241,14 +261,14 @@ function attemptKind(s: GameState, blankId: string): AttemptKind {
 }
 
 /**
- * Whether an answer came before its line ended. While a wait holds for the line, the clip plays on only to fade out and
- * then stands still, so its clock says nothing about how fast the player was: the answer counts as given at the
- * start of the wait at the latest.
+ * Whether an answer came before its line ended: while a wait holds for the line, or when `atMs` is before the end.
+ * During the wait the clip plays on only to fade out and then stands still, so its clock says nothing about how fast
+ * the player was. A wait held after the clip ended (an old pending blank left behind) is not that, the clip did not
+ * stop there, so it keeps the clock's word.
  */
 function answeredBeforeLineEnd(s: GameState, blank: Blank, atMs: number): boolean {
-  const line = lineOf(s, blank);
-  const inTheWait = waitedBlank(s)?.lineIndex === blank.lineIndex;
-  return (inTheWait ? Math.min(atMs, line.endMs - PAUSE_LEAD_MS) : atMs) < line.endMs;
+  const waitedOnItsLine = waitedBlank(s)?.lineIndex === blank.lineIndex && s.playerState !== 'ended';
+  return waitedOnItsLine || atMs < lineOf(s, blank).endMs;
 }
 
 /**
@@ -297,18 +317,20 @@ function continueWait(s: GameState): GameState {
 
 /**
  * The music after a wait. It comes back from where the fade stopped it, unless the fade went into a later line that
- * has a blank awaiting an answer (see `lineToReplay`): then it comes back from the start of that line.
+ * has a blank awaiting an answer (see `lineToReplay`) and that line starts at most `WAY_BACK_MAX_MS` before the clock:
+ * then it comes back from the start of that line.
  */
 function releaseMusic(s: GameState, waited: Blank | undefined): Command[] {
   const replay = waited && lineToReplay(s, waited.lineIndex);
-  return replay ? [{ type: 'seek', ms: replay.startMs }, playWithFade()] : [playWithFade()];
+  const goBack = replay && s.lastTickMs - replay.startMs <= WAY_BACK_MAX_MS;
+  return goBack ? [{ type: 'seek', ms: replay.startMs }, playWithFade()] : [playWithFade()];
 }
 
 /**
  * The clip plays on while the music fades out, so the clock may have gone from the waited line into the next ones, and
  * the player heard their first words with no way to answer. The earliest of those lines with a blank awaiting an
- * answer is the one to play again from its start (a jump back of about 2 s at most), so no blank goes by inside a
- * fade, not even in a line shorter than the fade. A line the clock only just reached has not been heard yet.
+ * answer is the one to play again from its start, so no blank goes by inside a fade, not even in a line shorter than
+ * the fade (`releaseMusic` limits how far back that may be). A line the clock only just reached has not been heard yet.
  */
 function lineToReplay(s: GameState, waitedLineIndex: number): LyricLine | undefined {
   let earliest: LyricLine | undefined;

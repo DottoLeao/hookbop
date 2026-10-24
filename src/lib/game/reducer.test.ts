@@ -79,6 +79,7 @@ describe('initGame', () => {
       lastTickMs: 0,
       playerState: 'playing',
       playerPlaying: true,
+      clipRunning: true,
       autoRepeat: false,
       score: createScore(2),
       commands: [],
@@ -388,7 +389,8 @@ describe('waiting again for a skipped blank or a miss (R37)', () => {
 
     const resumed = run(rewaiting, player('paused'), player('playing'));
     expect(resumed.phase).toBe('playing');
-    expect(resumed.commands).toEqual([]);
+    // The fade left the volume at 0: the music comes back up.
+    expect(resumed.commands).toEqual([{ type: 'play', fade: true }]);
     // A pause on any of these ticks would leave the phase at waiting.
     expect(run(resumed, tick(3950), tick(4050), tick(4150)).phase).toBe('playing');
   });
@@ -408,9 +410,16 @@ describe('the fade at a wait (spec §1)', () => {
     { index: 2, startMs: 5800, endMs: 9800, text: 'We sail with the tide' },
   ];
 
-  /** The wait of line 0 starts at 3850 and the clip plays on, ticking every 100 ms up to `untilMs`. */
+  /**
+   * The wait of line 0 starts at 3850 and the clip plays on, ticking every 100 ms up to `untilMs`. The default is a
+   * full 2 s past the line end.
+   */
+  function throughTheFade(untilMs = 6000): GameEvent[] {
+    return [tick(3850), tick(3900), ...ticksBetween(3900, untilMs)];
+  }
+
   function fading(setup: Partial<Setup>, untilMs = 6000): GameState {
-    return run(game(setup), tick(3850), ...ticksBetween(3850, untilMs));
+    return run(game(setup), ...throughTheFade(untilMs));
   }
 
   describe('the wait', () => {
@@ -422,15 +431,17 @@ describe('the fade at a wait (spec §1)', () => {
     });
 
     it('goes on, on the same blank and with no new command, while the clip plays the fade', () => {
-      let s = run(game({ lines: SHORT_LINES, blanks: [LET, BOAT, SAIL] }), tick(3850));
-      for (const event of ticksBetween(3850, 6000)) {
+      const [start, ...fade] = throughTheFade(6000);
+      let s = run(game({ lines: SHORT_LINES, blanks: [LET, BOAT, SAIL] }), start);
+      expect(s.commands).toEqual([{ type: 'pause', fade: true }]);
+      for (const event of fade) {
         s = gameReducer(s, event);
         expect(s.commands).toEqual([]);
       }
       expect(s.phase).toBe('waiting');
       expect(s.waitingBlankId).toBe('0:2');
       expect(s.status).toEqual({ '0:2': 'pending', '1:3': 'pending', '2:1': 'pending' });
-      expect(s.lastTickMs).toBe(5950); // the last tick of the 100 ms steps from 3850 that is not past 6000
+      expect(s.lastTickMs).toBe(LINES[0].endMs + 2000);
     });
 
     it('does not take a stalled clock for a seek: nothing is skipped, not even the lines it jumps over', () => {
@@ -453,7 +464,23 @@ describe('the fade at a wait (spec §1)', () => {
       const s = run(fading({ blanks: [LET, BOAT] }), player('paused'), player('playing'));
       expect(s.phase).toBe('playing');
       expect(s.status['0:2']).toBe('skipped');
+      // The fade left the volume at 0: the music comes back up.
+      expect(s.commands).toEqual([{ type: 'play', fade: true }]);
+    });
+
+    it('a buffering blip while the clip plays the fade does not end the wait (ruling S8)', () => {
+      const blip = run(fading({ blanks: [LET] }), player('buffering'));
+      expect(blip.commands).toEqual([]);
+
+      const s = run(blip, player('playing'));
+      expect(s.phase).toBe('waiting');
+      expect(s.waitingBlankId).toBe('0:2');
+      expect(s.status).toEqual({ '0:2': 'pending' });
       expect(s.commands).toEqual([]);
+      expect(s.clipRunning).toBe(true);
+
+      // And the wait still ends the usual way, with the answer.
+      expect(run(s, answer('0:2', true, 6000)).commands).toEqual([{ type: 'play', fade: true }]);
     });
   });
 
@@ -475,8 +502,7 @@ describe('the fade at a wait (spec §1)', () => {
       const s = run(
         game({ lines: GAP_LINES, blanks: [LET, BOAT] }),
         answer('1:3', true, 2000),
-        tick(3850),
-        ...ticksBetween(3850, 6000),
+        ...throughTheFade(6000),
         answer('0:2', true, 6000),
       );
       expect(s.commands).toEqual([{ type: 'play', fade: true }]);
@@ -486,8 +512,7 @@ describe('the fade at a wait (spec §1)', () => {
       const s = run(
         game({ lines: GAP_LINES, blanks: [LET, BOAT], autoRepeat: false }),
         answer('1:3', false, 2000),
-        tick(3850),
-        ...ticksBetween(3850, 6000),
+        ...throughTheFade(6000),
         answer('0:2', true, 6000),
       );
       expect(s.commands).toEqual([{ type: 'play', fade: true }]);
@@ -503,8 +528,7 @@ describe('the fade at a wait (spec §1)', () => {
         tick(1500),
         tick(2500),
         tick(3500),
-        tick(3850),
-        ...ticksBetween(3850, 6000),
+        ...throughTheFade(6000),
         answer('0:2', true, 6000),
       );
       expect(skipped.status['1:3']).toBe('skipped');
@@ -513,8 +537,7 @@ describe('the fade at a wait (spec §1)', () => {
       const missed = run(
         game({ lines: GAP_LINES, blanks: [LET, BOAT] }),
         answer('1:3', false, 2000),
-        tick(3850),
-        ...ticksBetween(3850, 6000),
+        ...throughTheFade(6000),
         answer('0:2', true, 6000),
       );
       expect(missed.status['1:3']).toBe('wrong');
@@ -543,29 +566,56 @@ describe('the fade at a wait (spec §1)', () => {
       const s = run(
         game({ lines: SHORT_LINES, blanks: [LET, BOAT, SAIL] }),
         answer('1:3', true, 2000),
-        tick(3850),
-        ...ticksBetween(3850, 6200),
+        ...throughTheFade(6200),
         answer('0:2', true, 6200),
       );
       expect(s.commands).toEqual([{ type: 'seek', ms: 5800 }, { type: 'play', fade: true }]);
     });
 
     it('does not go back to a line before the waited one, even if its blank is still open', () => {
+      // Line 0 ended 1.5 s before line 1 starts: close enough to be within the way back, if it were a candidate.
+      const CLOSE_LINES: LyricLine[] = [
+        { index: 0, startMs: 1000, endMs: 2000, text: "Grandpa won't let geese drive" },
+        { index: 1, startMs: 2300, endMs: 3500, text: 'Row the small boat home' },
+      ];
       const waitingOnLine1 = run(
-        game({ lines: GAP_LINES, blanks: [LET, BOAT] }),
+        game({ lines: CLOSE_LINES, blanks: [LET, BOAT] }),
         // A seek over line 0 skips its blank, then the clip plays through line 1 up to its wait.
-        tick(1000),
-        tick(4400),
-        tick(5400),
-        tick(6400),
-        tick(7400),
-        tick(8150),
+        tick(2500),
+        tick(3000),
+        tick(3350),
       );
       expect(waitingOnLine1.waitingBlankId).toBe('1:3');
       expect(waitingOnLine1.status['0:2']).toBe('skipped');
 
-      const s = run(waitingOnLine1, ...ticksBetween(8150, 10100), answer('1:3', true, 10100));
+      const s = run(waitingOnLine1, tick(3450), answer('1:3', true, 3450));
       expect(s.commands).toEqual([{ type: 'play', fade: true }]);
+    });
+
+    it('does not go back for a line the fade cannot have reached: a stopped clip scrubbed far ahead (S10)', () => {
+      const s = run(
+        game({ blanks: [LET, BOAT] }),
+        tick(3850),
+        player('paused'),
+        tick(30000), // scrubbed to 30 s with the clip stopped: not a seek, so the blank stays open
+        answer('0:2', true, 3900),
+      );
+      expect(s.status['1:3']).toBe('pending');
+      expect(s.commands).toEqual([{ type: 'play', fade: true }]);
+    });
+
+    it('the way back is at most 3000 ms: that far back it goes, one ms further it does not', () => {
+      const afterScrubTo = (timeMs: number) =>
+        run(
+          game({ lines: GAP_LINES, blanks: [LET, BOAT] }),
+          tick(3850),
+          player('paused'),
+          tick(timeMs),
+          answer('0:2', true, 3900),
+        ).commands;
+
+      expect(afterScrubTo(4300 + 3000)).toEqual([{ type: 'seek', ms: 4300 }, { type: 'play', fade: true }]);
+      expect(afterScrubTo(4300 + 3001)).toEqual([{ type: 'play', fade: true }]);
     });
 
     it('a line shorter than the fade is heard again, and then waits for its own blank', () => {
@@ -650,26 +700,36 @@ describe('the fade at a wait (spec §1)', () => {
     it('outside a wait, an answer at or after the line end is still late', () => {
       expect(lastRecord(run(game(), answer('0:2', true, 4000)))?.beforeLineEnd).toBe(false);
     });
+
+    it('a wait held after the clip ended earns no bonus for an answer at or after the line end (ruling S11)', () => {
+      // The clip runs out in the last line, before its pause point: the wait holds for the blank with no fade.
+      const waiting = run(game({ blanks: [SAIL] }), tick(10000), tick(11000), tick(11800), player('ended'));
+      expect(waiting.phase).toBe('waiting');
+
+      const late = run(waiting, answer('2:1', true, 12500));
+      expect(lastRecord(late)).toEqual({ blankId: '2:1', kind: 'first', correct: true, beforeLineEnd: false });
+      expect(late.score.xp).toBe(10);
+
+      // Before the line end it is early, as ever.
+      expect(lastRecord(run(waiting, answer('2:1', true, 11900)))?.beforeLineEnd).toBe(true);
+    });
   });
 });
 
 describe('RESYNC', () => {
-  it('moves the clock to a clip that was stopped far from it, without skipping a blank', () => {
-    const stopped = run(game({ blanks: [LET, BOAT] }), player('paused'), tick(10000));
-    expect(stopped.lastTickMs).toBe(10000);
+  it('moves the clock to where the clip really is without taking the jump for a seek, while the clip plays', () => {
+    // The same jump as a tick is a seek: it skips both lines.
+    const seeked = run(game({ blanks: [LET, BOAT] }), tick(1000), tick(40000));
+    expect(seeked.status).toEqual({ '0:2': 'skipped', '1:3': 'skipped' });
 
-    const s = run(stopped, resync(40000));
+    const s = run(game({ blanks: [LET, BOAT] }), tick(1000), resync(40000));
     expect(s.lastTickMs).toBe(40000);
     expect(s.status).toEqual({ '0:2': 'pending', '1:3': 'pending' });
     expect(s.phase).toBe('playing');
     expect(s.commands).toEqual([]);
   });
 
-  it('is not taken for a seek, even while the clip plays, and the next tick is not one either', () => {
-    // The same jump as a tick is a seek.
-    const seeked = run(game({ blanks: [LET, BOAT] }), tick(1000), tick(40000));
-    expect(seeked.status).toEqual({ '0:2': 'skipped', '1:3': 'skipped' });
-
+  it('makes the next tick a normal step: it is not a seek either, and it waits for nothing', () => {
     const s = run(game({ blanks: [LET, BOAT] }), tick(1000), resync(40000), tick(40100));
     expect(s.lastTickMs).toBe(40100);
     expect(s.status).toEqual({ '0:2': 'pending', '1:3': 'pending' });
@@ -849,6 +909,50 @@ describe('player state', () => {
     expect(s.playerPlaying).toBe(playing);
   });
 
+  describe('clipRunning (ruling S8)', () => {
+    it.each<[string, PlayerState[], boolean]>([
+      ['playing sets it', ['paused', 'playing'], true],
+      ['paused clears it', ['paused'], false],
+      ['unstarted clears it', ['unstarted'], false],
+      ['ended clears it', ['ended'], false],
+      ['buffering leaves it set', ['playing', 'buffering'], true],
+      ['buffering leaves it cleared', ['paused', 'buffering'], false],
+      ['buffering again leaves it cleared', ['paused', 'buffering', 'buffering'], false],
+      ['playing after a stop sets it again', ['playing', 'buffering', 'paused', 'buffering', 'playing'], true],
+    ])('%s', (_, states, running) => {
+      const s = run(game({ blanks: [] }), ...states.map(player));
+      expect(s.clipRunning).toBe(running);
+    });
+
+    it('buffering on, then playing again, after the clip was stopped is the player starting it', () => {
+      const s = run(game(), tick(3850), player('paused'), player('buffering'), player('playing'));
+      expect(s.phase).toBe('playing');
+      expect(s.status['0:2']).toBe('skipped');
+      expect(s.commands).toEqual([{ type: 'play', fade: true }]);
+    });
+
+    it('a blip after the clip was stopped and started over is the player starting it too', () => {
+      const s = run(
+        game(),
+        tick(3850),
+        player('buffering'),
+        player('paused'),
+        player('buffering'),
+        player('playing'),
+      );
+      expect(s.phase).toBe('playing');
+      expect(s.status['0:2']).toBe('skipped');
+      expect(s.commands).toEqual([{ type: 'play', fade: true }]);
+    });
+
+    it('a stopped clip that only buffers does not end the wait until it plays', () => {
+      const s = run(game(), tick(3850), player('paused'), player('buffering'));
+      expect(s.phase).toBe('waiting');
+      expect(s.waitingBlankId).toBe('0:2');
+      expect(s.commands).toEqual([]);
+    });
+  });
+
   it('a late playing right after the game pause is not the player resuming', () => {
     const s = run(game(), tick(3850), player('playing'));
     expect(s.phase).toBe('waiting');
@@ -862,7 +966,8 @@ describe('player state', () => {
     expect(resumed.status['0:2']).toBe('skipped');
     expect(resumed.phase).toBe('playing');
     expect(resumed.waitingBlankId).toBeNull();
-    expect(resumed.commands).toEqual([]);
+    // The fade left the volume at 0: the music comes back up (ruling S9).
+    expect(resumed.commands).toEqual([{ type: 'play', fade: true }]);
     expect(run(resumed, tick(3950)).commands).toEqual([]);
 
     expect(lastRecord(run(resumed, answer('0:2', true, 4500)))?.kind).toBe('first');
