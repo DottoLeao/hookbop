@@ -4,11 +4,13 @@ import { t } from '@/i18n/t';
 import { formatDuration } from '@/lib/format';
 import { cleanTitle } from '@/lib/lyrics/cleanTitle';
 import type { VideoRecord } from '@/lib/lyrics/resolveSong';
+import { SongThumb } from './SongThumb';
 
 /**
  * A song somebody played, as a card that opens it (design/canvas/Componentes.dc.html, "Cartões"). The whole card is
- * the link, and "Jogar" is the look of it. The thumbnail is a disc, not the video's picture: a card should not call
- * YouTube just to be listed, twenty times over, before anyone chose to play.
+ * the link, and "Jogar" is the look of it. Its picture is the video's own thumbnail (`SongThumb`), which loads only once
+ * the card comes on screen, so a long list does not call YouTube twenty times over before anyone scrolls to it. The
+ * disc stands in when there is no picture.
  */
 export function SongCard({ video }: { video: VideoRecord }) {
   const { artist, track } = cleanTitle(video.title, video.channel);
@@ -18,13 +20,7 @@ export function SongCard({ video }: { video: VideoRecord }) {
       href={`/jogar/${encodeURIComponent(video.youtubeId)}`}
       className={`flex min-h-17 items-center gap-3 rounded-card bg-card p-3 ${focusRing}`}
     >
-      <span aria-hidden="true" className="flex h-[45px] w-20 shrink-0 items-center justify-center rounded-blank bg-border">
-        <svg width="28" height="28" viewBox="0 0 44 44" focusable="false">
-          <circle cx="22" cy="22" r="21" fill="#26262C" />
-          <circle cx="22" cy="22" r="14" fill="none" stroke="#6E6E78" strokeWidth="1.5" opacity="0.6" />
-          <circle cx="22" cy="22" r="5" fill="#C8FF2E" />
-        </svg>
-      </span>
+      <SongThumb youtubeId={video.youtubeId} title={track} />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate text-lyric font-bold">{track}</span>
         <span className="truncate text-label text-muted">

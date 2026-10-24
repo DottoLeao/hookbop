@@ -36,6 +36,14 @@ describe('PrivacidadePage', () => {
     expect(screen.getByText(/só o verso da música e a palavra destacada/)).toBeInTheDocument();
   });
 
+  it('says the player and the covers of the songs on the home screen both come from YouTube', () => {
+    render(<PrivacidadePage />);
+
+    const youtube = screen.getByText(/^YouTube:/);
+    expect(youtube).toHaveTextContent('os clipes tocam no player oficial do YouTube');
+    expect(youtube).toHaveTextContent('As capinhas das músicas na tela inicial também vêm do YouTube.');
+  });
+
   it('says how to reach the person responsible, with a mail link', () => {
     render(<PrivacidadePage />);
 

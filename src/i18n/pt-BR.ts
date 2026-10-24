@@ -21,6 +21,8 @@ export const ptBR = {
   'home.songsTitle': 'Músicas da galera',
   // No cartão de uma música: o artista e quanto ela dura.
   'home.songMeta': '{artista} · {duracao}',
+  // A capinha de uma música no cartão: o texto alternativo da imagem.
+  'home.songThumbAlt': 'Capinha de {musica}',
   'home.songsError': 'Não deu pra carregar as músicas agora.',
   // Ninguém jogou ainda: o DJ Bop convida a colar a primeira.
   'home.empty': 'Tá silêncio por aqui. Cola a primeira!',
@@ -252,7 +254,7 @@ export const ptBR = {
   'privacidade.terceiros.anthropic':
     'Anthropic (Claude): quando você toca em "Não entendi" ou "Traduzir verso", enviamos só o verso da música e a palavra destacada. Nenhum dado seu vai junto.',
   'privacidade.terceiros.youtube':
-    'YouTube: os clipes tocam no player oficial do YouTube, que segue a política de privacidade do Google.',
+    'YouTube: os clipes tocam no player oficial do YouTube, que segue a política de privacidade do Google. As capinhas das músicas na tela inicial também vêm do YouTube.',
   'privacidade.terceiros.lrclib': 'LRCLIB: é onde buscamos a letra sincronizada, pelo nome da música. Nenhum dado seu vai junto.',
 
   'privacidade.membros.title': 'O que os outros membros veem',
