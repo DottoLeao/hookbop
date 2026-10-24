@@ -4,8 +4,11 @@ import { tokenize } from './blanks';
 import { createScore, recordAnswer, summarize, type ScoreState } from './scoring';
 import { isNextTileCorrect } from './tiles';
 
-/** The clip pauses this long before the end of a line that still has a blank with no answer. */
-const PAUSE_LEAD_MS = 150;
+/**
+ * A wait starts this long before the end of a line that still has a blank with no answer. The music does not stop
+ * there: it fades out for about 2 s, so the lead says when the wait begins, not when the clip is stopped.
+ */
+export const PAUSE_LEAD_MS = 150;
 
 /** A forward step longer than this between two ticks, while the player plays, is a seek: ticks come every 100 ms. */
 const SEEK_JUMP_MS = 1500;
@@ -26,7 +29,10 @@ export interface GameState {
   hinted: Record<string, boolean>;
   /** Montar only: the words already placed, in the line's own spelling, always the start of the line. */
   tilesPlaced: Record<string, string[]>;
-  /** `waiting`: the clip is paused at the end of a line, or has ended, until the line's blanks are answered. */
+  /**
+   * `waiting`: the clip fades out and stops at the end of a line, or has ended, until the line's blanks are answered.
+   * It plays on during the fade, so `lastTickMs` can go past the line end and into the lines that follow.
+   */
   phase: 'playing' | 'waiting' | 'ended';
   waitingBlankId: string | null;
   lastTickMs: number;
@@ -52,6 +58,8 @@ export type GameEvent =
   | { type: 'TILE'; blankId: string; word: string; atMs: number }
   | { type: 'HINT'; blankId: string }
   | { type: 'REPEAT_LINE' }
+  // The clock is set to where the clip really is, after a stretch with no ticks. Not a seek: nothing is skipped.
+  | { type: 'RESYNC'; timeMs: number }
   | { type: 'SET_RATE'; rate: 0.75 | 1 };
 
 /**
@@ -107,6 +115,8 @@ export function gameReducer(s: GameState, e: GameEvent): GameState {
     }
     case 'REPEAT_LINE':
       return onRepeatLine(next);
+    case 'RESYNC':
+      return { ...next, lastTickMs: e.timeMs };
     case 'SET_RATE':
       return { ...next, commands: [{ type: 'rate', rate: e.rate }] };
   }
@@ -118,6 +128,16 @@ export function summaryOf(s: GameState): PlaySummary {
 
 function lineOf(s: GameState, blank: Blank): LyricLine {
   return s.lines[blank.lineIndex];
+}
+
+/** The blank a wait holds for, while the game waits. */
+function waitedBlank(s: GameState): Blank | undefined {
+  return s.phase === 'waiting' ? s.blanks.find((blank) => blank.id === s.waitingBlankId) : undefined;
+}
+
+/** The music coming back: it plays, and its volume rises. */
+function playWithFade(): Command {
+  return { type: 'play', fade: true };
 }
 
 /** The blank with that id while it can still be answered, that is, until it is right. */
@@ -136,13 +156,16 @@ function skipPending(s: GameState, passed: (line: LyricLine) => boolean): Record
 
 /**
  * A forward seek skips the blanks of the lines it jumped over (R4). Then, while the clip plays, the first blank
- * that is due pauses it (R3, R37).
+ * that is due starts a wait and fades the music out (R3, R37). During the wait the ticks only move the clock: the clip
+ * plays on for the fade, and that must not start another wait or skip a blank.
  */
 function onTick(s: GameState, timeMs: number): GameState {
   const previousMs = s.lastTickMs;
-  // The clip moves on by itself while it plays or buffers, so a jump then is a seek. A jump while it is stopped is not.
+  // The clip moves on by itself while it plays or buffers, so a jump then is a seek. A jump while it is stopped is not,
+  // nor one during a wait: the player's own controls end a wait through the player's state, and a stall of the
+  // clock during the fade must not skip the lines it jumps over.
   const moving = s.playerState === 'playing' || s.playerState === 'buffering';
-  const seeked = moving && timeMs - previousMs > SEEK_JUMP_MS;
+  const seeked = s.phase === 'playing' && moving && timeMs - previousMs > SEEK_JUMP_MS;
   const next: GameState = {
     ...s,
     status: seeked ? skipPending(s, (line) => line.endMs <= timeMs) : s.status,
@@ -151,13 +174,13 @@ function onTick(s: GameState, timeMs: number): GameState {
   if (next.phase !== 'playing' || !next.playerPlaying) return next;
 
   const due = next.blanks.find((blank) => pausesAt(next, blank, previousMs, timeMs, seeked));
-  return due ? { ...next, phase: 'waiting', waitingBlankId: due.id, commands: [{ type: 'pause' }] } : next;
+  return due ? { ...next, phase: 'waiting', waitingBlankId: due.id, commands: [{ type: 'pause', fade: true }] } : next;
 }
 
 /**
- * Whether the blank pauses the clip on a tick from `previousMs` to `timeMs`. A pending blank pauses once its line is
+ * Whether the blank starts a wait on a tick from `previousMs` to `timeMs`. A pending blank does once its line is
  * 150 ms or less from its end, unless the line had already ended by the previous tick: one left behind while the
- * player was stopped never pauses the clip further on. A skipped blank, or a miss with auto-repeat, waits again only
+ * player was stopped never waits further on. A skipped blank, or a miss with auto-repeat, waits again only
  * when the clip plays through that point, never on a seek.
  */
 function pausesAt(s: GameState, blank: Blank, previousMs: number, timeMs: number, seeked: boolean): boolean {
@@ -184,8 +207,8 @@ function onPlayerState(s: GameState, playerState: PlayerState): GameState {
   if (playerState === 'ended') return onClipEnded(next);
 
   // The game never plays during a wait, so a stopped player that starts again was started from its own controls:
-  // the player moves on. A `playing` while it already played is a late or repeated report around the game's own
-  // pause, not that.
+  // the player moves on. A `playing` while it already played (the clip still plays the fade, or a late or repeated
+  // report around the game's own pause) is not that.
   if (playerPlaying && s.phase === 'waiting' && !s.playerPlaying) {
     // The blanks at or past their pause point are skipped; one dragged back before it stays pending and pauses
     // there again.
@@ -218,8 +241,20 @@ function attemptKind(s: GameState, blankId: string): AttemptKind {
 }
 
 /**
+ * Whether an answer came before its line ended. While a wait holds for the line, the clip plays on only to fade out and
+ * then stands still, so its clock says nothing about how fast the player was: the answer counts as given at the
+ * start of the wait at the latest.
+ */
+function answeredBeforeLineEnd(s: GameState, blank: Blank, atMs: number): boolean {
+  const line = lineOf(s, blank);
+  const inTheWait = waitedBlank(s)?.lineIndex === blank.lineIndex;
+  return (inTheWait ? Math.min(atMs, line.endMs - PAUSE_LEAD_MS) : atMs) < line.endMs;
+}
+
+/**
  * Records an answer and moves the clip on. A miss with auto-repeat plays its line again from the start. Any other
- * miss plays on, and the blank stays answerable. A hit sends nothing unless it ends a wait.
+ * miss plays on, and the blank stays answerable. A hit sends nothing unless it ends a wait. Whenever the music plays
+ * again, its volume rises.
  */
 function settle(s: GameState, blank: Blank, correct: boolean, atMs: number): GameState {
   const line = lineOf(s, blank);
@@ -227,7 +262,7 @@ function settle(s: GameState, blank: Blank, correct: boolean, atMs: number): Gam
     blankId: blank.id,
     kind: attemptKind(s, blank.id),
     correct,
-    beforeLineEnd: atMs < line.endMs,
+    beforeLineEnd: answeredBeforeLineEnd(s, blank, atMs),
   };
   const next: GameState = {
     ...s,
@@ -241,23 +276,48 @@ function settle(s: GameState, blank: Blank, correct: boolean, atMs: number): Gam
       ...next,
       phase: 'playing',
       waitingBlankId: null,
-      commands: [{ type: 'seek', ms: line.startMs }, { type: 'play' }],
+      commands: [{ type: 'seek', ms: line.startMs }, playWithFade()],
     };
   }
   if (next.phase === 'waiting') return continueWait(next);
-  return correct ? next : { ...next, commands: [{ type: 'play' }] };
+  return correct ? next : { ...next, commands: [playWithFade()] };
 }
 
 /**
  * After an answer during a wait: it goes on while the paused line still has a blank that awaits an answer. Then the
- * clip plays again or, once it has ended, the game ends.
+ * music is let go or, once the clip has ended, the game ends.
  */
 function continueWait(s: GameState): GameState {
-  const waitingLine = s.blanks.find((blank) => blank.id === s.waitingBlankId)?.lineIndex;
-  const unanswered = s.blanks.find((blank) => blank.lineIndex === waitingLine && awaitsAnswer(s, blank));
+  const waited = waitedBlank(s);
+  const unanswered = s.blanks.find((blank) => blank.lineIndex === waited?.lineIndex && awaitsAnswer(s, blank));
   if (unanswered) return { ...s, waitingBlankId: unanswered.id };
   if (s.playerState === 'ended') return { ...s, phase: 'ended', waitingBlankId: null };
-  return { ...s, phase: 'playing', waitingBlankId: null, commands: [{ type: 'play' }] };
+  return { ...s, phase: 'playing', waitingBlankId: null, commands: releaseMusic(s, waited) };
+}
+
+/**
+ * The music after a wait. It comes back from where the fade stopped it, unless the fade went into a later line that
+ * has a blank awaiting an answer (see `lineToReplay`): then it comes back from the start of that line.
+ */
+function releaseMusic(s: GameState, waited: Blank | undefined): Command[] {
+  const replay = waited && lineToReplay(s, waited.lineIndex);
+  return replay ? [{ type: 'seek', ms: replay.startMs }, playWithFade()] : [playWithFade()];
+}
+
+/**
+ * The clip plays on while the music fades out, so the clock may have gone from the waited line into the next ones, and
+ * the player heard their first words with no way to answer. The earliest of those lines with a blank awaiting an
+ * answer is the one to play again from its start (a jump back of about 2 s at most), so no blank goes by inside a
+ * fade, not even in a line shorter than the fade. A line the clock only just reached has not been heard yet.
+ */
+function lineToReplay(s: GameState, waitedLineIndex: number): LyricLine | undefined {
+  let earliest: LyricLine | undefined;
+  for (const blank of s.blanks) {
+    const line = lineOf(s, blank);
+    const heard = blank.lineIndex > waitedLineIndex && line.startMs < s.lastTickMs;
+    if (heard && awaitsAnswer(s, blank) && (!earliest || line.startMs < earliest.startMs)) earliest = line;
+  }
+  return earliest;
 }
 
 /**
@@ -291,13 +351,13 @@ function onHint(s: GameState, blank: Blank): GameState {
  * blanks pause it again at its end.
  */
 function onRepeatLine(s: GameState): GameState {
-  const waiting = s.phase === 'waiting' ? s.blanks.find((blank) => blank.id === s.waitingBlankId) : undefined;
-  const line = waiting ? lineOf(s, waiting) : s.lines.findLast((l) => l.startMs <= s.lastTickMs);
+  const waited = waitedBlank(s);
+  const line = waited ? lineOf(s, waited) : s.lines.findLast((l) => l.startMs <= s.lastTickMs);
   if (!line) return s;
   return {
     ...s,
     phase: 'playing',
     waitingBlankId: null,
-    commands: [{ type: 'seek', ms: line.startMs }, { type: 'play' }],
+    commands: [{ type: 'seek', ms: line.startMs }, playWithFade()],
   };
 }

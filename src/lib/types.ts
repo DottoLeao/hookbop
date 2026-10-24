@@ -6,4 +6,12 @@ export interface Blank { id: string; lineIndex: number; tokenIndex: number; answ
 export type AttemptKind = 'first' | 'retry' | 'helped';
 export interface AnswerRecord { blankId: string; kind: AttemptKind; correct: boolean; beforeLineEnd: boolean }
 export interface PlaySummary { totalBlanks: number; firstTryCorrect: number; pct: number; maxCombo: number; xp: number }
-export type Command = { type: 'pause' } | { type: 'play' } | { type: 'seek'; ms: number } | { type: 'rate'; rate: 0.75 | 1 };
+/**
+ * What the game tells the player to do. `fade` on a pause or a play: the volume goes down before the pause, and comes
+ * back up as the music plays. Without it the command is plain, as when the page is hidden.
+ */
+export type Command =
+  | { type: 'pause'; fade?: boolean }
+  | { type: 'play'; fade?: boolean }
+  | { type: 'seek'; ms: number }
+  | { type: 'rate'; rate: 0.75 | 1 };
