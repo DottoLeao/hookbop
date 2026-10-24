@@ -2,8 +2,10 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { tokenize } from '@/lib/game/blanks';
 import { makeDistractors } from '@/lib/game/distractors';
+import { BrokenStorage, MemoryStorage } from '@/lib/game/fakeStorage';
 import { WAY_BACK_MAX_MS } from '@/lib/game/reducer';
 import { seededRng, shuffled } from '@/lib/game/rng';
+import { loadProgress, saveProgress, type SavedProgress } from '@/lib/game/savedProgress';
 import { playHit, playMiss } from '@/lib/game/sfx';
 import { makeTiles, tileSeed } from '@/lib/game/tiles';
 import { FADE_IN_MS, FADE_OUT_MS } from '@/lib/game/timing';
@@ -2242,6 +2244,383 @@ describe('GameScreen: the end', () => {
 
     fireEvent.click(option('let'));
     expect(onEnd).toHaveBeenCalledOnce();
+  });
+});
+
+describe('GameScreen: the game kept on the device', () => {
+  const SAVED_AT = 1_800_000_000_000;
+  let storage: MemoryStorage;
+
+  beforeEach(() => {
+    vi.setSystemTime(SAVED_AT);
+    storage = new MemoryStorage();
+  });
+
+  afterEach(() => {
+    setVisibility('visible');
+  });
+
+  /** The game as the device keeps it. */
+  function stored() {
+    return loadProgress(storage, ID, Date.now());
+  }
+
+  /** The clip plays on for `ms`, a tenth of a second at a time, with the game reading its clock after each. */
+  function playFor(ms: number) {
+    for (let left = ms; left > 0; left -= 100) {
+      act(() => {
+        fake.advance(Math.min(100, left));
+        vi.advanceTimersByTime(Math.min(100, left));
+      });
+    }
+  }
+
+  /** A game on LET, GAVE and FERRY, the first right on the first try, the clock in the second line. */
+  function savedGame(over: Partial<SavedProgress> = {}): SavedProgress {
+    return {
+      version: 1,
+      youtubeId: ID,
+      mode: 'escolha',
+      difficulty: 'medio',
+      savedAt: SAVED_AT,
+      lastTickMs: 5200,
+      status: { [LET.id]: 'correct', [GAVE.id]: 'pending', [FERRY.id]: 'pending' },
+      attempted: { [LET.id]: true },
+      hinted: {},
+      tilesPlaced: {},
+      score: {
+        combo: 1,
+        maxCombo: 1,
+        xp: 12,
+        firstTryCorrect: 1,
+        totalBlanks: 3,
+        records: [{ blankId: LET.id, kind: 'first', correct: true, beforeLineEnd: true }],
+      },
+      ...over,
+    };
+  }
+
+  /** The same game, saved during the wait at the end of GAVE's line: the clock is where the fade of that wait left it. */
+  function savedWhileWaiting(): SavedProgress {
+    return savedGame({
+      lastTickMs: 9850,
+      status: { [LET.id]: 'correct', [GAVE.id]: 'pending' },
+      score: { ...savedGame().score, totalBlanks: 2 },
+    });
+  }
+
+  describe('saving', () => {
+    it('saves the game after every answer, right or wrong, with what the game needs to go on', () => {
+      renderGame({ blanks: [LET, GAVE], progressStorage: storage });
+      expect(storage.keys()).toEqual([]);
+
+      fireEvent.click(option('late'));
+
+      expect(stored()).toMatchObject({
+        version: 1,
+        youtubeId: ID,
+        mode: 'escolha',
+        difficulty: 'medio',
+        savedAt: SAVED_AT + 300,
+        status: { [LET.id]: 'wrong', [GAVE.id]: 'pending' },
+        attempted: { [LET.id]: true },
+        score: { combo: 0, totalBlanks: 2, records: [{ blankId: LET.id, kind: 'first', correct: false }] },
+      });
+
+      fireEvent.click(option('let'));
+
+      expect(stored()?.status).toEqual({ [LET.id]: 'correct', [GAVE.id]: 'pending' });
+      expect(stored()?.score.records.map((record) => record.kind)).toEqual(['first', 'retry']);
+    });
+
+    it('saves the answer that fills a row in Monte o verso, and the hint that places the last word', () => {
+      renderBuild({ blanks: [WHOLE_0, WHOLE_1], progressStorage: storage });
+
+      placeWords(BUILD_WORDS.slice(0, -1));
+      expect(storage.keys()).toEqual([]);
+      fireEvent.click(screen.getByRole('button', { name: 'Dica' }));
+
+      expect(stored()?.status).toEqual({ [WHOLE_0.id]: 'correct', [WHOLE_1.id]: 'pending' });
+      expect(stored()?.score.records).toEqual([{ blankId: WHOLE_0.id, kind: 'helped', correct: true, beforeLineEnd: true }]);
+    });
+
+    it('saves where the clock is every 5 s of play, and not before', () => {
+      renderGame({ blanks: [FERRY], progressStorage: storage });
+
+      playFor(4600);
+      expect(storage.keys()).toEqual([]);
+
+      playFor(100);
+      expect(stored()?.savedAt).toBe(SAVED_AT + 5000);
+      expect(stored()?.lastTickMs).toBeGreaterThan(4000);
+      expect(stored()?.lastTickMs).toBeLessThanOrEqual(5000);
+
+      playFor(5000);
+      expect(stored()?.savedAt).toBe(SAVED_AT + 10000);
+      expect(stored()?.lastTickMs).toBeGreaterThan(9000);
+    });
+
+    it('stops saving when the game screen goes away', () => {
+      renderGame({ blanks: [FERRY], progressStorage: storage });
+      const setItem = vi.spyOn(storage, 'setItem');
+
+      cleanup();
+      act(() => vi.advanceTimersByTime(20000));
+
+      expect(setItem).not.toHaveBeenCalled();
+    });
+
+    it('saves when the app goes to the background, since Android can kill it from there (ruling S23)', () => {
+      renderGame({ blanks: [FERRY], progressStorage: storage });
+      playTo(2000);
+      expect(storage.keys()).toEqual([]);
+
+      setVisibility('hidden');
+
+      expect(stored()).toMatchObject({ lastTickMs: 2000, savedAt: Date.now(), status: { [FERRY.id]: 'pending' } });
+    });
+
+    it('saves when the page is left or put away (pagehide) too', () => {
+      renderGame({ blanks: [FERRY], progressStorage: storage });
+      playTo(2000);
+
+      act(() => {
+        window.dispatchEvent(new Event('pagehide'));
+      });
+
+      expect(stored()?.lastTickMs).toBe(2000);
+    });
+
+    it('saves the blank a wait holds for as pending, with the clock where the fade left it (ruling S24)', () => {
+      renderGame({ blanks: [LET], progressStorage: storage });
+      playTo(3850);
+      // The clip plays on while the music fades out, so the clock goes past the pause point.
+      act(() => {
+        fake.advance(1000);
+        vi.advanceTimersByTime(1000);
+      });
+      finishFadeOut();
+      expect(screen.getByRole('group', { name: 'Escolha a palavra que falta' })).toBeInTheDocument();
+
+      setVisibility('hidden');
+
+      expect(stored()?.status).toEqual({ [LET.id]: 'pending' });
+      expect(stored()?.lastTickMs).toBeGreaterThan(3850);
+    });
+
+    it('clears the saved game when the song ends, and never saves it again', () => {
+      const onEnd = renderGame({ blanks: [LET], progressStorage: storage });
+      fireEvent.click(option('let'));
+      expect(stored()).not.toBeNull();
+
+      act(() => fake.emitState('ended'));
+
+      expect(onEnd).toHaveBeenCalledOnce();
+      expect(storage.keys()).toEqual([]);
+      // The result is being shown: nothing the game screen does from here keeps the finished game.
+      act(() => vi.advanceTimersByTime(20000));
+      setVisibility('hidden');
+      expect(storage.keys()).toEqual([]);
+    });
+
+    it('keeps the game when the song ends with a blank still open, until it is answered', () => {
+      const onEnd = renderGame({ blanks: [LET], progressStorage: storage });
+      playTo(2000);
+
+      act(() => fake.emitState('ended'));
+      act(() => vi.advanceTimersByTime(5000));
+
+      expect(onEnd).not.toHaveBeenCalled();
+      expect(stored()).not.toBeNull();
+
+      fireEvent.click(option('let'));
+      expect(onEnd).toHaveBeenCalledOnce();
+      expect(storage.keys()).toEqual([]);
+    });
+
+    it('goes on when the storage refuses every call', () => {
+      const onEnd = renderGame({ blanks: [LET], progressStorage: new BrokenStorage() });
+
+      fireEvent.click(option('let'));
+      playFor(5000);
+      setVisibility('hidden');
+      act(() => fake.emitState('ended'));
+
+      expect(screen.getByText('x1')).toBeInTheDocument();
+      expect(onEnd).toHaveBeenCalledOnce();
+    });
+
+    it('saves nothing when it is given no storage', () => {
+      renderGame({ blanks: [LET] });
+
+      fireEvent.click(option('let'));
+      playFor(5000);
+
+      expect(localStorage.length).toBe(0);
+    });
+  });
+
+  describe('going on from a saved game', () => {
+    const THREE = { blanks: [LET, GAVE, FERRY] };
+
+    it('plays from the start of the line the saved clock was in, with a seek and a play, and not from the top', () => {
+      renderGame({ ...THREE, resume: savedGame(), progressStorage: storage });
+
+      expect(fake.calls).toEqual(['seek:4000', 'play']);
+    });
+
+    it('shows the game as it was: the combo, the line in play, and the blank already right', () => {
+      renderGame({ ...THREE, resume: savedGame(), progressStorage: storage });
+
+      expect(screen.getByText('x1')).toBeInTheDocument();
+      expect(screen.getByTestId('line-previous')).toHaveTextContent("Grandpa won't let geese drive");
+      expect(screen.getByTestId('line-current')).toHaveTextContent('She lacuna each kite a name');
+      expect(option('gave')).toBeInTheDocument();
+    });
+
+    it('brings the music up from silence, as every round starts', () => {
+      fake.setVolume(0);
+      const before = fake.calls.length;
+
+      renderGame({ ...THREE, resume: savedGame(), progressStorage: storage });
+      finishFadeIn();
+
+      expect(fake.calls.slice(before)).toEqual(['seek:4000', 'play', ...FADE_IN_STEPS]);
+    });
+
+    it('leaves the volume alone on a device that ignores it', () => {
+      device.canSetVolume = false;
+      fake.setVolume(0);
+      const before = fake.calls.length;
+
+      renderGame({ ...THREE, resume: savedGame(), progressStorage: storage });
+      finishFadeIn();
+
+      expect(fake.calls.slice(before)).toEqual(['seek:4000', 'play']);
+    });
+
+    it('ignores the clock for 300 ms after that seek (ruling R44), and the lyrics stay where the seek is', () => {
+      // A player that goes on reporting the old position for a moment after a seek.
+      vi.spyOn(fake, 'seekTo').mockImplementation((ms) => {
+        fake.calls.push(`seek:${ms}`);
+      });
+      render(
+        <GameScreen
+          adapter={fake}
+          mode="escolha"
+          difficulty="medio"
+          lines={LINES}
+          blanks={[LET, GAVE, FERRY]}
+          video={VIDEO}
+          timeToReadyMs={1200}
+          onEnd={vi.fn()}
+          requestHelp={helpIsDown}
+          resume={savedGame()}
+          progressStorage={storage}
+        />,
+      );
+
+      act(() => vi.advanceTimersByTime(200));
+
+      expect(fake.getCurrentTimeMs()).toBe(0);
+      expect(screen.getByTestId('line-current')).toHaveTextContent('She lacuna each kite a name');
+    });
+
+    it('goes on to the next blank, and the answers it had count once in the result', () => {
+      const resume = savedGame({
+        status: { [LET.id]: 'correct', [GAVE.id]: 'pending' },
+        score: { ...savedGame().score, totalBlanks: 2 },
+      });
+      const onEnd = renderGame({ blanks: [LET, GAVE], resume, progressStorage: storage });
+
+      playTo(7850);
+      finishFadeOut();
+      expect(fake.calls.at(-1)).toBe('pause');
+      fireEvent.click(option('gave'));
+      act(() => fake.emitState('ended'));
+
+      expect(onEnd).toHaveBeenCalledExactlyOnceWith(
+        { totalBlanks: 2, firstTryCorrect: 2, pct: 100, maxCombo: 2, xp: 24 },
+        [
+          { blankId: LET.id, kind: 'first', correct: true, beforeLineEnd: true },
+          { blankId: GAVE.id, kind: 'first', correct: true, beforeLineEnd: true },
+        ],
+      );
+      expect(storage.keys()).toEqual([]);
+    });
+
+    it('waits again for the blank a wait was holding for when the game was saved (ruling S24)', () => {
+      const onEnd = renderGame({ blanks: [LET, GAVE], resume: savedWhileWaiting(), progressStorage: storage });
+      // The clock was in the line after GAVE's; the blank is in the one before it, so the clip starts there (ruling S21).
+      expect(fake.calls).toEqual(['seek:4000', 'play']);
+      expect(screen.getByTestId('line-current')).toHaveTextContent('She lacuna each kite a name');
+
+      playTo(7850);
+      finishFadeOut();
+
+      expect(fake.calls.at(-1)).toBe('pause');
+      expect(option('gave')).toBeInTheDocument();
+      fireEvent.click(option('gave'));
+      expect(onEnd).not.toHaveBeenCalled();
+      expect(screen.getByText('x2')).toBeInTheDocument();
+    });
+
+    it('gives back the words already placed in Monte o verso', () => {
+      const resume = savedGame({
+        mode: 'montar',
+        lastTickMs: 1500,
+        status: { [WHOLE_0.id]: 'pending', [WHOLE_1.id]: 'pending' },
+        attempted: {},
+        tilesPlaced: { [WHOLE_0.id]: ['Please', 'come'], [WHOLE_1.id]: [] },
+        score: { combo: 0, maxCombo: 0, xp: 0, firstTryCorrect: 0, totalBlanks: 2, records: [] },
+      });
+      renderBuild({ blanks: [WHOLE_0, WHOLE_1], resume, progressStorage: storage });
+
+      expect(fake.calls).toEqual(['seek:0', 'play']);
+      expect(placedRow()).toEqual(['Please', 'come']);
+      placeWords(['back', 'home', 'tonight']);
+      expect(screen.getByText('x1')).toBeInTheDocument();
+    });
+
+    it('is a new game when the saved one has other blanks (ruling S22): from the top, from zero, and the old one is cleared', () => {
+      const stale = savedGame();
+      saveProgress(storage, stale);
+
+      renderGame({ blanks: [LET, FERRY], resume: stale, progressStorage: storage });
+
+      expect(fake.calls).toEqual(['seek:0', 'play']);
+      expect(screen.getByText('x0')).toBeInTheDocument();
+      expect(screen.getByTestId('line-current')).toHaveTextContent("Grandpa won't lacuna geese drive");
+      expect(storage.keys()).toEqual([]);
+    });
+
+    it('is a new game from zero too when the storage refuses, and when there is none', () => {
+      renderGame({ blanks: [LET, FERRY], resume: savedGame(), progressStorage: new BrokenStorage() });
+      expect(fake.calls).toEqual(['seek:0', 'play']);
+      expect(screen.getByText('x0')).toBeInTheDocument();
+      cleanup();
+
+      fake.calls.length = 0;
+      renderGame({ blanks: [LET, FERRY], resume: savedGame() });
+      expect(fake.calls).toEqual(['seek:0', 'play']);
+      expect(screen.getByText('x0')).toBeInTheDocument();
+    });
+
+    it('a game that was not restored scores from zero, and saves as a new game', () => {
+      const onEnd = renderGame({ blanks: [LET, FERRY], resume: savedGame(), progressStorage: storage });
+
+      fireEvent.click(option('let'));
+
+      expect(stored()?.score.records).toEqual([{ blankId: LET.id, kind: 'first', correct: true, beforeLineEnd: true }]);
+      expect(stored()?.score.totalBlanks).toBe(2);
+      expect(onEnd).not.toHaveBeenCalled();
+    });
+
+    it('starts from the top, as always, when there is nothing to go on from', () => {
+      renderGame({ progressStorage: storage });
+
+      expect(fake.calls).toEqual(['seek:0', 'play']);
+    });
   });
 });
 

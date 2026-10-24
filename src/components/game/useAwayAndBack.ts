@@ -16,6 +16,11 @@ interface AwayAndBackOptions {
   dispatch: (event: GameEvent) => GameState;
   /** Where the focus goes once "Continuar" is gone: the answer due during a wait, "Repetir verso" otherwise. */
   nextFocus: () => HTMLElement | null;
+  /**
+   * Called as the page goes away, after the clip is paused: the game is saved there (ruling S23), since the phone can
+   * close an app that is in the background and nothing more is heard of it. Should keep its identity between renders.
+   */
+  onLeave?: () => void;
 }
 
 /** Gives `el` the focus and brings it into view only if it is not already: the page stays where the player left it. */
@@ -39,7 +44,7 @@ export function focusInView(el: HTMLElement): void {
  * played through the pause point of a blank still to answer goes back to the start of that blank's line (ruling S18),
  * the clip is paused, the game is told it is stopped, and `backFromAway` puts up "Continuar", which takes the focus.
  */
-export function useAwayAndBack({ adapter, gameRef, run, send, dispatch, nextFocus }: AwayAndBackOptions) {
+export function useAwayAndBack({ adapter, gameRef, run, send, dispatch, nextFocus, onLeave }: AwayAndBackOptions) {
   const awayRef = useRef(false);
   // Where the clip was when the page went away, to see what the phone played meanwhile.
   const leftAtMsRef = useRef(0);
@@ -80,7 +85,8 @@ export function useAwayAndBack({ adapter, gameRef, run, send, dispatch, nextFocu
     awayRef.current = true;
     leftAtMsRef.current = adapter.getCurrentTimeMs();
     run([{ type: 'pause' }]);
-  }, [adapter, run]);
+    onLeave?.();
+  }, [adapter, run, onLeave]);
 
   const comeBack = useCallback(() => {
     const state = adapter.getPlayerState();

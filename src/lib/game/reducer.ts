@@ -63,6 +63,15 @@ export interface GameState {
   commands: Command[];
 }
 
+/**
+ * What a round keeps of itself on the device, to be played on later (see `savedProgress.ts`). The wait, the player's
+ * state and the settings are not part of it: a restored round starts as a new one does in those.
+ */
+export type RestorableProgress = Pick<
+  GameState,
+  'lastTickMs' | 'status' | 'attempted' | 'hinted' | 'tilesPlaced' | 'score'
+>;
+
 export type GameEvent =
   | { type: 'TICK'; timeMs: number }
   | { type: 'PLAYER_STATE'; state: PlayerState }
@@ -74,6 +83,8 @@ export type GameEvent =
   | { type: 'REPEAT_LINE' }
   // The clock is set to where the clip really is, after a stretch with no ticks. Not a seek: nothing is skipped.
   | { type: 'RESYNC'; timeMs: number }
+  // A round saved on the device, put back into a new one. Taken only if it is the same round (see `onRestore`).
+  | { type: 'RESTORE'; saved: RestorableProgress }
   | { type: 'SET_RATE'; rate: 0.75 | 1 };
 
 /**
@@ -132,6 +143,8 @@ export function gameReducer(s: GameState, e: GameEvent): GameState {
       return onRepeatLine(next);
     case 'RESYNC':
       return { ...next, lastTickMs: e.timeMs };
+    case 'RESTORE':
+      return onRestore(next, e.saved);
     case 'SET_RATE':
       return { ...next, commands: [{ type: 'rate', rate: e.rate }] };
   }
@@ -368,6 +381,39 @@ export function lineMissedWhileAway(s: GameState, fromMs: number, toMs: number):
     if (wentThrough && awaitsAnswer(s, blank) && (!earliest || line.startMs < earliest.startMs)) earliest = line;
   }
   return earliest;
+}
+
+/**
+ * Puts a saved round back into a new one. The blanks are chosen by the video and the difficulty alone, so a saved round
+ * belongs to this one only if it has the same blanks, exactly: otherwise (the lyrics changed since) it is ignored and
+ * the round stays as it was. The round comes back playing, with no wait: a blank a wait held for was saved as pending
+ * (see `progressOf`), and is waited for again once the clip plays through its pause point.
+ */
+function onRestore(s: GameState, saved: RestorableProgress): GameState {
+  if (!canRestore(s, saved)) return s;
+  const { lastTickMs, status, attempted, hinted, tilesPlaced, score } = saved;
+  return { ...s, lastTickMs, status, attempted, hinted, tilesPlaced, score };
+}
+
+/** Whether the saved round is this round: it has the same blanks, exactly, whatever their order. */
+export function canRestore(s: GameState, saved: RestorableProgress): boolean {
+  return (
+    Object.keys(saved.status).length === s.blanks.length && s.blanks.every((blank) => Object.hasOwn(saved.status, blank.id))
+  );
+}
+
+/**
+ * Where the clip starts again in a restored round (ruling S21): the start of the line the saved clock was in, or, if a
+ * blank still pending has its pause point before the clock, the start of the line that holds that point. The earliest of
+ * the two, so a wait the save interrupted (the clock goes on for the length of the fade) is waited for again and no
+ * blank goes by unheard. The start of the clip when the clock was before the first line, as a new round has it.
+ */
+export function resumeStartMs(s: GameState): number {
+  let fromMs = s.lastTickMs;
+  for (const blank of s.blanks) {
+    if (s.status[blank.id] === 'pending') fromMs = Math.min(fromMs, lineOf(s, blank).endMs - PAUSE_LEAD_MS);
+  }
+  return s.lines.findLast((line) => line.startMs <= fromMs)?.startMs ?? 0;
 }
 
 /**

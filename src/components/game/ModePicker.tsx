@@ -10,18 +10,37 @@ import type { Difficulty, Mode } from '@/lib/types';
 const MODES: readonly Mode[] = ['escolha', 'digitacao', 'karaoke', 'montar'];
 const DIFFICULTIES: readonly Difficulty[] = ['facil', 'medio', 'dificil'];
 
+/** "Partida salva às 14:32 · Escolha · Médio": the time of day it was saved, and the mode and difficulty it was. */
+function savedInfo({ mode, difficulty, savedAt }: { mode: Mode; difficulty: Difficulty; savedAt: number }): string {
+  const hora = new Date(savedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  // Karaokê has no blanks, so it asks for no difficulty.
+  return mode === 'karaoke'
+    ? t('modo.savedKaraoke', { hora, modo: t(`modo.${mode}`) })
+    : t('modo.saved', { hora, modo: t(`modo.${mode}`), dificuldade: t(`dificuldade.${difficulty}`) });
+}
+
 interface ModePickerProps {
   video: VideoRecord;
   onPlay: (mode: Mode, difficulty: Difficulty) => void;
   /** Opens the calibration, for a player who finds the lyrics off the beat. */
   onCalibrate: () => void;
+  /** A game of this song kept on the device, and when (ms since 1970): it can be gone on from. */
+  saved?: { mode: Mode; difficulty: Difficulty; savedAt: number };
+  /** "Continuar de onde parou": goes on from the saved game, in the mode and difficulty it was. */
+  onResume: () => void;
+  /** "Começar do zero": forgets the saved game. The picker stays, for the player to choose a new one. */
+  onDiscard: () => void;
 }
+
+const savedAction =
+  'flex w-full items-center justify-center rounded-button px-4 text-center text-button font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime';
 
 /**
  * "Como você quer jogar?": the four modes as cards, the difficulty as pills, and "Jogar"
  * (design/canvas/Main.dc.html in the Limão colors). Karaokê has no blanks, so it asks for no difficulty.
+ * A game kept on the device for the song comes first, to go on from or to drop.
  */
-export function ModePicker({ video, onPlay, onCalibrate }: ModePickerProps) {
+export function ModePicker({ video, onPlay, onCalibrate, saved, onResume, onDiscard }: ModePickerProps) {
   const [mode, setMode] = useState<Mode>('escolha');
   const [difficulty, setDifficulty] = useState<Difficulty>('facil');
   const id = useId();
@@ -54,6 +73,23 @@ export function ModePicker({ video, onPlay, onCalibrate }: ModePickerProps) {
       >
         {t('modo.calibrate')}
       </button>
+
+      {saved && (
+        <section
+          aria-labelledby={`${id}-saved`}
+          className="flex flex-col gap-2 rounded-card border-[1.5px] border-lime bg-card p-3.5"
+        >
+          <p id={`${id}-saved`} className="text-body font-semibold">
+            {savedInfo(saved)}
+          </p>
+          <button type="button" onClick={onResume} className={`${savedAction} min-h-12 bg-lime font-bold text-bg`}>
+            {t('modo.resume')}
+          </button>
+          <button type="button" onClick={onDiscard} className={`${savedAction} min-h-11 border-[1.5px] border-border text-text`}>
+            {t('modo.discard')}
+          </button>
+        </section>
+      )}
 
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-3 font-heading text-verse font-bold">{t('modo.question')}</legend>

@@ -2,6 +2,9 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { selectBlanks } from '@/lib/game/blanks';
+import { BrokenStorage, MemoryStorage } from '@/lib/game/fakeStorage';
+import { PROGRESS_MAX_AGE_MS, loadProgress, saveProgress, type SavedProgress } from '@/lib/game/savedProgress';
+import { createScore } from '@/lib/game/scoring';
 import { selectTileLines } from '@/lib/game/tiles';
 import { applyOffset, parseLrc } from '@/lib/lyrics/lrc';
 import type { SongResolution, VideoRecord } from '@/lib/lyrics/resolveSong';
@@ -83,6 +86,8 @@ interface MockDeps {
   doubleXp: Mock<SongScreenDeps['doubleXp']>;
   sleep: Mock<NonNullable<SongScreenDeps['sleep']>>;
   now?: () => number;
+  progressStorage?: SongScreenDeps['progressStorage'];
+  wallClock?: SongScreenDeps['wallClock'];
 }
 
 function makeDeps(over: Partial<MockDeps> = {}): MockDeps {
@@ -677,6 +682,228 @@ describe('SongScreen: the page in the background (ruling R84)', () => {
     setVisibility('hidden');
 
     expect(fake.calls.slice(before)).toEqual([]);
+  });
+});
+
+describe('SongScreen: going on from a saved game', () => {
+  const NOW = 1_800_000_000_000;
+  let storage: MemoryStorage;
+
+  beforeEach(() => {
+    storage = new MemoryStorage();
+  });
+
+  /** Deps whose storage is `storage`, on a clock that says it is `NOW`. */
+  function depsWithStorage(over: Partial<MockDeps> = {}) {
+    return makeDeps({ progressStorage: () => storage, wallClock: () => NOW, ...over });
+  }
+
+  /** A game of Escolha on Médio with the first blank right and the clock in the third line. */
+  function savedGame(over: Partial<SavedProgress> = {}): SavedProgress {
+    const blanks = selectBlanks(LINES, 'medio', ID);
+    const answered = blanks[0];
+    return {
+      version: 1,
+      youtubeId: ID,
+      mode: 'escolha',
+      difficulty: 'medio',
+      savedAt: NOW - 60_000,
+      lastTickMs: 7000,
+      status: Object.fromEntries(blanks.map((blank) => [blank.id, blank === answered ? 'correct' : 'pending'])),
+      attempted: { [answered.id]: true },
+      hinted: {},
+      tilesPlaced: {},
+      score: {
+        ...createScore(blanks.length),
+        combo: 1,
+        maxCombo: 1,
+        xp: 12,
+        firstTryCorrect: 1,
+        records: [{ blankId: answered.id, kind: 'first', correct: true, beforeLineEnd: true }],
+      },
+      ...over,
+    };
+  }
+
+  const resumeButton = () => screen.queryByRole('button', { name: 'Continuar de onde parou' });
+  const discardButton = () => screen.queryByRole('button', { name: 'Começar do zero' });
+
+  it('offers "Continuar de onde parou" and "Começar do zero" on the mode picker, with the mode and difficulty it was', async () => {
+    saveProgress(storage, savedGame());
+    render(<SongScreen youtubeId={ID} deps={depsWithStorage()} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+
+    expect(resumeButton()).toBeInTheDocument();
+    expect(discardButton()).toBeInTheDocument();
+    const saved = screen.getByRole('region', { name: /Partida salva/ });
+    expect(saved).toHaveTextContent(/Escolha · Médio/);
+    const time = new Date(NOW - 60_000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    expect(saved).toHaveTextContent(`Partida salva às ${time}`);
+    // The modes and "Jogar" are still there for a new game.
+    expect(screen.getByRole('radio', { name: 'Digitação' })).toBeInTheDocument();
+  });
+
+  it('asks for no difficulty in the Karaokê it was', async () => {
+    saveProgress(storage, savedGame({ mode: 'karaoke', status: {}, attempted: {}, score: createScore(0) }));
+    render(<SongScreen youtubeId={ID} deps={depsWithStorage()} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+
+    const saved = screen.getByRole('region', { name: /Partida salva/ });
+    expect(saved).toHaveTextContent(/Karaokê/);
+    expect(saved).not.toHaveTextContent(/Médio/);
+  });
+
+  it('keeps both buttons at least 44 px tall and out of the form’s submit', async () => {
+    saveProgress(storage, savedGame());
+    render(<SongScreen youtubeId={ID} deps={depsWithStorage()} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+
+    for (const button of [resumeButton(), discardButton()]) {
+      expect(button).toHaveAttribute('type', 'button');
+      // min-h-11 is 44 px; the one for "Continuar de onde parou" is a step taller.
+      expect(button?.className).toMatch(/min-h-1[1-9]/);
+    }
+    expect(resumeButton()).toHaveClass('bg-lime', 'text-bg');
+  });
+
+  it('offers nothing when the song has no saved game', async () => {
+    render(<SongScreen youtubeId={ID} deps={depsWithStorage()} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+
+    expect(resumeButton()).not.toBeInTheDocument();
+    expect(discardButton()).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: /Partida salva/ })).not.toBeInTheDocument();
+  });
+
+  it('offers nothing for the saved game of another song', async () => {
+    saveProgress(storage, savedGame({ youtubeId: 'M7lc1UVf-VE' }));
+    render(<SongScreen youtubeId={ID} deps={depsWithStorage()} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+
+    expect(resumeButton()).not.toBeInTheDocument();
+  });
+
+  it('offers nothing for a saved game more than 24 hours old, which is taken out of the storage', async () => {
+    saveProgress(storage, savedGame({ savedAt: NOW - PROGRESS_MAX_AGE_MS - 1 }));
+    render(<SongScreen youtubeId={ID} deps={depsWithStorage()} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+
+    expect(resumeButton()).not.toBeInTheDocument();
+    expect(storage.keys()).toEqual([]);
+  });
+
+  it('offers nothing, and does not break, when the storage refuses or there is none', async () => {
+    const { unmount } = render(
+      <SongScreen youtubeId={ID} deps={depsWithStorage({ progressStorage: () => new BrokenStorage() })} />,
+    );
+    await screen.findByRole('button', { name: 'Jogar' });
+    expect(resumeButton()).not.toBeInTheDocument();
+    unmount();
+
+    render(<SongScreen youtubeId={ID} deps={depsWithStorage({ progressStorage: () => null })} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+    expect(resumeButton()).not.toBeInTheDocument();
+    pick('Escolha');
+    expect(gameProps().progressStorage).toBeNull();
+  });
+
+  it('also offers it when the picker comes back from the calibration', async () => {
+    saveProgress(storage, savedGame());
+    render(<SongScreen youtubeId={ID} deps={depsWithStorage()} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Ajustar o tempo' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pular' }));
+
+    expect(resumeButton()).toBeInTheDocument();
+  });
+
+  it('"Continuar de onde parou" starts the game in the mode and difficulty it was saved in, with the saved game to go on from', async () => {
+    const blanks = selectBlanks(LINES, 'dificil', ID);
+    const saved = savedGame({
+      mode: 'digitacao',
+      difficulty: 'dificil',
+      status: Object.fromEntries(blanks.map((blank) => [blank.id, 'pending'])),
+      attempted: {},
+      score: createScore(blanks.length),
+    });
+    saveProgress(storage, saved);
+    render(<SongScreen youtubeId={ID} deps={depsWithStorage()} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+    // What is ticked on the picker does not matter: the saved game is the one that goes on.
+    fireEvent.click(screen.getByRole('radio', { name: 'Karaokê' }));
+
+    fireEvent.click(resumeButton()!);
+
+    expect(screen.getByTestId('game-screen')).toBeInTheDocument();
+    expect(gameProps()).toMatchObject({
+      adapter: fake,
+      mode: 'digitacao',
+      difficulty: 'dificil',
+      lines: LINES,
+      blanks,
+      video: VIDEO,
+      resume: saved,
+      progressStorage: storage,
+    });
+  });
+
+  it('goes on in Monte o verso with whole-line tiles, as the game it was', async () => {
+    const tiles = selectTileLines(LINES, 'facil', ID);
+    const saved = savedGame({
+      mode: 'montar',
+      difficulty: 'facil',
+      status: Object.fromEntries(tiles.map((blank) => [blank.id, 'pending'])),
+      attempted: {},
+      tilesPlaced: Object.fromEntries(tiles.map((blank) => [blank.id, []])),
+      score: createScore(tiles.length),
+    });
+    saveProgress(storage, saved);
+    render(<SongScreen youtubeId={ID} deps={depsWithStorage()} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+
+    fireEvent.click(resumeButton()!);
+
+    expect(gameProps()).toMatchObject({ mode: 'montar', difficulty: 'facil', blanks: tiles, resume: saved });
+  });
+
+  it('"Começar do zero" forgets the saved game, takes the offer away and stays on the picker for a new game', async () => {
+    saveProgress(storage, savedGame());
+    render(<SongScreen youtubeId={ID} deps={depsWithStorage()} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+
+    fireEvent.click(discardButton()!);
+
+    expect(loadProgress(storage, ID, NOW)).toBeNull();
+    expect(storage.keys()).toEqual([]);
+    expect(resumeButton()).not.toBeInTheDocument();
+    expect(discardButton()).not.toBeInTheDocument();
+    expect(screen.queryByTestId('game-screen')).not.toBeInTheDocument();
+
+    pick('Escolha', 'Médio');
+    expect(gameProps().resume).toBeUndefined();
+  });
+
+  it('"Começar do zero" leaves the saved game of other songs alone', async () => {
+    saveProgress(storage, savedGame());
+    saveProgress(storage, savedGame({ youtubeId: 'M7lc1UVf-VE' }));
+    render(<SongScreen youtubeId={ID} deps={depsWithStorage()} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+
+    fireEvent.click(discardButton()!);
+
+    expect(storage.keys()).toEqual(['hb_progress:M7lc1UVf-VE']);
+  });
+
+  it('"Jogar" starts a new game even when there is a saved one, with nothing to go on from', async () => {
+    saveProgress(storage, savedGame());
+    render(<SongScreen youtubeId={ID} deps={depsWithStorage()} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+
+    pick('Escolha', 'Fácil');
+
+    expect(gameProps()).toMatchObject({ mode: 'escolha', difficulty: 'facil', blanks: selectBlanks(LINES, 'facil', ID) });
+    expect(gameProps().resume).toBeUndefined();
+    expect(gameProps().progressStorage).toBe(storage);
   });
 });
 

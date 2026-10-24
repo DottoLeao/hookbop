@@ -8,9 +8,11 @@ import {
   gameReducer,
   initGame,
   lineMissedWhileAway,
+  resumeStartMs,
   summaryOf,
   type GameEvent,
   type GameState,
+  type RestorableProgress,
 } from './reducer';
 import { createScore, summarize } from './scoring';
 
@@ -823,6 +825,190 @@ describe('lineMissedWhileAway (ruling S18)', () => {
     expect(lineMissedWhileAway(s, 4500, 3500)).toBeUndefined();
     expect(lineMissedWhileAway(s, 3000, 3000 + WAY_BACK_MAX_MS)).toBe(LINES[0]);
     expect(lineMissedWhileAway(s, 3000, 3000 + WAY_BACK_MAX_MS + 1)).toBeUndefined();
+  });
+});
+
+/** What a game saves of itself, taken from the game as it stands. */
+function progressOf(s: GameState): RestorableProgress {
+  const { lastTickMs, status, attempted, hinted, tilesPlaced, score } = s;
+  return { lastTickMs, status, attempted, hinted, tilesPlaced, score };
+}
+
+const restore = (saved: RestorableProgress): GameEvent => ({ type: 'RESTORE', saved });
+
+describe('RESTORE', () => {
+  /** Two blanks: the first one right, a hint on the second, the clock in the second line. */
+  const played = run(
+    game({ blanks: [LET, BOAT] }),
+    tick(1000),
+    answer('0:2', true, 1200),
+    hint('1:3'),
+    tick(5200),
+  );
+
+  it('puts back where the clock was, the status of every blank, the answers, the hints and the score', () => {
+    const s = run(game({ blanks: [LET, BOAT] }), restore(progressOf(played)));
+
+    expect(s.lastTickMs).toBe(5200);
+    expect(s.status).toEqual({ '0:2': 'correct', '1:3': 'pending' });
+    expect(s.attempted).toEqual({ '0:2': true });
+    expect(s.hinted).toEqual({ '1:3': true });
+    expect(s.score).toEqual(played.score);
+    expect(s.score.records).toHaveLength(1);
+    expect(s.score.combo).toBe(1);
+  });
+
+  it('leaves the rest of the game as a new one has it: playing, no wait, no command', () => {
+    const s = run(game({ blanks: [LET, BOAT], autoRepeat: false }), restore(progressOf(played)));
+
+    expect(s).toEqual({
+      ...game({ blanks: [LET, BOAT], autoRepeat: false }),
+      ...progressOf(played),
+      commands: [],
+    });
+    expect(s.phase).toBe('playing');
+    expect(s.waitingBlankId).toBeNull();
+  });
+
+  it('is taken only when the saved blanks are exactly this game’s, whatever their order', () => {
+    const reversed: RestorableProgress = {
+      ...progressOf(played),
+      status: { '1:3': 'pending', '0:2': 'correct' },
+    };
+    expect(run(game({ blanks: [LET, BOAT] }), restore(reversed)).status).toEqual({ '0:2': 'correct', '1:3': 'pending' });
+    expect(run(game({ blanks: [BOAT, LET] }), restore(progressOf(played))).score).toEqual(played.score);
+  });
+
+  it.each([
+    ['one blank fewer', [LET]],
+    ['one blank more', [LET, BOAT, SAIL]],
+    ['another blank in place of one', [LET, SAIL]],
+    ['the same word in another place', [LET, { ...BOAT, id: '1:2' }]],
+    ['none', []],
+  ])('does nothing when this game has %s than the saved one', (_, blanks) => {
+    const fresh = game({ blanks });
+    const s = run(fresh, restore(progressOf(played)));
+
+    expect(s).toEqual(fresh);
+    expect(s.score.records).toEqual([]);
+    expect(s.lastTickMs).toBe(0);
+  });
+
+  it('does nothing in a game with no blanks when the saved one had some, and takes a saved one that had none (Karaokê)', () => {
+    const karaoke = game({ mode: 'karaoke', blanks: [] });
+    expect(run(karaoke, restore(progressOf(played)))).toEqual(karaoke);
+
+    const sung = run(karaoke, tick(5200));
+    expect(run(karaoke, restore(progressOf(sung))).lastTickMs).toBe(5200);
+  });
+
+  it('gives back the tiles already placed in Monte o verso', () => {
+    const building = run(montar(), tick(1000), tile('Grandpa'), tile("won't"));
+    expect(building.tilesPlaced).toEqual({ '0:-1': ['Grandpa', "won't"] });
+
+    const s = run(montar(), restore(progressOf(building)));
+
+    expect(s.tilesPlaced).toEqual({ '0:-1': ['Grandpa', "won't"] });
+    // The row goes on from there.
+    expect(run(s, tile('let')).tilesPlaced).toEqual({ '0:-1': ['Grandpa', "won't", 'let'] });
+  });
+
+  it('gives back a blank that was waited on as a pending one, which is waited for again (ruling S24)', () => {
+    const waiting = run(game({ blanks: [LET, BOAT] }), tick(3850));
+    expect(waiting.phase).toBe('waiting');
+
+    const s = run(game({ blanks: [LET, BOAT] }), restore(progressOf(waiting)));
+    expect(s.phase).toBe('playing');
+    expect(s.status['0:2']).toBe('pending');
+
+    // The clip comes back to the start of the line, and plays through the pause point once more.
+    const again = run(s, resync(0), ...ticksBetween(0, 3800), tick(3850));
+    expect(again.phase).toBe('waiting');
+    expect(again.waitingBlankId).toBe('0:2');
+    expect(again.commands).toEqual([{ type: 'pause', fade: true }]);
+  });
+
+  it('keeps the answers it was given: a blank that was right stays answered, and the score goes on from there', () => {
+    const s = run(game({ blanks: [LET, BOAT] }), restore(progressOf(played)), answer('1:3', true, 7000));
+
+    expect(s.score.records.map((r) => r.blankId)).toEqual(['0:2', '1:3']);
+    expect(s.score.totalBlanks).toBe(2);
+    expect(run(s, answer('0:2', true, 7100)).score.records).toHaveLength(2);
+  });
+
+  it('does not change the state or the progress it is given', () => {
+    const frozen = (value: unknown): void => {
+      if (value !== null && typeof value === 'object') {
+        for (const inner of Object.values(value)) frozen(inner);
+        Object.freeze(value);
+      }
+    };
+    const start = game({ blanks: [LET, BOAT] });
+    const saved = progressOf(played);
+    frozen(start);
+    frozen(saved);
+
+    const s = run(start, restore(saved), tick(5300), answer('1:3', false, 5400), hint('1:3'), tick(7850));
+
+    expect(s.score.records).toHaveLength(2);
+    expect(start.lastTickMs).toBe(0);
+  });
+});
+
+describe('resumeStartMs (ruling S21)', () => {
+  const restored = (blanks: Blank[], over: Partial<GameState> = {}): GameState => ({ ...game({ blanks }), ...over });
+
+  it('is the start of the line the saved clock was in', () => {
+    expect(resumeStartMs(restored([LET, BOAT, SAIL], { lastTickMs: 5200, status: { '0:2': 'correct', '1:3': 'correct', '2:1': 'pending' } }))).toBe(4000);
+    expect(resumeStartMs(restored([SAIL], { lastTickMs: 8000 }))).toBe(8000);
+    expect(resumeStartMs(restored([SAIL], { lastTickMs: 7999 }))).toBe(4000);
+  });
+
+  it('is the start of the clip when the clock was before the first line, as a new game has it', () => {
+    const late: LyricLine[] = [{ index: 0, startMs: 1500, endMs: 4000, text: "Grandpa won't let geese drive" }];
+    expect(resumeStartMs(restored([LET], { lines: late, lastTickMs: 0 }))).toBe(0);
+    expect(resumeStartMs(restored([LET], { lines: late, lastTickMs: 1000 }))).toBe(0);
+  });
+
+  it('is the start of the line before, when the clock was in a break between two lines', () => {
+    const gap: LyricLine[] = [
+      { index: 0, startMs: 0, endMs: 3000, text: 'Low tide again' },
+      { index: 1, startMs: 6000, endMs: 9000, text: 'Gulls overhead' },
+    ];
+    const gulls: Blank = { id: '1:0', lineIndex: 1, tokenIndex: 0, answer: 'Gulls' };
+    expect(resumeStartMs(restored([gulls], { lines: gap, lastTickMs: 4500 }))).toBe(0);
+  });
+
+  it('goes back to the line of a blank still pending whose pause point the clock had gone past: it waits again', () => {
+    // The wait began at 3850; the clip played on for the fade, into the next line.
+    expect(resumeStartMs(restored([LET, BOAT], { lastTickMs: 5850 }))).toBe(0);
+    expect(resumeStartMs(restored([LET], { lastTickMs: 3850 }))).toBe(0);
+  });
+
+  it('goes back to the earliest of several blanks still pending that the clock had gone past', () => {
+    const s = restored([LET, BOAT, SAIL], { lastTickMs: 11000 });
+    expect(resumeStartMs(s)).toBe(0);
+    expect(resumeStartMs({ ...s, status: { ...s.status, '0:2': 'correct' } })).toBe(4000);
+  });
+
+  it('does not go back for a blank that is not pending: right, wrong, or skipped', () => {
+    const s = restored([LET, BOAT], { lastTickMs: 5200 });
+    for (const status of ['correct', 'wrong', 'skipped'] as const) {
+      expect(resumeStartMs({ ...s, status: { '0:2': status, '1:3': 'pending' } })).toBe(4000);
+    }
+  });
+
+  it('stays at the line of the clock when the pending blanks are all still ahead of it', () => {
+    expect(resumeStartMs(restored([BOAT, SAIL], { lastTickMs: 1000 }))).toBe(0);
+    expect(resumeStartMs(restored([BOAT, SAIL], { lastTickMs: 4100 }))).toBe(4000);
+  });
+
+  it('is the line to go back to from the state RESTORE gives, wherever the game was saved', () => {
+    const waiting = run(game({ blanks: [LET, BOAT] }), tick(3850), tick(4900), tick(5850));
+    const s = run(game({ blanks: [LET, BOAT] }), restore(progressOf(waiting)));
+
+    expect(s.lastTickMs).toBe(5850);
+    expect(resumeStartMs(s)).toBe(0);
   });
 });
 

@@ -73,6 +73,12 @@ export const ptBR = {
   'modo.montar.desc': 'Coloque as palavras na ordem certa',
   'modo.difficulty': 'Dificuldade',
   'modo.play': 'Jogar',
+  // Uma partida desta música ficou guardada no aparelho (até 24 h): continuar dela ou começar outra.
+  'modo.saved': 'Partida salva às {hora} · {modo} · {dificuldade}',
+  // O Karaokê não tem dificuldade.
+  'modo.savedKaraoke': 'Partida salva às {hora} · {modo}',
+  'modo.resume': 'Continuar de onde parou',
+  'modo.discard': 'Começar do zero',
 
   'dificuldade.facil': 'Fácil',
   'dificuldade.medio': 'Médio',

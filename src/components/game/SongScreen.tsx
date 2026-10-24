@@ -1,12 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { DjBop, type DjBopExpression } from '@/components/brand/DjBop';
 import { t } from '@/i18n/t';
 import { currentUserId } from '@/lib/auth/currentUser';
 import { getEntitlements } from '@/lib/entitlements';
 import { selectBlanks } from '@/lib/game/blanks';
+import { clearProgress, loadProgress, type ProgressStorage, type SavedProgress } from '@/lib/game/savedProgress';
 import { helpedBlanks } from '@/lib/game/scoring';
 import { selectTileLines } from '@/lib/game/tiles';
 import { cleanTitle } from '@/lib/lyrics/cleanTitle';
@@ -64,10 +65,27 @@ export interface SongScreenDeps {
   now?: () => number;
   /** Waits `ms`, between two reads of the duration. A timer when left out. */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Where the game in progress is kept on the device, or null when there is no storage to keep it in (it is looked up
+   * when the screen opens, since site data can be blocked). `window.localStorage` when left out.
+   */
+  progressStorage?: () => ProgressStorage | null;
+  /** The time of day in ms since 1970, for telling how old a saved game is. `Date.now` when left out. */
+  wallClock?: () => number;
 }
 
 const defaultNow = () => performance.now();
 const defaultSleep = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
+const defaultWallClock = () => Date.now();
+
+/** The browser storage, or null when touching it throws (site data blocked: SecurityError) or there is no window. */
+function browserStorage(): ProgressStorage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
 
 /** The real thing: the app's own server (which asks YouTube and LRCLIB), Supabase and the YouTube player. */
 const browserDeps: SongScreenDeps = {
@@ -90,6 +108,8 @@ const browserDeps: SongScreenDeps = {
   doubleXp: (playId) => applyDoubleXp(createSupabasePlaysDb(createBrowserSupabase()), playId),
   now: defaultNow,
   sleep: defaultSleep,
+  progressStorage: browserStorage,
+  wallClock: defaultWallClock,
 };
 
 /** The player's duration in ms, read again every 100 ms while it is 0, for at most 3 s. 0 if it never came. */
@@ -112,7 +132,8 @@ type Phase =
   | { kind: 'video_unavailable' }
   | { kind: 'no_lyrics'; video: VideoRecord }
   | { kind: 'calibration'; adapter: PlayerAdapter; video: VideoRecord; lines: LyricLine[] }
-  | { kind: 'picker'; adapter: PlayerAdapter; video: VideoRecord; lines: LyricLine[] }
+  /** `saved`: a game of this song kept on the device, to go on from, found when the picker came up. */
+  | { kind: 'picker'; adapter: PlayerAdapter; video: VideoRecord; lines: LyricLine[]; saved: SavedProgress | null }
   | {
       kind: 'game';
       adapter: PlayerAdapter;
@@ -121,6 +142,8 @@ type Phase =
       mode: Mode;
       difficulty: Difficulty;
       blanks: Blank[];
+      /** The saved game this one goes on from, when the player chose "Continuar de onde parou". */
+      resume?: SavedProgress;
     }
   /** The song is over. What the game earned is in `summary`; where its saving stands is `useGameSave`'s. */
   | {
@@ -135,7 +158,8 @@ type Phase =
       helped: number;
     };
 
-function phaseFor(resolution: SongResolution, adapter: PlayerAdapter): Phase {
+/** `savedGame` looks for the game of this song kept on the device, for the picker to offer. */
+function phaseFor(resolution: SongResolution, adapter: PlayerAdapter, savedGame: () => SavedProgress | null): Phase {
   switch (resolution.status) {
     case 'ready': {
       const { video, lines } = resolution;
@@ -145,7 +169,7 @@ function phaseFor(resolution: SongResolution, adapter: PlayerAdapter): Phase {
       // players have a median, it is one tap away in the mode picker ("Ajustar o tempo").
       return resolution.needsCalibration && video.offsetMs === 0
         ? { kind: 'calibration', adapter, video, lines }
-        : { kind: 'picker', adapter, video, lines };
+        : { kind: 'picker', adapter, video, lines, saved: savedGame() };
     }
     case 'no_lyrics':
       return { kind: 'no_lyrics', video: resolution.video };
@@ -222,6 +246,14 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
   const { resolve, createAdapter, saveOffsetVote, doubleXp } = deps;
   const now = deps.now ?? defaultNow;
   const sleep = deps.sleep ?? defaultSleep;
+  const wallClock = deps.wallClock ?? defaultWallClock;
+  // The storage is looked up once; the game screen keeps and drops the game in progress in the same one.
+  const progressStorage = useMemo(() => (deps.progressStorage ?? browserStorage)(), [deps.progressStorage]);
+  /** The game of this song kept on the device, when there is one worth going on from (not 24 hours old, not of another version). */
+  const savedGame = useCallback(
+    () => (progressStorage ? loadProgress(progressStorage, youtubeId, wallClock()) : null),
+    [progressStorage, youtubeId, wallClock],
+  );
 
   const playerBoxRef = useRef<HTMLDivElement>(null);
   // Where the game screen puts its header, above the player box.
@@ -332,7 +364,7 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
       if (closed) return;
       if (!durationKnown && resolution.status === 'ready') resolution = { ...resolution, needsCalibration: false };
 
-      const next = phaseFor(resolution, player);
+      const next = phaseFor(resolution, player, savedGame);
       if (next.kind === 'calibration' || next.kind === 'picker') {
         const elapsedMs = Math.round(now() - (openedAtRef.current ?? 0));
         setTimeToReadyMs((known) => known ?? elapsedMs);
@@ -344,7 +376,7 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
     return () => {
       closed = true;
     };
-  }, [adapter, resolve, sleep, youtubeId, now, lyricsAttempt]);
+  }, [adapter, resolve, sleep, youtubeId, now, lyricsAttempt, savedGame]);
 
   function retryPlayer() {
     setAdapter(null);
@@ -359,8 +391,23 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
     setLyricsAttempt((n) => n + 1);
   }
 
-  /** A round starts, from the mode picker or from "Jogar de novo". */
-  function startGame(player: PlayerAdapter, video: VideoRecord, lines: LyricLine[], mode: Mode, difficulty: Difficulty) {
+  /** The mode picker, offering the game of this song kept on the device, if there is one. */
+  function pickerFor(player: PlayerAdapter, video: VideoRecord, lines: LyricLine[]): Phase {
+    return { kind: 'picker', adapter: player, video, lines, saved: savedGame() };
+  }
+
+  /**
+   * A round starts, from the mode picker or from "Jogar de novo". With `resume`, from "Continuar de onde parou": the
+   * game goes on from the saved one, which has the same blanks unless the lyrics changed since (see `RESTORE`).
+   */
+  function startGame(
+    player: PlayerAdapter,
+    video: VideoRecord,
+    lines: LyricLine[],
+    mode: Mode,
+    difficulty: Difficulty,
+    resume?: SavedProgress,
+  ) {
     gameSave.reset();
     setPhase({
       kind: 'game',
@@ -370,7 +417,14 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
       mode,
       difficulty,
       blanks: blanksFor(mode, lines, difficulty, youtubeId),
+      resume,
     });
+  }
+
+  /** "Começar do zero": the saved game is forgotten, and the picker stays for the player to start a new one. */
+  function discardSavedGame(picker: Extract<Phase, { kind: 'picker' }>) {
+    if (progressStorage) clearProgress(progressStorage, youtubeId);
+    setPhase({ ...picker, saved: null });
   }
 
   /** The game reports its end: the result takes its place, and the play is saved, once. */
@@ -452,23 +506,23 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
             audioSearchUrl={officialAudioSearchUrl(video)}
             saveOffsetVote={saveOffsetVote}
             onSaved={(medianMs) =>
-              setPhase({
-                kind: 'picker',
-                adapter: player,
-                video: { ...video, offsetMs: medianMs },
-                lines: applyOffset(written, medianMs),
-              })
+              setPhase(pickerFor(player, { ...video, offsetMs: medianMs }, applyOffset(written, medianMs)))
             }
-            onSkip={() => setPhase({ kind: 'picker', adapter: player, video, lines })}
+            onSkip={() => setPhase(pickerFor(player, video, lines))}
           />
         );
       }
 
       case 'picker': {
-        const { adapter: player, video, lines } = phase;
+        const { adapter: player, video, lines, saved } = phase;
         return (
           <ModePicker
             video={video}
+            saved={saved ?? undefined}
+            onResume={() => {
+              if (saved) startGame(player, video, lines, saved.mode, saved.difficulty, saved);
+            }}
+            onDiscard={() => discardSavedGame(phase)}
             onCalibrate={() => setPhase({ kind: 'calibration', adapter: player, video, lines })}
             onPlay={(mode, difficulty) => startGame(player, video, lines, mode, difficulty)}
           />
@@ -487,6 +541,8 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
             timeToReadyMs={timeToReadyMs ?? 0}
             onEnd={(summary, records) => finishGame(phase, summary, records)}
             headerSlot={gameHeaderSlot}
+            resume={phase.resume}
+            progressStorage={progressStorage}
           />
         );
 
@@ -502,7 +558,7 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
             onDoubleXp={doubleXp}
             onRetrySave={gameSave.retry}
             onPlayAgain={() => startGame(player, video, lines, mode, difficulty)}
-            onOtherMode={() => setPhase({ kind: 'picker', adapter: player, video, lines })}
+            onOtherMode={() => setPhase(pickerFor(player, video, lines))}
             onFinished={rememberFirstFinish}
           />
         );
