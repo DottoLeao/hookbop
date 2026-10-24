@@ -107,6 +107,39 @@ describe('FakePlayerAdapter', () => {
     expect(p.calls).toEqual(['rate:0.75', 'play', 'rate:1']);
   });
 
+  it('starts at full volume, with no call logged', () => {
+    const p = new FakePlayerAdapter(180000);
+    expect(p.getVolume()).toBe(100);
+    expect(p.calls).toEqual([]);
+  });
+
+  it('logs the requested volume on setVolume, and reads back a whole number from 0 to 100', () => {
+    const p = new FakePlayerAdapter(180000);
+    p.setVolume(70);
+    expect(p.getVolume()).toBe(70);
+    p.setVolume(33.6);
+    expect(p.getVolume()).toBe(34);
+    p.setVolume(-5);
+    expect(p.getVolume()).toBe(0);
+    p.setVolume(250);
+    expect(p.getVolume()).toBe(100);
+    expect(p.calls).toEqual(['volume:70', 'volume:33.6', 'volume:-5', 'volume:250']);
+  });
+
+  it('getPlayerState returns the last state that was emitted', () => {
+    const p = new FakePlayerAdapter(10000);
+    expect(p.getPlayerState()).toBe('unstarted');
+    p.play();
+    expect(p.getPlayerState()).toBe('playing');
+    p.pause();
+    expect(p.getPlayerState()).toBe('paused');
+    p.emitState('buffering');
+    expect(p.getPlayerState()).toBe('buffering');
+    p.emitState('playing');
+    p.advance(10000);
+    expect(p.getPlayerState()).toBe('ended');
+  });
+
   it('emitError reaches every error listener', () => {
     const p = new FakePlayerAdapter(180000);
     const a: PlayerError[] = [];

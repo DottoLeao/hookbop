@@ -1,15 +1,16 @@
-import type { PlayerAdapter, PlayerError, PlayerState } from './adapter';
+import { clampVolume, type PlayerAdapter, type PlayerError, type PlayerState } from './adapter';
 
 /**
  * A player for tests. Time moves only when a test calls `advance`, and only while the state is 'playing'.
  * `emitState` and `emitError` stand in for what YouTube would report; `calls` records what the code under test asked for.
  */
 export class FakePlayerAdapter implements PlayerAdapter {
-  /** 'play', 'pause', 'seek:<ms>' and 'rate:<r>', in the order they were called. */
+  /** 'play', 'pause', 'seek:<ms>', 'rate:<r>' and 'volume:<v>', in the order they were called. */
   readonly calls: string[] = [];
 
   private readonly durationMs: number;
   private timeMs = 0;
+  private volume = 100;
   private state: PlayerState = 'unstarted';
   private readonly stateListeners = new Set<(s: PlayerState) => void>();
   private readonly errorListeners = new Set<(e: PlayerError) => void>();
@@ -43,6 +44,21 @@ export class FakePlayerAdapter implements PlayerAdapter {
 
   setRate(rate: 0.75 | 1): void {
     this.calls.push(`rate:${rate}`);
+  }
+
+  /** Logs the volume as asked, like `seekTo`, and keeps it as a whole number from 0 to 100. */
+  setVolume(v: number): void {
+    this.calls.push(`volume:${v}`);
+    this.volume = clampVolume(v);
+  }
+
+  getVolume(): number {
+    return this.volume;
+  }
+
+  /** The last state that was emitted (by a test, by `play`, `pause` or by `advance` reaching the end). */
+  getPlayerState(): PlayerState {
+    return this.state;
   }
 
   onState(cb: (s: PlayerState) => void): () => void {

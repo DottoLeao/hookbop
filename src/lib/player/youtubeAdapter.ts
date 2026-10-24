@@ -1,4 +1,4 @@
-import type { PlayerAdapter, PlayerError, PlayerState } from './adapter';
+import { clampVolume, type PlayerAdapter, type PlayerError, type PlayerState } from './adapter';
 
 const IFRAME_API_SRC = 'https://www.youtube.com/iframe_api';
 const PLAYER_HOST = 'https://www.youtube-nocookie.com';
@@ -23,6 +23,9 @@ interface YTPlayer {
   pauseVideo(): void;
   seekTo(seconds: number, allowSeekAhead: boolean): void;
   setPlaybackRate(rate: number): void;
+  setVolume(volume: number): void;
+  getVolume(): number;
+  getPlayerState(): number;
   destroy(): void;
 }
 
@@ -146,6 +149,12 @@ export function createYouTubeAdapter(
       pause: () => live()?.pauseVideo(),
       seekTo: (ms) => live()?.seekTo(ms / 1000, true),
       setRate: (rate) => live()?.setPlaybackRate(rate),
+      setVolume: (v) => live()?.setVolume(clampVolume(v)),
+      getVolume: () => live()?.getVolume() ?? 100,
+      getPlayerState: () => {
+        const p = live();
+        return (p && STATE_BY_CODE[p.getPlayerState()]) || 'unstarted';
+      },
       onState(cb) {
         if (destroyed) return () => {};
         stateListeners.add(cb);

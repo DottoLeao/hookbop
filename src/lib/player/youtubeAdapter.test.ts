@@ -46,6 +46,9 @@ class FakeYTPlayer {
   pauseVideo = vi.fn();
   seekTo = vi.fn();
   setPlaybackRate = vi.fn();
+  setVolume = vi.fn();
+  getVolume = vi.fn(() => 100);
+  getPlayerState = vi.fn(() => -1);
   destroy = vi.fn();
   el: HTMLElement;
   options: PlayerOptions;
@@ -247,6 +250,46 @@ describe('createYouTubeAdapter', () => {
     expect(player.setPlaybackRate).toHaveBeenCalledWith(0.75);
   });
 
+  it('sets the volume through the player, as a whole number from 0 to 100', async () => {
+    const { adapter, player } = await readyAdapter();
+
+    adapter.setVolume(70);
+    adapter.setVolume(33.6);
+    adapter.setVolume(-5);
+    adapter.setVolume(250);
+
+    expect(player.setVolume.mock.calls).toEqual([[70], [34], [0], [100]]);
+  });
+
+  it('reads the volume from the player', async () => {
+    const { adapter, player } = await readyAdapter();
+    player.getVolume.mockReturnValue(42);
+    expect(adapter.getVolume()).toBe(42);
+  });
+
+  it('reads the real player state, without waiting for an event, with the same mapping as onState', async () => {
+    const { adapter, player } = await readyAdapter();
+    const expected: [number, PlayerState][] = [
+      [-1, 'unstarted'],
+      [0, 'ended'],
+      [1, 'playing'],
+      [2, 'paused'],
+      [3, 'buffering'],
+      [5, 'unstarted'],
+    ];
+
+    for (const [code, state] of expected) {
+      player.getPlayerState.mockReturnValue(code);
+      expect(adapter.getPlayerState()).toBe(state);
+    }
+  });
+
+  it('reports a state code it does not know as unstarted', async () => {
+    const { adapter, player } = await readyAdapter();
+    player.getPlayerState.mockReturnValue(42);
+    expect(adapter.getPlayerState()).toBe('unstarted');
+  });
+
   it('stops a listener when the function onState or onError returned is called', async () => {
     const { adapter, player } = await readyAdapter();
     const onState = vi.fn();
@@ -427,6 +470,7 @@ describe('createYouTubeAdapter', () => {
       adapter.pause();
       adapter.seekTo(1000);
       adapter.setRate(0.75);
+      adapter.setVolume(50);
       adapter.onState(listener)();
       adapter.onError(listener)();
       adapter.destroy();
@@ -434,12 +478,17 @@ describe('createYouTubeAdapter', () => {
 
     expect(adapter.getCurrentTimeMs()).toBe(0);
     expect(adapter.getDurationMs()).toBe(0);
+    expect(adapter.getVolume()).toBe(100);
+    expect(adapter.getPlayerState()).toBe('unstarted');
     expect(player.getCurrentTime).not.toHaveBeenCalled();
     expect(player.getDuration).not.toHaveBeenCalled();
     expect(player.playVideo).not.toHaveBeenCalled();
     expect(player.pauseVideo).not.toHaveBeenCalled();
     expect(player.seekTo).not.toHaveBeenCalled();
     expect(player.setPlaybackRate).not.toHaveBeenCalled();
+    expect(player.setVolume).not.toHaveBeenCalled();
+    expect(player.getVolume).not.toHaveBeenCalled();
+    expect(player.getPlayerState).not.toHaveBeenCalled();
     expect(player.destroy).toHaveBeenCalledTimes(1);
     expect(listener).not.toHaveBeenCalled();
   });
