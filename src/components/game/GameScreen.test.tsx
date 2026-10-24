@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { tokenize } from '@/lib/game/blanks';
 import { makeDistractors } from '@/lib/game/distractors';
@@ -456,6 +457,28 @@ class UnreportedPausePlayer extends FakePlayerAdapter {
   override pause(): void {
     this.calls.push('pause');
     this.setStateUnreported('paused');
+  }
+}
+
+/**
+ * A player whose seek lands only when the test says so (`land`): until then it goes on reporting the position it had,
+ * as YouTube does for a moment after a seek.
+ */
+class SlowSeekPlayer extends FakePlayerAdapter {
+  private landing: number | null = null;
+
+  override seekTo(ms: number): void {
+    this.calls.push(`seek:${ms}`);
+    this.landing = ms;
+  }
+
+  /** The seek lands: the player reports the new position, and the call is not logged a second time. */
+  land(): void {
+    if (this.landing === null) return;
+    const ms = this.landing;
+    this.landing = null;
+    super.seekTo(ms);
+    this.calls.pop();
   }
 }
 
@@ -2337,7 +2360,8 @@ describe('GameScreen: the game kept on the device', () => {
       renderBuild({ blanks: [WHOLE_0, WHOLE_1], progressStorage: storage });
 
       placeWords(BUILD_WORDS.slice(0, -1));
-      expect(storage.keys()).toEqual([]);
+      // Four of the five words are in the row: kept, with no answer yet.
+      expect(stored()?.score.records).toEqual([]);
       fireEvent.click(screen.getByRole('button', { name: 'Dica' }));
 
       expect(stored()?.status).toEqual({ [WHOLE_0.id]: 'correct', [WHOLE_1.id]: 'pending' });
@@ -2455,8 +2479,92 @@ describe('GameScreen: the game kept on the device', () => {
 
       fireEvent.click(option('let'));
       playFor(5000);
+      setVisibility('hidden');
 
-      expect(localStorage.length).toBe(0);
+      // Other things are kept in the same storage (the settings); a saved game is the only thing this is about.
+      expect(Object.keys(localStorage).filter((key) => key.startsWith('hb_progress:'))).toEqual([]);
+    });
+
+    it('stamps the save with the clock it is given, the one the song screen judges its age by', () => {
+      renderGame({ blanks: [LET], progressStorage: storage, wallClock: () => 424242 });
+
+      fireEvent.click(option('let'));
+
+      expect(loadProgress(storage, ID, 424242)?.savedAt).toBe(424242);
+    });
+
+    it('saves a hint when it is given, not only the next time it saves, so leaving by the back link keeps it', () => {
+      renderGame({ blanks: [LET, GAVE], progressStorage: storage });
+      expect(storage.keys()).toEqual([]);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Dica' }));
+
+      expect(stored()?.hinted).toEqual({ [LET.id]: true });
+      expect(stored()?.score.records).toEqual([]);
+    });
+
+    it('saves each tile placed in Monte o verso as it is placed', () => {
+      renderBuild({ blanks: [WHOLE_0, WHOLE_1], progressStorage: storage });
+
+      placeWords(BUILD_WORDS.slice(0, 2));
+
+      expect(stored()?.tilesPlaced).toEqual({ [WHOLE_0.id]: BUILD_WORDS.slice(0, 2), [WHOLE_1.id]: [] });
+      expect(stored()?.score.records).toEqual([]);
+    });
+
+    it('a hint given and then the back link: the game goes on from the save, and the answer is still a helped one', () => {
+      renderGame({ blanks: [LET], progressStorage: storage });
+      fireEvent.click(screen.getByRole('button', { name: 'Dica' }));
+      // The back link takes the screen away, within the 5 s, with no other save.
+      cleanup();
+      const resume = stored();
+      expect(resume).not.toBeNull();
+
+      const onEnd = renderGame({ blanks: [LET], resume: resume!, progressStorage: storage });
+      fireEvent.click(option('let'));
+      act(() => fake.emitState('ended'));
+
+      expect(onEnd.mock.calls[0][1]).toEqual([{ blankId: LET.id, kind: 'helped', correct: true, beforeLineEnd: true }]);
+      expect(onEnd.mock.calls[0][0]).toMatchObject({ firstTryCorrect: 0, xp: 0, maxCombo: 0 });
+    });
+
+    it('a miss with auto-repeat: the save written right after it goes on from that blank’s line, not from the next one', () => {
+      renderGame({ blanks: [LET, GAVE], progressStorage: storage });
+      playTo(3850);
+      // The clip plays on while the music fades out, into the next line.
+      act(() => {
+        fake.advance(1000);
+        vi.advanceTimersByTime(1000);
+      });
+      finishFadeOut();
+
+      fireEvent.click(option('late'));
+      // The clip went back to the start of its line, but the game's clock only follows after the first tick.
+      expect(stored()?.status).toEqual({ [LET.id]: 'wrong', [GAVE.id]: 'pending' });
+      expect(stored()?.lastTickMs).toBeGreaterThan(LINES[1].startMs);
+      cleanup();
+      fake.calls.length = 0;
+
+      renderGame({ blanks: [LET, GAVE], resume: stored()!, progressStorage: storage });
+
+      expect(fake.calls).toEqual(['seek:0', 'play']);
+    });
+
+    it('a game played, left and opened again: it goes on from the saved game, the line it was in', () => {
+      renderGame({ blanks: [LET, GAVE, FERRY], progressStorage: storage });
+      fireEvent.click(option('let'));
+      playTo(5200);
+      setVisibility('hidden');
+      cleanup();
+      setVisibility('visible');
+      fake.calls.length = 0;
+
+      const onEnd = renderGame({ blanks: [LET, GAVE, FERRY], resume: stored()!, progressStorage: storage });
+
+      expect(fake.calls).toEqual(['seek:4000', 'play']);
+      expect(screen.getByText('x1')).toBeInTheDocument();
+      expect(screen.getByTestId('line-current')).toHaveTextContent('She lacuna each kite a name');
+      expect(onEnd).not.toHaveBeenCalled();
     });
   });
 
@@ -2524,6 +2632,150 @@ describe('GameScreen: the game kept on the device', () => {
 
       expect(fake.getCurrentTimeMs()).toBe(0);
       expect(screen.getByTestId('line-current')).toHaveTextContent('She lacuna each kite a name');
+    });
+
+    describe('leaving the app while the player still reports the clock from before a seek', () => {
+      // Invented lines, short enough that a clip the phone plays on for 1.9 s goes through the pause point.
+      const SHORT: LyricLine[] = [
+        { index: 0, startMs: 0, endMs: 4000, text: 'Paper boats drift by the pier' },
+        { index: 1, startMs: 4000, endMs: 6000, text: 'We gather by the water' },
+      ];
+      const FIRST: Blank = { id: '0:1', lineIndex: 0, tokenIndex: 1, answer: 'boats' };
+      const SECOND: Blank = { id: '1:4', lineIndex: 1, tokenIndex: 4, answer: 'water' };
+
+      function seeks() {
+        return fake.calls.filter((call) => call.startsWith('seek:'));
+      }
+
+      /** The phone plays the paused clip on by itself for `ms` while the page is away. */
+      function phonePlays(ms: number) {
+        act(() => {
+          fake.setStateUnreported('playing');
+          fake.advance(ms);
+        });
+      }
+
+      it('leaves from the seek target of the resume, not the clock the player still reports: the blank the phone played through is replayed', () => {
+        const player = new SlowSeekPlayer(DURATION_MS);
+        fake = player;
+        const resume = savedGame({
+          lastTickMs: 4200,
+          status: { [FIRST.id]: 'correct', [SECOND.id]: 'pending' },
+          score: { ...savedGame().score, totalBlanks: 2 },
+        });
+        render(
+          <GameScreen
+            adapter={fake}
+            mode="escolha"
+            difficulty="medio"
+            lines={SHORT}
+            blanks={[FIRST, SECOND]}
+            video={VIDEO}
+            timeToReadyMs={1200}
+            onEnd={vi.fn()}
+            requestHelp={helpIsDown}
+            resume={resume}
+            progressStorage={storage}
+          />,
+        );
+        expect(seeks()).toEqual(['seek:4000']);
+
+        // Hidden before the first tick: the player has not even moved to the resume point yet.
+        setVisibility('hidden');
+        player.land();
+        phonePlays(1900);
+        setVisibility('visible');
+
+        // From 4000, the phone went through the pause point of SECOND (5850): that line is played again from its start,
+        // and nothing earlier than the resume point is played.
+        expect(seeks()).toEqual(['seek:4000', 'seek:4000']);
+        expect(screen.getByTestId('line-current')).toHaveTextContent('We gather by the lacuna');
+      });
+
+      it('does the same after any other seek: a replay of the line, then straight out of the app', () => {
+        const player = new SlowSeekPlayer(DURATION_MS);
+        fake = player;
+        renderGame({ lines: SHORT, blanks: [FIRST, SECOND] });
+        fireEvent.click(option('boats'));
+        playTo(5900);
+        fireEvent.click(screen.getByRole('button', { name: 'Repetir verso' }));
+        expect(seeks()).toEqual(['seek:0', 'seek:4000']);
+
+        // The player still says 5900. The seek lands, and the phone plays the clip from 4000 to 5900.
+        setVisibility('hidden');
+        player.land();
+        phonePlays(1900);
+        setVisibility('visible');
+
+        expect(seeks()).toEqual(['seek:0', 'seek:4000', 'seek:4000']);
+      });
+    });
+
+    it('does not seek or play again when what it was given changes identity on a later render', () => {
+      const props = {
+        adapter: fake,
+        mode: 'escolha',
+        difficulty: 'medio',
+        lines: LINES,
+        video: VIDEO,
+        timeToReadyMs: 1200,
+        onEnd: vi.fn(),
+        requestHelp: helpIsDown,
+      } as const;
+      const resume = savedGame();
+      const { rerender } = render(<GameScreen {...props} blanks={[LET, GAVE, FERRY]} resume={resume} progressStorage={storage} wallClock={() => 1} />);
+      act(() => vi.advanceTimersByTime(300));
+      expect(fake.calls).toEqual(['seek:4000', 'play']);
+
+      rerender(
+        <GameScreen {...props} blanks={[LET, GAVE, FERRY]} resume={{ ...resume }} progressStorage={new MemoryStorage()} wallClock={() => 2} />,
+      );
+      act(() => vi.advanceTimersByTime(1000));
+
+      expect(fake.calls).toEqual(['seek:4000', 'play']);
+    });
+
+    it('opens once under StrictMode, which runs every effect twice', () => {
+      render(
+        <StrictMode>
+          <GameScreen
+            adapter={fake}
+            mode="escolha"
+            difficulty="medio"
+            lines={LINES}
+            blanks={[LET, GAVE, FERRY]}
+            video={VIDEO}
+            timeToReadyMs={1200}
+            onEnd={vi.fn()}
+            requestHelp={helpIsDown}
+            resume={savedGame()}
+            progressStorage={storage}
+          />
+        </StrictMode>,
+      );
+
+      expect(fake.calls).toEqual(['seek:4000', 'play']);
+    });
+
+    it('does not seek back to the top either when a game that started new gets other callbacks later', () => {
+      const props = {
+        adapter: fake,
+        mode: 'escolha',
+        difficulty: 'medio',
+        lines: LINES,
+        video: VIDEO,
+        timeToReadyMs: 1200,
+        onEnd: vi.fn(),
+        requestHelp: helpIsDown,
+      } as const;
+      const { rerender } = render(<GameScreen {...props} blanks={[LET]} progressStorage={storage} wallClock={() => 1} />);
+      act(() => vi.advanceTimersByTime(300));
+      expect(fake.calls).toEqual(['seek:0', 'play']);
+
+      rerender(<GameScreen {...props} blanks={[LET]} progressStorage={new MemoryStorage()} wallClock={() => 2} />);
+      act(() => vi.advanceTimersByTime(1000));
+
+      expect(fake.calls).toEqual(['seek:0', 'play']);
     });
 
     it('goes on to the next blank, and the answers it had count once in the result', () => {

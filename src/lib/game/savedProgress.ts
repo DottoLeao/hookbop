@@ -8,8 +8,13 @@ export const PROGRESS_VERSION = 1;
 /** A saved round older than this is not offered any more. */
 export const PROGRESS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
-/** The three calls of `Storage` that the saved progress uses: `window.localStorage` in the app, a fake in tests. */
-export type ProgressStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+/**
+ * What the saved progress uses of `Storage`: `window.localStorage` in the app, a fake in tests. `key` and `length` are
+ * only for `sweepProgress`, which looks for the saved games of other songs.
+ */
+export type ProgressStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key' | 'length'>;
+
+const KEY_PREFIX = 'hb_progress:';
 
 /**
  * A round in progress, as it is kept on the device so the player can come back to the same song and go on. One per
@@ -26,7 +31,7 @@ export interface SavedProgress extends RestorableProgress {
 }
 
 function keyOf(youtubeId: string): string {
-  return `hb_progress:${youtubeId}`;
+  return KEY_PREFIX + youtubeId;
 }
 
 // Records over the unions, so that a new mode, status or kind cannot be forgotten here: the compiler asks for it.
@@ -124,8 +129,9 @@ export function saveProgress(storage: ProgressStorage, progress: SavedProgress):
 }
 
 /**
- * The song's saved progress, or null when there is none, it is more than 24 hours old, it is of another version or it
- * cannot be read. What is of no use any more is taken out of the storage. A storage that throws just has none.
+ * The song's saved progress, or null when there is none, it is more than 24 hours old, it is dated after `now` (a clock
+ * set back), it is of another version or it cannot be read. What is of no use any more is taken out of the storage. A
+ * storage that throws just has none.
  */
 export function loadProgress(storage: ProgressStorage, youtubeId: string, now: number): SavedProgress | null {
   let stored: string | null;
@@ -142,7 +148,7 @@ export function loadProgress(storage: ProgressStorage, youtubeId: string, now: n
   } catch {
     parsed = null;
   }
-  if (isProgress(parsed, youtubeId) && now - parsed.savedAt <= PROGRESS_MAX_AGE_MS) return parsed;
+  if (isProgress(parsed, youtubeId) && parsed.savedAt <= now && now - parsed.savedAt <= PROGRESS_MAX_AGE_MS) return parsed;
 
   clearProgress(storage, youtubeId);
   return null;
@@ -154,5 +160,25 @@ export function clearProgress(storage: ProgressStorage, youtubeId: string): void
     storage.removeItem(keyOf(youtubeId));
   } catch {
     // Nothing to forget, or the storage is blocked: either way there is nothing more to do.
+  }
+}
+
+/**
+ * Takes out every saved game of every song that is of no use any more (too old, from the future, another version,
+ * unreadable), so a song that is never opened again does not keep its game on the device for good. Other keys are left
+ * alone. A storage that cannot be listed, or that refuses to forget, is left as it is.
+ */
+export function sweepProgress(storage: ProgressStorage, now: number): void {
+  try {
+    const songs: string[] = [];
+    for (let index = 0; index < storage.length; index++) {
+      const key = storage.key(index);
+      if (key?.startsWith(KEY_PREFIX)) songs.push(key.slice(KEY_PREFIX.length));
+    }
+    // `loadProgress` forgets what is of no use, so it does the sweeping; the keys are listed first because forgetting
+    // changes the positions.
+    for (const youtubeId of songs) loadProgress(storage, youtubeId, now);
+  } catch {
+    // The storage is blocked: there is nothing it can be swept of.
   }
 }

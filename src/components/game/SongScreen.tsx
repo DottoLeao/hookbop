@@ -7,7 +7,13 @@ import { t } from '@/i18n/t';
 import { currentUserId } from '@/lib/auth/currentUser';
 import { getEntitlements } from '@/lib/entitlements';
 import { selectBlanks } from '@/lib/game/blanks';
-import { clearProgress, loadProgress, type ProgressStorage, type SavedProgress } from '@/lib/game/savedProgress';
+import {
+  clearProgress,
+  loadProgress,
+  sweepProgress,
+  type ProgressStorage,
+  type SavedProgress,
+} from '@/lib/game/savedProgress';
 import { helpedBlanks } from '@/lib/game/scoring';
 import { selectTileLines } from '@/lib/game/tiles';
 import { cleanTitle } from '@/lib/lyrics/cleanTitle';
@@ -132,8 +138,7 @@ type Phase =
   | { kind: 'video_unavailable' }
   | { kind: 'no_lyrics'; video: VideoRecord }
   | { kind: 'calibration'; adapter: PlayerAdapter; video: VideoRecord; lines: LyricLine[] }
-  /** `saved`: a game of this song kept on the device, to go on from, found when the picker came up. */
-  | { kind: 'picker'; adapter: PlayerAdapter; video: VideoRecord; lines: LyricLine[]; saved: SavedProgress | null }
+  | ({ kind: 'picker'; adapter: PlayerAdapter; video: VideoRecord; lines: LyricLine[] } & SavedLookup)
   | {
       kind: 'game';
       adapter: PlayerAdapter;
@@ -158,8 +163,17 @@ type Phase =
       helped: number;
     };
 
-/** `savedGame` looks for the game of this song kept on the device, for the picker to offer. */
-function phaseFor(resolution: SongResolution, adapter: PlayerAdapter, savedGame: () => SavedProgress | null): Phase {
+/**
+ * What the picker offers: a game of this song kept on the device, to go on from, and the time of day it was looked up at
+ * (for the picker to say how long ago the game was saved).
+ */
+interface SavedLookup {
+  saved: SavedProgress | null;
+  readAt: number;
+}
+
+/** `lookUpSaved` looks for the game of this song kept on the device, for the picker to offer. */
+function phaseFor(resolution: SongResolution, adapter: PlayerAdapter, lookUpSaved: () => SavedLookup): Phase {
   switch (resolution.status) {
     case 'ready': {
       const { video, lines } = resolution;
@@ -169,7 +183,7 @@ function phaseFor(resolution: SongResolution, adapter: PlayerAdapter, savedGame:
       // players have a median, it is one tap away in the mode picker ("Ajustar o tempo").
       return resolution.needsCalibration && video.offsetMs === 0
         ? { kind: 'calibration', adapter, video, lines }
-        : { kind: 'picker', adapter, video, lines, saved: savedGame() };
+        : { kind: 'picker', adapter, video, lines, ...lookUpSaved() };
     }
     case 'no_lyrics':
       return { kind: 'no_lyrics', video: resolution.video };
@@ -249,11 +263,23 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
   const wallClock = deps.wallClock ?? defaultWallClock;
   // The storage is looked up once; the game screen keeps and drops the game in progress in the same one.
   const progressStorage = useMemo(() => (deps.progressStorage ?? browserStorage)(), [deps.progressStorage]);
-  /** The game of this song kept on the device, when there is one worth going on from (not 24 hours old, not of another version). */
-  const savedGame = useCallback(
-    () => (progressStorage ? loadProgress(progressStorage, youtubeId, wallClock()) : null),
-    [progressStorage, youtubeId, wallClock],
-  );
+  /**
+   * The game of this song kept on the device, when there is one worth going on from (not 24 hours old, not from the
+   * future, not of another version). The saved games of other songs that are of no use any more are swept out too, so a
+   * song never opened again does not keep its game on the device for good.
+   */
+  const lookUpSaved = useCallback((): SavedLookup => {
+    const readAt = wallClock();
+    if (!progressStorage) return { saved: null, readAt };
+    sweepProgress(progressStorage, readAt);
+    return { saved: loadProgress(progressStorage, youtubeId, readAt), readAt };
+  }, [progressStorage, youtubeId, wallClock]);
+  // The song lookup below runs once per song and must not start over because the storage or the clock got another
+  // identity, so it reaches the latest of this through a ref.
+  const lookUpSavedRef = useRef(lookUpSaved);
+  useEffect(() => {
+    lookUpSavedRef.current = lookUpSaved;
+  }, [lookUpSaved]);
 
   const playerBoxRef = useRef<HTMLDivElement>(null);
   // Where the game screen puts its header, above the player box.
@@ -364,7 +390,7 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
       if (closed) return;
       if (!durationKnown && resolution.status === 'ready') resolution = { ...resolution, needsCalibration: false };
 
-      const next = phaseFor(resolution, player, savedGame);
+      const next = phaseFor(resolution, player, () => lookUpSavedRef.current());
       if (next.kind === 'calibration' || next.kind === 'picker') {
         const elapsedMs = Math.round(now() - (openedAtRef.current ?? 0));
         setTimeToReadyMs((known) => known ?? elapsedMs);
@@ -376,7 +402,7 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
     return () => {
       closed = true;
     };
-  }, [adapter, resolve, sleep, youtubeId, now, lyricsAttempt, savedGame]);
+  }, [adapter, resolve, sleep, youtubeId, now, lyricsAttempt]);
 
   function retryPlayer() {
     setAdapter(null);
@@ -393,7 +419,7 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
 
   /** The mode picker, offering the game of this song kept on the device, if there is one. */
   function pickerFor(player: PlayerAdapter, video: VideoRecord, lines: LyricLine[]): Phase {
-    return { kind: 'picker', adapter: player, video, lines, saved: savedGame() };
+    return { kind: 'picker', adapter: player, video, lines, ...lookUpSaved() };
   }
 
   /**
@@ -514,11 +540,12 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
       }
 
       case 'picker': {
-        const { adapter: player, video, lines, saved } = phase;
+        const { adapter: player, video, lines, saved, readAt } = phase;
         return (
           <ModePicker
             video={video}
             saved={saved ?? undefined}
+            now={readAt}
             onResume={() => {
               if (saved) startGame(player, video, lines, saved.mode, saved.difficulty, saved);
             }}
@@ -543,6 +570,7 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
             headerSlot={gameHeaderSlot}
             resume={phase.resume}
             progressStorage={progressStorage}
+            wallClock={wallClock}
           />
         );
 

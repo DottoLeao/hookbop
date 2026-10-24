@@ -74,9 +74,12 @@ export const ptBR = {
   'modo.difficulty': 'Dificuldade',
   'modo.play': 'Jogar',
   // Uma partida desta música ficou guardada no aparelho (até 24 h): continuar dela ou começar outra.
-  'modo.saved': 'Partida salva às {hora} · {modo} · {dificuldade}',
+  // {quando} é "às 14:32" (salva hoje) ou "ontem às 14:32" (salva no dia anterior).
+  'modo.saved': 'Partida salva {quando} · {modo} · {dificuldade}',
   // O Karaokê não tem dificuldade.
-  'modo.savedKaraoke': 'Partida salva às {hora} · {modo}',
+  'modo.savedKaraoke': 'Partida salva {quando} · {modo}',
+  'modo.savedToday': 'às {hora}',
+  'modo.savedYesterday': 'ontem às {hora}',
   'modo.resume': 'Continuar de onde parou',
   'modo.discard': 'Começar do zero',
 

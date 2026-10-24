@@ -132,8 +132,9 @@ describe('SongScreen with the real game: going on from a saved game', () => {
 
     fireEvent.click(within(screen.getByRole('group', { name: 'Escolha a palavra que falta' })).getByRole('button', { name: LAST.answer }));
 
-    // The game screen stamps what it keeps with the real time of day.
-    expect(loadProgress(storage, ID, Date.now())?.score.records).toHaveLength(BLANKS.length);
+    // The game stamps what it keeps with the clock the song screen was given, the one that judges its age.
+    expect(loadProgress(storage, ID, NOW)).toMatchObject({ savedAt: NOW });
+    expect(loadProgress(storage, ID, NOW)?.score.records).toHaveLength(BLANKS.length);
 
     act(() => fake.emitState('ended'));
     await waitFor(() => expect(deps.savePlay).toHaveBeenCalledOnce());

@@ -686,7 +686,8 @@ describe('SongScreen: the page in the background (ruling R84)', () => {
 });
 
 describe('SongScreen: going on from a saved game', () => {
-  const NOW = 1_800_000_000_000;
+  // Midday by the clock of wherever the tests run, so "a minute before" is always the same day.
+  const NOW = new Date(2027, 0, 15, 12, 0, 0).getTime();
   let storage: MemoryStorage;
 
   beforeEach(() => {
@@ -743,6 +744,26 @@ describe('SongScreen: going on from a saved game', () => {
     expect(screen.getByRole('radio', { name: 'Digitação' })).toBeInTheDocument();
   });
 
+  it('says "ontem" for a game saved on the day before, and keeps the plain time for one saved today', async () => {
+    const lastNight = new Date(2027, 0, 14, 23, 30, 0).getTime();
+    saveProgress(storage, savedGame({ savedAt: lastNight }));
+    render(<SongScreen youtubeId={ID} deps={depsWithStorage()} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+
+    const saved = screen.getByRole('region', { name: /Partida salva/ });
+    const time = new Date(lastNight).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    expect(saved).toHaveTextContent(`Partida salva ontem às ${time} · Escolha · Médio`);
+  });
+
+  it('says "ontem" in the Karaokê wording too', async () => {
+    const lastNight = new Date(2027, 0, 14, 23, 30, 0).getTime();
+    saveProgress(storage, savedGame({ mode: 'karaoke', status: {}, attempted: {}, score: createScore(0), savedAt: lastNight }));
+    render(<SongScreen youtubeId={ID} deps={depsWithStorage()} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+
+    expect(screen.getByRole('region', { name: /Partida salva/ })).toHaveTextContent(/Partida salva ontem às 23:30 · Karaokê/);
+  });
+
   it('asks for no difficulty in the Karaokê it was', async () => {
     saveProgress(storage, savedGame({ mode: 'karaoke', status: {}, attempted: {}, score: createScore(0) }));
     render(<SongScreen youtubeId={ID} deps={depsWithStorage()} />);
@@ -790,6 +811,26 @@ describe('SongScreen: going on from a saved game', () => {
 
     expect(resumeButton()).not.toBeInTheDocument();
     expect(storage.keys()).toEqual([]);
+  });
+
+  it('offers nothing for a saved game dated after now (a clock set back), which is taken out of the storage', async () => {
+    saveProgress(storage, savedGame({ savedAt: NOW + 1 }));
+    render(<SongScreen youtubeId={ID} deps={depsWithStorage()} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+
+    expect(resumeButton()).not.toBeInTheDocument();
+    expect(storage.keys()).toEqual([]);
+  });
+
+  it('takes out the old saved games of other songs too when the picker comes up, and leaves the fresh ones and other keys', async () => {
+    saveProgress(storage, savedGame({ youtubeId: 'abandoned-1', savedAt: NOW - PROGRESS_MAX_AGE_MS - 1 }));
+    saveProgress(storage, savedGame({ youtubeId: 'abandoned-2', savedAt: NOW - 5 * PROGRESS_MAX_AGE_MS }));
+    saveProgress(storage, savedGame({ youtubeId: 'recent', savedAt: NOW - 3_600_000 }));
+    storage.setItem('hb_settings', '{"sounds":false}');
+    render(<SongScreen youtubeId={ID} deps={depsWithStorage()} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+
+    expect(storage.keys().sort()).toEqual(['hb_progress:recent', 'hb_settings']);
   });
 
   it('offers nothing, and does not break, when the storage refuses or there is none', async () => {
@@ -904,6 +945,29 @@ describe('SongScreen: going on from a saved game', () => {
     expect(gameProps()).toMatchObject({ mode: 'escolha', difficulty: 'facil', blanks: selectBlanks(LINES, 'facil', ID) });
     expect(gameProps().resume).toBeUndefined();
     expect(gameProps().progressStorage).toBe(storage);
+  });
+
+  it('gives the game the clock it judges the age of a saved game by, to stamp the saves with', async () => {
+    const deps = depsWithStorage();
+    render(<SongScreen youtubeId={ID} deps={deps} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+
+    pick('Escolha');
+
+    expect(gameProps().wallClock).toBe(deps.wallClock);
+  });
+
+  it('does not look the song up again when the storage or the clock it was given are other functions on a later render', async () => {
+    const deps = depsWithStorage();
+    const { rerender } = render(<SongScreen youtubeId={ID} deps={deps} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+    expect(deps.resolve).toHaveBeenCalledOnce();
+
+    rerender(<SongScreen youtubeId={ID} deps={{ ...deps, progressStorage: () => storage, wallClock: () => NOW }} />);
+    await act(async () => {});
+
+    expect(deps.resolve).toHaveBeenCalledOnce();
+    expect(screen.getByRole('button', { name: 'Jogar' })).toBeInTheDocument();
   });
 });
 

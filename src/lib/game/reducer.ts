@@ -1,3 +1,4 @@
+import { lastStartedLineIndex } from '@/lib/lyrics/startedLine';
 import type { PlayerState } from '@/lib/player/adapter';
 import type { AnswerRecord, AttemptKind, Blank, Command, LyricLine, Mode, PlaySummary } from '@/lib/types';
 import { tokenize } from './blanks';
@@ -404,16 +405,18 @@ export function canRestore(s: GameState, saved: RestorableProgress): boolean {
 
 /**
  * Where the clip starts again in a restored round (ruling S21): the start of the line the saved clock was in, or, if a
- * blank still pending has its pause point before the clock, the start of the line that holds that point. The earliest of
- * the two, so a wait the save interrupted (the clock goes on for the length of the fade) is waited for again and no
- * blank goes by unheard. The start of the clip when the clock was before the first line, as a new round has it.
+ * blank that still awaits an answer (`awaitsAnswer`: pending, skipped, or missed with auto-repeat on) has its pause point
+ * before the clock, the start of the line that holds that point. The earliest of the two, so a wait the save interrupted
+ * (the clock goes on for the length of the fade), or a miss whose replay had not begun, is waited for again and no blank
+ * goes by unheard. The start of the clip when the clock was before the first line, as a new round has it.
  */
 export function resumeStartMs(s: GameState): number {
   let fromMs = s.lastTickMs;
   for (const blank of s.blanks) {
-    if (s.status[blank.id] === 'pending') fromMs = Math.min(fromMs, lineOf(s, blank).endMs - PAUSE_LEAD_MS);
+    if (awaitsAnswer(s, blank)) fromMs = Math.min(fromMs, lineOf(s, blank).endMs - PAUSE_LEAD_MS);
   }
-  return s.lines.findLast((line) => line.startMs <= fromMs)?.startMs ?? 0;
+  const started = lastStartedLineIndex(s.lines, fromMs);
+  return started < 0 ? 0 : s.lines[started].startMs;
 }
 
 /**

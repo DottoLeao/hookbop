@@ -10,13 +10,21 @@ import type { Difficulty, Mode } from '@/lib/types';
 const MODES: readonly Mode[] = ['escolha', 'digitacao', 'karaoke', 'montar'];
 const DIFFICULTIES: readonly Difficulty[] = ['facil', 'medio', 'dificil'];
 
-/** "Partida salva às 14:32 · Escolha · Médio": the time of day it was saved, and the mode and difficulty it was. */
-function savedInfo({ mode, difficulty, savedAt }: { mode: Mode; difficulty: Difficulty; savedAt: number }): string {
+/**
+ * "Partida salva às 14:32 · Escolha · Médio": when it was saved, and the mode and difficulty it was. A game saved on an
+ * earlier day (they are under 24 hours old, so it was the day before) says "ontem". Without `now` it is today's.
+ */
+function savedInfo(
+  { mode, difficulty, savedAt }: { mode: Mode; difficulty: Difficulty; savedAt: number },
+  now: number | undefined,
+): string {
   const hora = new Date(savedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const today = now === undefined || new Date(savedAt).toDateString() === new Date(now).toDateString();
+  const quando = t(today ? 'modo.savedToday' : 'modo.savedYesterday', { hora });
   // Karaokê has no blanks, so it asks for no difficulty.
   return mode === 'karaoke'
-    ? t('modo.savedKaraoke', { hora, modo: t(`modo.${mode}`) })
-    : t('modo.saved', { hora, modo: t(`modo.${mode}`), dificuldade: t(`dificuldade.${difficulty}`) });
+    ? t('modo.savedKaraoke', { quando, modo: t(`modo.${mode}`) })
+    : t('modo.saved', { quando, modo: t(`modo.${mode}`), dificuldade: t(`dificuldade.${difficulty}`) });
 }
 
 interface ModePickerProps {
@@ -26,6 +34,8 @@ interface ModePickerProps {
   onCalibrate: () => void;
   /** A game of this song kept on the device, and when (ms since 1970): it can be gone on from. */
   saved?: { mode: Mode; difficulty: Difficulty; savedAt: number };
+  /** The time of day in ms since 1970, to tell a game saved today from one saved the day before. Today's when left out. */
+  now?: number;
   /** "Continuar de onde parou": goes on from the saved game, in the mode and difficulty it was. */
   onResume: () => void;
   /** "Começar do zero": forgets the saved game. The picker stays, for the player to choose a new one. */
@@ -40,7 +50,7 @@ const savedAction =
  * (design/canvas/Main.dc.html in the Limão colors). Karaokê has no blanks, so it asks for no difficulty.
  * A game kept on the device for the song comes first, to go on from or to drop.
  */
-export function ModePicker({ video, onPlay, onCalibrate, saved, onResume, onDiscard }: ModePickerProps) {
+export function ModePicker({ video, onPlay, onCalibrate, saved, now, onResume, onDiscard }: ModePickerProps) {
   const [mode, setMode] = useState<Mode>('escolha');
   const [difficulty, setDifficulty] = useState<Difficulty>('facil');
   const id = useId();
@@ -80,7 +90,7 @@ export function ModePicker({ video, onPlay, onCalibrate, saved, onResume, onDisc
           className="flex flex-col gap-2 rounded-card border-[1.5px] border-lime bg-card p-3.5"
         >
           <p id={`${id}-saved`} className="text-body font-semibold">
-            {savedInfo(saved)}
+            {savedInfo(saved, now)}
           </p>
           <button type="button" onClick={onResume} className={`${savedAction} min-h-12 bg-lime font-bold text-bg`}>
             {t('modo.resume')}

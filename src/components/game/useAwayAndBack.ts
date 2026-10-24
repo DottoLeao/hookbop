@@ -17,10 +17,11 @@ interface AwayAndBackOptions {
   /** Where the focus goes once "Continuar" is gone: the answer due during a wait, "Repetir verso" otherwise. */
   nextFocus: () => HTMLElement | null;
   /**
-   * Called as the page goes away, after the clip is paused: the game is saved there (ruling S23), since the phone can
-   * close an app that is in the background and nothing more is heard of it. Should keep its identity between renders.
+   * Where the clip is as the page goes away. The player's own clock, except for a moment after a seek, when the player
+   * can still report the position it had (ruling R44): then the seek's target, so the time away is counted from where the
+   * clip is about to be and not from where it was. Should keep its identity between renders.
    */
-  onLeave?: () => void;
+  clipPositionMs: () => number;
 }
 
 /** Gives `el` the focus and brings it into view only if it is not already: the page stays where the player left it. */
@@ -44,7 +45,7 @@ export function focusInView(el: HTMLElement): void {
  * played through the pause point of a blank still to answer goes back to the start of that blank's line (ruling S18),
  * the clip is paused, the game is told it is stopped, and `backFromAway` puts up "Continuar", which takes the focus.
  */
-export function useAwayAndBack({ adapter, gameRef, run, send, dispatch, nextFocus, onLeave }: AwayAndBackOptions) {
+export function useAwayAndBack({ adapter, gameRef, run, send, dispatch, nextFocus, clipPositionMs }: AwayAndBackOptions) {
   const awayRef = useRef(false);
   // Where the clip was when the page went away, to see what the phone played meanwhile.
   const leftAtMsRef = useRef(0);
@@ -83,10 +84,9 @@ export function useAwayAndBack({ adapter, gameRef, run, send, dispatch, nextFocu
 
   const leave = useCallback(() => {
     awayRef.current = true;
-    leftAtMsRef.current = adapter.getCurrentTimeMs();
+    leftAtMsRef.current = clipPositionMs();
     run([{ type: 'pause' }]);
-    onLeave?.();
-  }, [adapter, run, onLeave]);
+  }, [run, clipPositionMs]);
 
   const comeBack = useCallback(() => {
     const state = adapter.getPlayerState();

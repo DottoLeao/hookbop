@@ -8,6 +8,7 @@ import {
   loadProgress,
   progressOf,
   saveProgress,
+  sweepProgress,
   type SavedProgress,
 } from './savedProgress';
 
@@ -85,6 +86,21 @@ describe('saveProgress and loadProgress', () => {
 
     expect(loadProgress(storage, ID, NOW + 1)).toBeNull();
     expect(storage.keys()).toEqual([]);
+  });
+
+  it('is null for a progress saved in the future (a clock set back), which is taken out of the storage', () => {
+    const storage = new MemoryStorage();
+    saveProgress(storage, progress({ savedAt: NOW + 1 }));
+
+    expect(loadProgress(storage, ID, NOW)).toBeNull();
+    expect(storage.keys()).toEqual([]);
+  });
+
+  it('keeps a progress saved at the very moment it is read', () => {
+    const storage = new MemoryStorage();
+    saveProgress(storage, progress({ savedAt: NOW }));
+
+    expect(loadProgress(storage, ID, NOW)).not.toBeNull();
   });
 
   it('is null for a progress from another version, which is taken out of the storage', () => {
@@ -175,6 +191,67 @@ describe('clearProgress', () => {
   it('does nothing for a song with no progress, and does not break when the storage refuses', () => {
     expect(() => clearProgress(new MemoryStorage(), ID)).not.toThrow();
     expect(() => clearProgress(new BrokenStorage(), ID)).not.toThrow();
+  });
+});
+
+describe('sweepProgress', () => {
+  it('takes out every saved game that is too old, of any song, and keeps the ones that are not', () => {
+    const storage = new MemoryStorage();
+    saveProgress(storage, progress({ youtubeId: ID }));
+    saveProgress(storage, progress({ youtubeId: 'old-song-1', savedAt: NOW - PROGRESS_MAX_AGE_MS - 1 }));
+    saveProgress(storage, progress({ youtubeId: 'old-song-2', savedAt: NOW - 3 * PROGRESS_MAX_AGE_MS }));
+    saveProgress(storage, progress({ youtubeId: 'edge-song', savedAt: NOW - PROGRESS_MAX_AGE_MS }));
+
+    sweepProgress(storage, NOW);
+
+    expect(storage.keys().sort()).toEqual(['hb_progress:edge-song', KEY].sort());
+  });
+
+  it('takes out the ones that cannot be used: another version, broken JSON, the wrong shape, from the future', () => {
+    const storage = new MemoryStorage();
+    storage.setItem('hb_progress:v2', JSON.stringify({ ...progress({ youtubeId: 'v2' }), version: 2 }));
+    storage.setItem('hb_progress:broken', '{"version":1,');
+    storage.setItem('hb_progress:shape', JSON.stringify({ version: 1, youtubeId: 'shape' }));
+    storage.setItem('hb_progress:other-id', JSON.stringify(progress({ youtubeId: 'someone-else' })));
+    saveProgress(storage, progress({ youtubeId: 'future', savedAt: NOW + 5000 }));
+    saveProgress(storage, progress());
+
+    sweepProgress(storage, NOW);
+
+    expect(storage.keys()).toEqual([KEY]);
+  });
+
+  it('leaves every other key alone', () => {
+    const storage = new MemoryStorage();
+    storage.setItem('hb_settings', '{"sounds":true}');
+    storage.setItem('hb_first_finish', '1');
+    storage.setItem('hb_progressive', 'not a saved game');
+    saveProgress(storage, progress({ savedAt: NOW - 2 * PROGRESS_MAX_AGE_MS }));
+
+    sweepProgress(storage, NOW);
+
+    expect(storage.keys().sort()).toEqual(['hb_first_finish', 'hb_progressive', 'hb_settings']);
+  });
+
+  it('does not break when the storage refuses, or refuses to forget', () => {
+    expect(() => sweepProgress(new BrokenStorage(), NOW)).not.toThrow();
+
+    const storage = new MemoryStorage();
+    saveProgress(storage, progress({ youtubeId: 'old', savedAt: NOW - 2 * PROGRESS_MAX_AGE_MS }));
+    vi.spyOn(storage, 'removeItem').mockImplementation(() => {
+      throw new DOMException('blocked', 'SecurityError');
+    });
+    expect(() => sweepProgress(storage, NOW)).not.toThrow();
+  });
+
+  it('does not break when the storage cannot be listed', () => {
+    const storage = new MemoryStorage();
+    saveProgress(storage, progress({ savedAt: NOW - 2 * PROGRESS_MAX_AGE_MS }));
+    vi.spyOn(storage, 'key').mockImplementation(() => {
+      throw new DOMException('blocked', 'SecurityError');
+    });
+
+    expect(() => sweepProgress(storage, NOW)).not.toThrow();
   });
 });
 

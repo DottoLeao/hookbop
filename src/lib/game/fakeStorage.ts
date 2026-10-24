@@ -4,6 +4,14 @@ import type { ProgressStorage } from './savedProgress';
 export class MemoryStorage implements ProgressStorage {
   private readonly items = new Map<string, string>();
 
+  get length(): number {
+    return this.items.size;
+  }
+
+  key(index: number): string | null {
+    return [...this.items.keys()][index] ?? null;
+  }
+
   getItem(key: string): string | null {
     return this.items.get(key) ?? null;
   }
@@ -24,6 +32,14 @@ export class MemoryStorage implements ProgressStorage {
 
 /** A storage that refuses every call, as `localStorage` does when site data is blocked (SecurityError) or full. */
 export class BrokenStorage implements ProgressStorage {
+  get length(): number {
+    throw new DOMException('blocked', 'SecurityError');
+  }
+
+  key(): string | null {
+    throw new DOMException('blocked', 'SecurityError');
+  }
+
   getItem(): string | null {
     throw new DOMException('blocked', 'SecurityError');
   }

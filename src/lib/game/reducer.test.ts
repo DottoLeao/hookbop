@@ -991,11 +991,33 @@ describe('resumeStartMs (ruling S21)', () => {
     expect(resumeStartMs({ ...s, status: { ...s.status, '0:2': 'correct' } })).toBe(4000);
   });
 
-  it('does not go back for a blank that is not pending: right, wrong, or skipped', () => {
+  it('does not go back for a blank that is already right', () => {
     const s = restored([LET, BOAT], { lastTickMs: 5200 });
-    for (const status of ['correct', 'wrong', 'skipped'] as const) {
-      expect(resumeStartMs({ ...s, status: { '0:2': status, '1:3': 'pending' } })).toBe(4000);
-    }
+    expect(resumeStartMs({ ...s, status: { '0:2': 'correct', '1:3': 'pending' } })).toBe(4000);
+  });
+
+  it('goes back for every blank that awaits an answer, as `awaitsAnswer` has it: pending, skipped, and a miss with auto-repeat', () => {
+    const s = restored([LET, BOAT], { lastTickMs: 5200 });
+    expect(resumeStartMs({ ...s, status: { '0:2': 'pending', '1:3': 'pending' } })).toBe(0);
+    expect(resumeStartMs({ ...s, status: { '0:2': 'skipped', '1:3': 'pending' } })).toBe(0);
+    expect(resumeStartMs({ ...s, autoRepeat: true, status: { '0:2': 'wrong', '1:3': 'pending' } })).toBe(0);
+  });
+
+  it('does not go back for a miss when auto-repeat is off: the song moves on from it', () => {
+    const s = restored([LET, BOAT], { lastTickMs: 5200, autoRepeat: false });
+    expect(resumeStartMs({ ...s, status: { '0:2': 'wrong', '1:3': 'pending' } })).toBe(4000);
+  });
+
+  it('goes back to a miss with auto-repeat that a save caught right after the miss, while the clock was still in the next line', () => {
+    // The miss at the end of the first line: the clip is sent back to its start, but the clock stays where the fade left
+    // it, in the next line, until the first tick after the seek.
+    const missed = run(game({ blanks: [LET, BOAT] }), tick(3850), tick(4900), tick(5850), answer('0:2', false, 3900));
+    expect(missed.status['0:2']).toBe('wrong');
+    expect(missed.lastTickMs).toBe(5850);
+
+    const s = run(game({ blanks: [LET, BOAT] }), restore(progressOf(missed)));
+
+    expect(resumeStartMs(s)).toBe(0);
   });
 
   it('stays at the line of the clock when the pending blanks are all still ahead of it', () => {

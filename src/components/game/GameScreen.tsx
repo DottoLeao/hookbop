@@ -7,18 +7,8 @@ import { DjBop, type DjBopExpression } from '@/components/brand/DjBop';
 import { t } from '@/i18n/t';
 import { getEntitlements } from '@/lib/entitlements';
 import { tokenize } from '@/lib/game/blanks';
-import {
-  awaitsAnswer,
-  canRestore,
-  clipPlays,
-  gameReducer,
-  initGame,
-  resumeStartMs,
-  summaryOf,
-  type GameEvent,
-  type GameState,
-} from '@/lib/game/reducer';
-import { clearProgress, progressOf, saveProgress, type ProgressStorage, type SavedProgress } from '@/lib/game/savedProgress';
+import { awaitsAnswer, clipPlays, gameReducer, summaryOf, type GameEvent, type GameState } from '@/lib/game/reducer';
+import type { ProgressStorage, SavedProgress } from '@/lib/game/savedProgress';
 import { playHit, playMiss } from '@/lib/game/sfx';
 import { FADE_IN_MS, FADE_OUT_MS } from '@/lib/game/timing';
 import { postHelp, useLineHelp, type HelpRequester } from '@/lib/help/useLineHelp';
@@ -42,12 +32,10 @@ import { ToolsBar } from './ToolsBar';
 import { useAwayAndBack } from './useAwayAndBack';
 import { useHelpSheet } from './useHelpSheet';
 import { useLineTranslations } from './useLineTranslations';
+import { startingGame, useSavedProgress } from './useSavedProgress';
 
 /** How often the player's clock is read and handed to the game. */
 const TICK_MS = 100;
-
-/** How often the game in progress is kept on the device, besides after each answer and when the app goes away. */
-const SAVE_EVERY_MS = 5000;
 
 /**
  * After the game seeks the clip, its clock is ignored for this long (ruling R44): the player can go on reporting
@@ -88,7 +76,11 @@ export interface GameScreenProps {
   resume?: SavedProgress;
   /** Where the game in progress is kept: `window.localStorage` in the app. Nothing is kept or dropped when left out. */
   progressStorage?: ProgressStorage | null;
+  /** The time of day in ms since 1970, which dates the saved game. `Date.now` when left out. */
+  wallClock?: () => number;
 }
+
+const defaultWallClock = () => Date.now();
 
 
 /** The browser storage for the settings, or null when touching it throws (site data blocked: SecurityError). */
@@ -98,22 +90,6 @@ function settingsStorage(): Storage | null {
   } catch {
     return null;
   }
-}
-
-/**
- * The game the screen starts from, and where the clip starts. The saved game when it is this game (the same blanks): then
- * the clip goes back to the start of the line it was in (ruling S21; see `resumeStartMs`), and the clock with it, so
- * the lyrics show that line from the first frame. Otherwise a new game, from the top of the clip.
- */
-function startOf(
-  { mode, lines, blanks }: Pick<GameScreenProps, 'mode' | 'lines' | 'blanks'>,
-  saved: SavedProgress | undefined,
-): { game: GameState; resumeAtMs: number | null } {
-  const fresh = initGame({ mode, lines, blanks, autoRepeat: DEFAULT_SETTINGS.autoRepeatOnMiss });
-  if (!saved || !canRestore(fresh, saved)) return { game: fresh, resumeAtMs: null };
-  const restored = gameReducer(fresh, { type: 'RESTORE', saved });
-  const resumeAtMs = resumeStartMs(restored);
-  return { game: gameReducer(restored, { type: 'RESYNC', timeMs: resumeAtMs }), resumeAtMs };
 }
 
 function waitingBlank(game: GameState): Blank | undefined {
@@ -199,9 +175,9 @@ const ANSWER_START = [
  * Coming back to the app (spec §6), the lyrics go to where the clip is, the music never comes back by itself, and a big
  * "Continuar" in the game area brings it back with its volume rising (see `useAwayAndBack`).
  *
- * The game in progress is kept on the device (`progressStorage`) after each answer, every 5 s, and as the app goes
- * away, and forgotten when the song ends. Given a saved game (`resume`) that is this game's, it goes on from there, the
- * clip starting again at the line it was in.
+ * The game in progress is kept on the device (`progressStorage`, see `useSavedProgress`) after each answer, tile and
+ * hint, every 5 s, and as the app goes away, and forgotten when the song ends. Given a saved game (`resume`) that is this
+ * game's, it goes on from there, the clip starting again at the line it was in.
  */
 export function GameScreen({
   adapter,
@@ -215,15 +191,17 @@ export function GameScreen({
   requestHelp = postHelp,
   resume,
   progressStorage,
+  wallClock = defaultWallClock,
 }: GameScreenProps) {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
-  const [start] = useState(() => startOf({ mode, lines, blanks }, resume));
+  const [start] = useState(() => startingGame({ mode, lines, blanks }, resume));
   const [game, setGame] = useState(start.game);
   // The game as the last event left it, ahead of React's render: each event must start from the one before it,
   // and its commands must run exactly once, even when React batches the renders.
   const gameRef = useRef(game);
-  // The clock is ignored until this time (performance.now()), set by each seek.
+  // The clock is ignored until this time (performance.now()), set by each seek, and the position that seek asked for.
   const ticksFromRef = useRef(0);
+  const seekTargetRef = useRef(0);
   const endReportedRef = useRef(false);
   const [slow, setSlow] = useState(false);
   const [dj, setDj] = useState<DjBopExpression>('idle');
@@ -279,6 +257,7 @@ export function GameScreen({
             break;
           case 'seek':
             ticksFromRef.current = performance.now() + SEEK_SETTLE_MS;
+            seekTargetRef.current = command.ms;
             adapter.seekTo(command.ms);
             break;
           case 'rate':
@@ -326,25 +305,31 @@ export function GameScreen({
     return areaRef.current?.querySelector<HTMLElement>(ANSWER_START) ?? repeatRef.current;
   }, []);
 
-  /**
-   * Keeps the game as it stands on the device, for the player to go on from (see `savedProgress.ts`). A finished game is
-   * not kept: its result is what counts then.
-   */
-  const persist = useCallback(() => {
-    const current = gameRef.current;
-    if (!progressStorage || current.phase === 'ended') return;
-    saveProgress(progressStorage, progressOf(current, { youtubeId: video.youtubeId, difficulty, now: Date.now() }));
-  }, [progressStorage, video.youtubeId, difficulty]);
+  // The game in progress is kept on the device (see `useSavedProgress`): here after every answer, tile and hint; the hook
+  // saves it every 5 s and as the app goes away, and forgets it when the song ends.
+  const persist = useSavedProgress({
+    gameRef,
+    storage: progressStorage,
+    youtubeId: video.youtubeId,
+    difficulty,
+    wallClock,
+    resume,
+    resumed: start.resumeAtMs !== null,
+    ended: game.phase === 'ended',
+  });
 
-  // Every 5 s, besides after each answer and when the app goes away.
-  useEffect(() => {
-    const timer = setInterval(persist, SAVE_EVERY_MS);
-    return () => clearInterval(timer);
-  }, [persist]);
+  /**
+   * Where the clip is, as far as the game knows. For a moment after a seek the player can go on reporting the position
+   * it had (ruling R44), so then it is the seek's target, which is where the clip is about to be.
+   */
+  const clipPositionMs = useCallback(
+    () => (performance.now() < ticksFromRef.current ? seekTargetRef.current : adapter.getCurrentTimeMs()),
+    [adapter],
+  );
 
   // Leaving the app and coming back (spec §6, ruling R84): the clip never plays in the background nor comes back by
-  // itself, and "Continuar" brings the music back. Leaving also saves the game (ruling S23).
-  const away = useAwayAndBack({ adapter, gameRef, run, send, dispatch, nextFocus, onLeave: persist });
+  // itself, and "Continuar" brings the music back.
+  const away = useAwayAndBack({ adapter, gameRef, run, send, dispatch, nextFocus, clipPositionMs });
   const { backFromAway, continueRef, isAway, stopsPhonePlay, focusContinue, continueAfterAway } = away;
   useEffect(() => {
     endAwayRef.current = away.end;
@@ -396,16 +381,18 @@ export function GameScreen({
   // volume that sends nothing to the player.
   // "Continuar de onde parou" starts it instead from the line the saved game was in, the seek going through `run` like
   // any other (so the clock right after it is ignored, ruling R44), and the music playing with its volume rising
-  // (ruling S21). It never does both. A saved game that is not this game's is of no use any more (ruling S22).
+  // (ruling S21). It never does both. It happens once, when the screen comes up, whatever the callbacks do after that.
+  const openedRef = useRef(false);
   useEffect(() => {
+    if (openedRef.current) return;
+    openedRef.current = true;
     if (start.resumeAtMs !== null) {
       run([{ type: 'seek', ms: start.resumeAtMs }, { type: 'play', fade: true }]);
       return;
     }
-    if (resume && progressStorage) clearProgress(progressStorage, video.youtubeId);
     run([{ type: 'seek', ms: 0 }, { type: 'play' }]);
     fader.fadeIn(FADE_IN_MS);
-  }, [run, fader, start, resume, progressStorage, video.youtubeId]);
+  }, [run, fader, start]);
 
   // The player's raw clock goes to the game as TICK, except just after a seek, when it may still be the old
   // position, and while away from the app, when it only realigns the lyrics (see `useAwayAndBack`). Nothing on screen
@@ -416,13 +403,12 @@ export function GameScreen({
     dispatch(isAway() ? { type: 'RESYNC', timeMs: readingMs } : { type: 'TICK', timeMs: readingMs });
   }, [readingMs, dispatch, isAway]);
 
-  // The song is over: its result goes to the song screen, once, and the game saved on the device is of no use any more.
+  // The song is over: its result goes to the song screen, once.
   useEffect(() => {
     if (game.phase !== 'ended' || endReportedRef.current) return;
     endReportedRef.current = true;
-    if (progressStorage) clearProgress(progressStorage, video.youtubeId);
     onEnd(summaryOf(game), game.score.records);
-  }, [game, onEnd, progressStorage, video.youtubeId]);
+  }, [game, onEnd]);
 
   useEffect(() => () => clearTimeout(djTimerRef.current), []);
 
@@ -477,9 +463,11 @@ export function GameScreen({
   function dispatchAnswer(event: GameEvent, correctedIndices: number[] = []) {
     const before = gameRef.current;
     const next = dispatch(event);
+    // Whatever the event was, an answer, a tile in the row or a hint, the game is kept as it is now: a hint given and
+    // then the back link must not come back as a first try.
+    persist();
     const record = next.score.records.at(-1);
     if (!record || next.score.records.length === before.score.records.length) return;
-    persist();
     const { blankId, correct } = record;
     if (correct && correctedIndices.length > 0) {
       setCorrected((marks) => ({ ...marks, [blankId]: correctedIndices }));
