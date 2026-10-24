@@ -15,8 +15,9 @@ const LINE_HELP_KEY = 'youtube_id,lyrics_ref,line_index,kind,target';
 
 /**
  * The help cache (`line_help`), the members' hourly budgets (`help_requests`, through `reserve_help_request` and
- * `release_help_request`) and the video rows, through the service client. No member may write or call any of these,
- * so this takes `createServiceSupabase()`; the route checks who is asking first.
+ * `release_help_request`), the usage log (`ai_usage`) and the video rows, through the service client. No member may
+ * write or call any of these, and none may read the log, so this takes `createServiceSupabase()`; the route checks who
+ * is asking first.
  */
 export function createSupabaseHelpStore(admin: Client): HelpStore {
   return {
@@ -64,6 +65,24 @@ export function createSupabaseHelpStore(admin: Client): HelpStore {
     async release(id) {
       const { error } = await admin.rpc('release_help_request', { p_id: id });
       if (error) throw new Error(`Could not give the help request back: ${error.message}`);
+    },
+
+    async recordUsage(entry) {
+      // Every column is written as the entry says, `kind`, `source` and `outcome` included: no row relies on a default.
+      const { error } = await admin.from('ai_usage').insert({
+        user_id: entry.userId,
+        youtube_id: entry.youtubeId,
+        line_index: entry.lineIndex,
+        kind: entry.kind,
+        source: entry.source,
+        model: entry.model,
+        input_tokens: entry.inputTokens,
+        output_tokens: entry.outputTokens,
+        cost_usd: entry.costUsd,
+        latency_ms: entry.latencyMs,
+        outcome: entry.outcome,
+      });
+      if (error) throw new Error(`Could not record the AI usage: ${error.message}`);
     },
 
     async getVideo(youtubeId) {

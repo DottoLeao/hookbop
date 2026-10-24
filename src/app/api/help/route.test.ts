@@ -26,6 +26,7 @@ const store = {
   saveCached: vi.fn(),
   reserve: vi.fn(),
   release: vi.fn(),
+  recordUsage: vi.fn(),
   getVideo: vi.fn(),
 };
 
@@ -61,7 +62,11 @@ beforeEach(() => {
   });
   store.getCached.mockResolvedValue(null);
   store.reserve.mockResolvedValue(41);
-  vi.mocked(callModel).mockResolvedValue('Barcos de papel num rio de luz');
+  vi.mocked(callModel).mockResolvedValue({
+    text: 'Barcos de papel num rio de luz',
+    usage: { inputTokens: 210, outputTokens: 40 },
+    latencyMs: 800,
+  });
 });
 
 describe('POST /api/help', () => {

@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { getHelp, HELP_BUDGET_PER_HOUR, type HelpDeps, type HelpRequest } from './helpService';
+import {
+  type AiUsageEntry,
+  getHelp,
+  HELP_BUDGET_PER_HOUR,
+  type HelpDeps,
+  type HelpRequest,
+  type ModelAnswer,
+} from './helpService';
 import { ModelError } from './modelError';
 import { EXPLAIN_SYSTEM, TRANSLATE_SYSTEM } from './prompts';
 
@@ -18,14 +25,58 @@ const ASK: HelpRequest = {
   target: 'let',
 };
 
-/** Fake dependencies: an empty cache, a budget with room left, and a model that answers. */
+/** What the model gave back: its text, the tokens it took and how long it took. */
+const MODEL_ANSWER: ModelAnswer = {
+  text: '"Let" aqui é deixar.',
+  usage: { inputTokens: 2_000, outputTokens: 300 },
+  latencyMs: 1_234,
+};
+
+/** Fake dependencies: an empty cache, a budget with room left, a model that answers and a usage log that takes it. */
 function fakeDeps(over: Partial<HelpDeps> = {}) {
   return {
     getCached: vi.fn<HelpDeps['getCached']>(async () => null),
     saveCached: vi.fn<HelpDeps['saveCached']>(async () => {}),
     reserve: vi.fn<HelpDeps['reserve']>(async () => RESERVATION),
     release: vi.fn<HelpDeps['release']>(async () => {}),
-    callModel: vi.fn<HelpDeps['callModel']>(async () => '"Let" aqui é deixar.'),
+    callModel: vi.fn<HelpDeps['callModel']>(async () => MODEL_ANSWER),
+    recordUsage: vi.fn<HelpDeps['recordUsage']>(async () => {}),
+    ...over,
+  };
+}
+
+/** The row of a request the model was never asked about: a cache hit or a chorus line. */
+function freeRow(source: 'cache' | 'reuse'): AiUsageEntry {
+  return {
+    userId: USER,
+    youtubeId: 'aaaaaaaaaaa',
+    lineIndex: 0,
+    kind: 'explain',
+    source,
+    model: null,
+    inputTokens: 0,
+    outputTokens: 0,
+    costUsd: 0,
+    latencyMs: null,
+    outcome: 'ok',
+  };
+}
+
+/** The row of a request that went to the model, with what the model answered. */
+function modelRow(over: Partial<AiUsageEntry> = {}): AiUsageEntry {
+  return {
+    userId: USER,
+    youtubeId: 'aaaaaaaaaaa',
+    lineIndex: 0,
+    kind: 'explain',
+    source: 'model',
+    model: 'claude-haiku-5-5',
+    inputTokens: 2_000,
+    outputTokens: 300,
+    // 2,000 in at $0.10 per million and 300 out at $0.50 per million.
+    costUsd: 0.00035,
+    latencyMs: 1_234,
+    outcome: 'ok',
     ...over,
   };
 }
@@ -221,6 +272,162 @@ describe('getHelp', () => {
 
       expect(await getHelp(USER, ASK, deps, [3])).toEqual({ status: 200, content: 'Do refrão.' });
       expect(deps.reserve).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+  });
+});
+
+describe('getHelp records its own usage', () => {
+  it('records an answer from the cache as source cache, with 0 tokens, a cost of 0 and outcome ok', async () => {
+    const deps = fakeDeps({ getCached: vi.fn(async () => 'Do cache.') });
+
+    await getHelp(USER, ASK, deps);
+
+    expect(deps.recordUsage).toHaveBeenCalledExactlyOnceWith(freeRow('cache'));
+  });
+
+  it('records a chorus line as source reuse, against the line asked about and not the one the help came from', async () => {
+    const deps = fakeDeps({ getCached: vi.fn(async (r) => (r.lineIndex === 3 ? 'Do refrão.' : null)) });
+
+    await getHelp(USER, ASK, deps, [3]);
+
+    expect(deps.recordUsage).toHaveBeenCalledExactlyOnceWith(freeRow('reuse'));
+  });
+
+  it('records a new call as source model, with the model, the tokens, the cost, the time and outcome ok', async () => {
+    const deps = fakeDeps();
+
+    await getHelp(USER, ASK, deps);
+
+    expect(deps.recordUsage).toHaveBeenCalledExactlyOnceWith(modelRow());
+  });
+
+  it('records a translation under its own kind', async () => {
+    const deps = fakeDeps();
+
+    await getHelp(USER, { ...ASK, kind: 'translate', target: '' }, deps);
+
+    expect(deps.recordUsage).toHaveBeenCalledExactlyOnceWith(modelRow({ kind: 'translate' }));
+  });
+
+  it('records the call even when its answer cannot be saved', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const deps = fakeDeps({ saveCached: vi.fn(async () => Promise.reject(new Error('save failed'))) });
+
+    await getHelp(USER, ASK, deps);
+
+    expect(deps.recordUsage).toHaveBeenCalledExactlyOnceWith(modelRow());
+    warn.mockRestore();
+  });
+
+  it.each([
+    ['refused', 'The model stopped with refusal'],
+    ['ran out of room', 'The model stopped with max_tokens'],
+  ])('records an answer the model %s as declined, with the tokens it took', async (_name, message) => {
+    const failure = new ModelError(message, {
+      declined: true,
+      usage: { inputTokens: 180, outputTokens: 300 },
+      latencyMs: 900,
+    });
+    const deps = fakeDeps({ callModel: vi.fn(async () => Promise.reject(failure)) });
+
+    await expect(getHelp(USER, ASK, deps)).rejects.toBe(failure);
+
+    // 180 in at $0.10 per million and 300 out at $0.50 per million.
+    expect(deps.recordUsage).toHaveBeenCalledExactlyOnceWith(
+      modelRow({ inputTokens: 180, outputTokens: 300, costUsd: 0.000168, latencyMs: 900, outcome: 'declined' }),
+    );
+  });
+
+  it('records an answer with nothing usable as an error that still has its tokens, since it was billed', async () => {
+    const failure = new ModelError('The model answered with no text', {
+      answered: true,
+      usage: { inputTokens: 120, outputTokens: 4 },
+      latencyMs: 650,
+    });
+    const deps = fakeDeps({ callModel: vi.fn(async () => Promise.reject(failure)) });
+
+    await expect(getHelp(USER, ASK, deps)).rejects.toBe(failure);
+
+    // 120 in at $0.10 per million and 4 out at $0.50 per million.
+    expect(deps.recordUsage).toHaveBeenCalledExactlyOnceWith(
+      modelRow({ inputTokens: 120, outputTokens: 4, costUsd: 0.000014, latencyMs: 650, outcome: 'error' }),
+    );
+    expect(deps.release).not.toHaveBeenCalled();
+  });
+
+  it('records a call that got no answer as an error with no tokens, and still gives the reservation back', async () => {
+    const failure = new ModelError('The model service could not be reached', { latencyMs: 20_000 });
+    const deps = fakeDeps({ callModel: vi.fn(async () => Promise.reject(failure)) });
+
+    await expect(getHelp(USER, ASK, deps)).rejects.toBe(failure);
+
+    expect(deps.recordUsage).toHaveBeenCalledExactlyOnceWith(
+      modelRow({ inputTokens: 0, outputTokens: 0, costUsd: 0, latencyMs: 20_000, outcome: 'error' }),
+    );
+    expect(deps.release).toHaveBeenCalledExactlyOnceWith(RESERVATION);
+  });
+
+  it('records a failure that is not a ModelError as an error with no tokens and no time', async () => {
+    const failure = new Error('model down');
+    const deps = fakeDeps({ callModel: vi.fn(async () => Promise.reject(failure)) });
+
+    await expect(getHelp(USER, ASK, deps)).rejects.toBe(failure);
+
+    expect(deps.recordUsage).toHaveBeenCalledExactlyOnceWith(
+      modelRow({ inputTokens: 0, outputTokens: 0, costUsd: 0, latencyMs: null, outcome: 'error' }),
+    );
+  });
+
+  it('records nothing for a request turned away: no model was asked and no cache answered', async () => {
+    const budget = fakeDeps({ reserve: vi.fn(async () => null) });
+    const invalid = fakeDeps();
+
+    await getHelp(USER, ASK, budget);
+    await getHelp(USER, { ...ASK, target: 'ocean' }, invalid);
+
+    expect(budget.recordUsage).not.toHaveBeenCalled();
+    expect(invalid.recordUsage).not.toHaveBeenCalled();
+  });
+
+  describe('when the usage cannot be recorded', () => {
+    it.each<[string, Partial<HelpDeps>, string]>([
+      ['a cache hit', { getCached: vi.fn(async () => 'Do cache.') }, 'Do cache.'],
+      ['a chorus line', { getCached: vi.fn(async (r) => (r.lineIndex === 3 ? 'Do refrão.' : null)) }, 'Do refrão.'],
+      ['a new call', {}, MODEL_ANSWER.text],
+    ])('gives the player the same answer for %s, and says so in the log', async (_name, over, content) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const deps = fakeDeps({ ...over, recordUsage: vi.fn(async () => Promise.reject(new Error('db down'))) });
+
+      expect(await getHelp(USER, ASK, deps, [3])).toEqual({ status: 200, content });
+      expect(deps.recordUsage).toHaveBeenCalledOnce();
+      expect(warn).toHaveBeenCalledExactlyOnceWith('Could not record the AI usage.', expect.any(Error));
+      warn.mockRestore();
+    });
+
+    it('still saves the answer of a new call', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const deps = fakeDeps({ recordUsage: vi.fn(async () => Promise.reject(new Error('db down'))) });
+
+      await getHelp(USER, ASK, deps);
+
+      expect(deps.saveCached).toHaveBeenCalledExactlyOnceWith(ASK, MODEL_ANSWER.text);
+      warn.mockRestore();
+    });
+
+    it.each([
+      ['the call got no answer', new ModelError('The model service could not be reached'), true],
+      ['the model refused', new ModelError('The model stopped with refusal', { declined: true }), false],
+    ])('lets the failure through as it was when %s, and does the reservation as before', async (_name, failure, released) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const deps = fakeDeps({
+        callModel: vi.fn(async () => Promise.reject(failure)),
+        recordUsage: vi.fn(async () => Promise.reject(new Error('db down'))),
+      });
+
+      await expect(getHelp(USER, ASK, deps)).rejects.toBe(failure);
+      expect(deps.release).toHaveBeenCalledTimes(released ? 1 : 0);
+      expect(warn).toHaveBeenCalledOnce();
       warn.mockRestore();
     });
   });

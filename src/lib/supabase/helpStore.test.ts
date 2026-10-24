@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { describe, expect, it, vi } from 'vitest';
-import { HELP_BUDGET_PER_HOUR, type HelpRequest } from '@/lib/help/helpService';
+import { type AiUsageEntry, HELP_BUDGET_PER_HOUR, type HelpRequest } from '@/lib/help/helpService';
 import type { Database } from './database.types';
 import { createSupabaseHelpStore } from './helpStore';
 
@@ -163,6 +163,99 @@ describe('createSupabaseHelpStore', () => {
       const { admin } = fakeAdmin({ error: { message: 'nope' } });
 
       await expect(createSupabaseHelpStore(admin).release(17)).rejects.toThrow(/nope/);
+    });
+  });
+
+  describe('recordUsage', () => {
+    const MODEL_ROW: AiUsageEntry = {
+      userId: 'user-1',
+      youtubeId: 'aaaaaaaaaaa',
+      lineIndex: 2,
+      kind: 'explain',
+      source: 'model',
+      model: 'claude-haiku-5-5',
+      inputTokens: 2_000,
+      outputTokens: 300,
+      costUsd: 0.00035,
+      latencyMs: 1_234,
+      outcome: 'ok',
+    };
+
+    it('adds one row to ai_usage with every column of the entry', async () => {
+      const { admin, calls } = fakeAdmin({});
+
+      await createSupabaseHelpStore(admin).recordUsage(MODEL_ROW);
+
+      expect(calls).toEqual([
+        {
+          table: 'ai_usage',
+          steps: [
+            [
+              'insert',
+              {
+                user_id: 'user-1',
+                youtube_id: 'aaaaaaaaaaa',
+                line_index: 2,
+                kind: 'explain',
+                source: 'model',
+                model: 'claude-haiku-5-5',
+                input_tokens: 2_000,
+                output_tokens: 300,
+                cost_usd: 0.00035,
+                latency_ms: 1_234,
+                outcome: 'ok',
+              },
+            ],
+          ],
+        },
+      ]);
+    });
+
+    it.each(['cache', 'reuse'] as const)(
+      'writes a %s row with its kind, source and outcome ok spelled out, 0 tokens and no model',
+      async (source) => {
+        const { admin, calls } = fakeAdmin({});
+
+        await createSupabaseHelpStore(admin).recordUsage({
+          ...MODEL_ROW,
+          kind: 'translate',
+          source,
+          model: null,
+          inputTokens: 0,
+          outputTokens: 0,
+          costUsd: 0,
+          latencyMs: null,
+          outcome: 'ok',
+        });
+
+        expect(calls[0].steps[0][1]).toEqual({
+          user_id: 'user-1',
+          youtube_id: 'aaaaaaaaaaa',
+          line_index: 2,
+          kind: 'translate',
+          source,
+          model: null,
+          input_tokens: 0,
+          output_tokens: 0,
+          cost_usd: 0,
+          latency_ms: null,
+          outcome: 'ok',
+        });
+      },
+    );
+
+    it.each(['declined', 'error'] as const)('writes the outcome %s as it is', async (outcome) => {
+      const { admin, calls } = fakeAdmin({});
+
+      await createSupabaseHelpStore(admin).recordUsage({ ...MODEL_ROW, outcome });
+
+      expect(calls[0].steps[0][1]).toMatchObject({ outcome });
+    });
+
+    it('fails when the row cannot be added', async () => {
+      const { admin } = fakeAdmin({ error: { message: 'permission denied for table ai_usage' } });
+
+      await expect(createSupabaseHelpStore(admin).recordUsage(MODEL_ROW)).rejects.toThrow(/permission denied/);
     });
   });
 

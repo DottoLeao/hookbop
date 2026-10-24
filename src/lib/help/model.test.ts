@@ -2,8 +2,9 @@
 import { readFileSync } from 'node:fs';
 import Anthropic from '@anthropic-ai/sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { callModel, HELP_MODEL } from './model';
+import { callModel } from './model';
 import { ModelError } from './modelError';
+import { HELP_MODEL } from './pricing';
 
 // No test reaches the real API: the client is always a fake, and the SDK constructor is replaced too.
 const create = vi.hoisted(() => vi.fn());
@@ -31,8 +32,30 @@ function answer(over: Answer = {}): Anthropic.Message {
     content: [{ type: 'text', text: 'Barcos de papel num rio de luz', citations: null }],
     stop_reason: 'end_turn',
     stop_sequence: null,
+    usage: usage(214, 57),
     ...over,
   } as Anthropic.Message;
+}
+
+/** What `response.usage` says, with only the two numbers the app reads. */
+function usage(inputTokens: number, outputTokens: number): Anthropic.Usage {
+  return { input_tokens: inputTokens, output_tokens: outputTokens } as Anthropic.Usage;
+}
+
+/**
+ * Runs `run` with the clock `callModel` times itself by in the test's hands: `tick` moves it, so a call takes as long
+ * as the fake model says, whatever the machine does.
+ */
+async function withClock<T>(run: (tick: (ms: number) => void) => Promise<T>): Promise<T> {
+  let now = 10_000;
+  const spy = vi.spyOn(performance, 'now').mockImplementation(() => now);
+  try {
+    return await run((ms) => {
+      now += ms;
+    });
+  } finally {
+    spy.mockRestore();
+  }
 }
 
 afterEach(() => {
@@ -85,7 +108,7 @@ describe('callModel', () => {
   it('gives back the text of the answer, trimmed', async () => {
     create.mockResolvedValue(answer({ content: [{ type: 'text', text: '  Barcos de papel  \n', citations: null }] }));
 
-    expect(await callModel('s', 'u')).toBe('Barcos de papel');
+    expect((await callModel('s', 'u')).text).toBe('Barcos de papel');
   });
 
   it('reads only the text blocks, and joins them', async () => {
@@ -99,7 +122,68 @@ describe('callModel', () => {
       }),
     );
 
-    expect(await callModel('s', 'u')).toBe('Barcos de papel num rio de luz');
+    expect((await callModel('s', 'u')).text).toBe('Barcos de papel num rio de luz');
+  });
+
+  it('gives back the tokens the answer used, read from response.usage, and how long the call took', async () => {
+    const result = await withClock(async (tick) => {
+      create.mockImplementation(async () => {
+        tick(1_234.4);
+        return answer({ usage: usage(2_000, 300) });
+      });
+      return callModel('s', 'u');
+    });
+
+    expect(result).toEqual({
+      text: 'Barcos de papel num rio de luz',
+      usage: { inputTokens: 2_000, outputTokens: 300 },
+      latencyMs: 1_234,
+    });
+  });
+
+  it.each(['refusal', 'max_tokens', 'pause_turn', 'stop_sequence'] as const)(
+    'carries the tokens and the time of the call on the error when the model stopped with %s, since it was billed',
+    async (stopReason) => {
+      const failure = await withClock(async (tick) => {
+        create.mockImplementation(async () => {
+          tick(900);
+          return answer({ stop_reason: stopReason, usage: usage(180, 300) });
+        });
+        return callModel('s', 'u').catch((e: unknown) => e);
+      });
+
+      expect(failure).toBeInstanceOf(ModelError);
+      expect((failure as ModelError).usage).toEqual({ inputTokens: 180, outputTokens: 300 });
+      expect((failure as ModelError).latencyMs).toBe(900);
+    },
+  );
+
+  it('carries the tokens and the time of the call on the error when the answer has no text', async () => {
+    const failure = await withClock(async (tick) => {
+      create.mockImplementation(async () => {
+        tick(650);
+        return answer({ content: [{ type: 'text', text: '  ', citations: null }], usage: usage(120, 3) });
+      });
+      return callModel('s', 'u').catch((e: unknown) => e);
+    });
+
+    expect((failure as ModelError).answered).toBe(true);
+    expect((failure as ModelError).usage).toEqual({ inputTokens: 120, outputTokens: 3 });
+    expect((failure as ModelError).latencyMs).toBe(650);
+  });
+
+  it('carries the time it took, and no tokens, on the error when the call itself failed', async () => {
+    const failure = await withClock(async (tick) => {
+      create.mockImplementation(async () => {
+        tick(20_000);
+        throw new Anthropic.APIUserAbortError();
+      });
+      return callModel('s', 'u').catch((e: unknown) => e);
+    });
+
+    expect((failure as ModelError).answered).toBe(false);
+    expect((failure as ModelError).usage).toBeUndefined();
+    expect((failure as ModelError).latencyMs).toBe(20_000);
   });
 
   it.each(['refusal', 'max_tokens'] as const)(

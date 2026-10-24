@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { HelpStore } from '@/lib/supabase/helpStore';
 import { handleHelpRequest, type HelpHandlerDeps } from './handler';
-import type { HelpRequest } from './helpService';
+import type { HelpRequest, ModelAnswer } from './helpService';
 import { ModelError } from './modelError';
 import type { StoredVideo } from './validate';
 
@@ -27,19 +27,27 @@ const ASK: HelpRequest = {
   target: 'river',
 };
 
+/** What the model gave back for the line above. */
+const MODEL_ANSWER: ModelAnswer = {
+  text: 'Rio, aqui, é o rio mesmo.',
+  usage: { inputTokens: 210, outputTokens: 40 },
+  latencyMs: 800,
+};
+
 function fakeDeps(over: Partial<HelpHandlerDeps> = {}) {
   const store = {
     getCached: vi.fn<HelpStore['getCached']>(async () => null),
     saveCached: vi.fn<HelpStore['saveCached']>(async () => {}),
     reserve: vi.fn<HelpStore['reserve']>(async () => 41),
     release: vi.fn<HelpStore['release']>(async () => {}),
+    recordUsage: vi.fn<HelpStore['recordUsage']>(async () => {}),
     getVideo: vi.fn<HelpStore['getVideo']>(async () => VIDEO),
   };
   const deps = {
     userId: vi.fn(async () => 'user-1' as string | null),
     isMember: vi.fn(async () => true),
     store: vi.fn(() => store),
-    callModel: vi.fn(async () => 'Rio, aqui, é o rio mesmo.'),
+    callModel: vi.fn(async () => MODEL_ANSWER),
     ...over,
   };
   return { deps, store };
@@ -99,6 +107,39 @@ describe('handleHelpRequest', () => {
     expect(store.reserve).toHaveBeenCalledExactlyOnceWith('user-1', 'explain');
     expect(store.saveCached).toHaveBeenCalledOnce();
     expect(store.release).not.toHaveBeenCalled();
+  });
+
+  it('records the usage of the call through the same store, against the member and the line', async () => {
+    const { deps, store } = fakeDeps();
+
+    await send(ASK, deps);
+
+    // 210 in at $0.10 per million and 40 out at $0.50 per million.
+    expect(store.recordUsage).toHaveBeenCalledExactlyOnceWith({
+      userId: 'user-1',
+      youtubeId: 'aaaaaaaaaaa',
+      lineIndex: 0,
+      kind: 'explain',
+      source: 'model',
+      model: 'claude-haiku-5-5',
+      inputTokens: 210,
+      outputTokens: 40,
+      costUsd: 0.000041,
+      latencyMs: 800,
+      outcome: 'ok',
+    });
+  });
+
+  it('answers 200 all the same when the usage cannot be recorded', async () => {
+    const warn = quietWarnings();
+    const { deps, store } = fakeDeps();
+    store.recordUsage.mockRejectedValue(new Error('db down'));
+
+    const { status, body } = await send(ASK, deps);
+
+    expect(status).toBe(200);
+    expect(body).toEqual({ content: 'Rio, aqui, é o rio mesmo.' });
+    warn.mockRestore();
   });
 
   it('answers 401 with no session, before reading anything else', async () => {
