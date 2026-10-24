@@ -309,7 +309,7 @@ export const ptBR = {
   'metricas.priceNote':
     'Custos estimados pelos tokens e pelo preço do {modelo}: {entrada} por milhão de tokens de entrada e {saida} por milhão de saída (preço de {data}).',
 
-  // Política de privacidade (/privacidade). Rascunho para o dono revisar.
+  // Política de privacidade (/privacidade). Rascunho para o criador revisar.
   'privacidade.link': 'Privacidade',
   'privacidade.title': 'Política de privacidade',
   'privacidade.updated': 'Atualizada em 25 de outubro de 2026.',
@@ -331,17 +331,19 @@ export const ptBR = {
   'privacidade.guarda.ajuda':
     'Pedidos de ajuda: a hora e o tipo de cada "Não entendi" ou "Traduzir verso", para controlar o limite por hora. As explicações e traduções ficam guardadas por verso, sem dizer quem pediu.',
   'privacidade.guarda.usoIa':
-    'Registro de uso da IA: a cada pedido de ajuda com IA, guardamos sua conta, o vídeo, o número do verso, se foi explicação ou tradução, se a resposta veio da IA ou de uma resposta já guardada, os tokens usados (a medida de texto que a IA processa), o custo estimado, o tempo de resposta e como terminou.',
+    'Registro de uso da IA: a cada pedido de ajuda com IA, guardamos o código da sua conta, o vídeo, o número do verso, se foi explicação ou tradução, se a resposta veio da IA ou de uma resposta já guardada, os tokens usados (a medida de texto que a IA processa), o custo estimado, o tempo de resposta e como terminou.',
   'privacidade.guarda.usoApp':
-    'Registro de uso do app: sua conta, um código aleatório da sessão e o nome da ação, às vezes com o vídeo e o modo. As ações são abrir o app, abrir uma música, escolher o modo, começar, terminar ou sair no meio de uma partida, pedir ajuda, continuar depois de sair do app, ver o aviso de instalação (e aceitar), criar um convite e ajustar o tempo da letra. De detalhe, só guardamos a porcentagem de acertos, a duração e o número de lacunas ao terminar uma partida, e o número do verso ao pedir ajuda.',
+    'Registro de uso do app: o código da sua conta, um código aleatório da sessão e o nome da ação, às vezes com o vídeo e o modo. As ações são abrir o app, abrir uma música, escolher o modo, começar, terminar ou sair no meio de uma partida, pedir ajuda, continuar depois de sair do app, ver o aviso de instalação (e aceitar), criar um convite e ajustar o tempo da letra. De detalhe, só guardamos a porcentagem de acertos, a duração e o número de lacunas ao terminar uma partida, e o número do verso ao pedir ajuda.',
   'privacidade.guarda.aparelho':
-    'No seu aparelho: os cookies que mantêm você conectado e guardam o convite, as suas configurações do jogo, a partida em andamento de cada música (para você continuar de onde parou), um código aleatório da sessão (que some quando você fecha a aba) e as páginas guardadas para o app abrir sem internet.',
+    'No seu aparelho: os cookies que mantêm você conectado e guardam o convite; as suas configurações do jogo; a partida em andamento de cada música, para você continuar de onde parou; duas marcas do aviso para instalar o app (que você já terminou uma música e que tocou em "Agora não"); um código aleatório da sessão e a marca de que o app já foi aberto nela, que somem quando você fecha a aba; e as páginas guardadas para o app abrir sem internet.',
 
   'privacidade.uso.title': 'Para que usamos',
   'privacidade.uso.p1':
     'Usamos esses dados para você entrar, para guardar suas partidas e seus pontos, para mostrar as "Músicas da galera", para limitar o uso da ajuda com IA e para melhorar o app.',
   'privacidade.uso.registros':
-    'O dono usa os registros de uso para entender o que funciona no app e quanto a IA custa.',
+    'O criador do Hookbop usa os registros de uso para entender o que funciona no app e quanto a IA custa.',
+  'privacidade.uso.analise':
+    'O criador pode usar um assistente de IA (o Claude, da Anthropic) para analisar esses registros, que trazem só o código da sua conta, sem nome e sem e-mail.',
   'privacidade.uso.registrosLimite':
     'Esses registros ficam no nosso banco de dados e não vão para nenhum serviço além dos que aparecem em "Quem mais recebe dados". Neles não entra o que você digita nas respostas.',
   'privacidade.uso.p2': 'Não vendemos seus dados e, nesta fase, não mostramos anúncios.',
@@ -353,7 +355,7 @@ export const ptBR = {
   'privacidade.terceiros.google':
     'Google: faz o login, se você escolher entrar com o Google, e envia os e-mails com o link e o código de entrada.',
   'privacidade.terceiros.anthropic':
-    'Anthropic (Claude): quando você toca em "Não entendi" ou "Traduzir verso", enviamos só o verso da música e a palavra destacada. Nenhum dado seu vai junto.',
+    'Anthropic (Claude): quando você toca em "Não entendi" ou "Traduzir verso", enviamos só o verso da música e a palavra destacada, e nenhum dado seu vai junto. O criador também pode usar o Claude para analisar os registros de uso; nesse caso, entra o código da sua conta, sem nome e sem e-mail.',
   'privacidade.terceiros.youtube':
     'YouTube: os clipes tocam no player oficial do YouTube, que segue a política de privacidade do Google. As capinhas das músicas na tela inicial também vêm do YouTube.',
   'privacidade.terceiros.lrclib': 'LRCLIB: é onde buscamos a letra sincronizada, pelo nome da música. Nenhum dado seu vai junto.',
@@ -362,7 +364,7 @@ export const ptBR = {
   'privacidade.membros.p1':
     'Seu nome aparece para os outros membros. As músicas jogadas aparecem nas "Músicas da galera", sem dizer quem jogou.',
   'privacidade.membros.registros':
-    'Nenhum membro vê os registros de uso, nem os seus nem os dos outros. Só o dono vê, em um painel que só ele abre, e pode exportar os dados.',
+    'Nenhum membro vê os registros de uso, nem os seus nem os dos outros. Só o criador do Hookbop vê, em um painel que só ele abre, e pode exportar os dados.',
 
   'privacidade.tempo.title': 'Por quanto tempo',
   'privacidade.tempo.p1':
@@ -375,6 +377,7 @@ export const ptBR = {
   'privacidade.direitos.title': 'Seus direitos',
   'privacidade.direitos.p1':
     'Pela Lei Geral de Proteção de Dados (LGPD), você pode pedir para ver, corrigir, apagar ou levar os seus dados. É só escrever para o e-mail de contato acima. Respondemos em até 15 dias.',
+  'privacidade.direitos.apagar': 'Quando você pede para apagar seus dados, os registros de uso também são apagados.',
 
   'privacidade.idade.title': 'Idade',
   'privacidade.idade.p1':

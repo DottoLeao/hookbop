@@ -72,7 +72,7 @@ describe('PrivacidadePage: usage records', () => {
     const record = topic('O que guardamos').getByText(/^Registro de uso da IA:/);
     expect(record.tagName).toBe('LI');
     for (const part of [
-      'sua conta',
+      'o código da sua conta',
       'o vídeo',
       'o número do verso',
       'explicação ou tradução',
@@ -91,7 +91,7 @@ describe('PrivacidadePage: usage records', () => {
     const record = topic('O que guardamos').getByText(/^Registro de uso do app:/);
     expect(record.tagName).toBe('LI');
     for (const part of [
-      'sua conta',
+      'o código da sua conta',
       'um código aleatório da sessão',
       'abrir o app',
       'abrir uma música',
@@ -115,7 +115,9 @@ describe('PrivacidadePage: usage records', () => {
     render(<PrivacidadePage />);
 
     const uso = topic('Para que usamos');
-    expect(uso.getByText(/registros de uso para entender o que funciona no app e quanto a IA custa/)).toBeInTheDocument();
+    expect(
+      uso.getByText('O criador do Hookbop usa os registros de uso para entender o que funciona no app e quanto a IA custa.'),
+    ).toBeInTheDocument();
     expect(uso.getByText(/Neles não entra o que você digita nas respostas/)).toBeInTheDocument();
     expect(
       uso.getByText(/não vão para nenhum serviço além dos que aparecem em "Quem mais recebe dados"/),
@@ -123,12 +125,41 @@ describe('PrivacidadePage: usage records', () => {
     expect(uso.getByText('Não vendemos seus dados e, nesta fase, não mostramos anúncios.')).toBeInTheDocument();
   });
 
-  it('says no member sees the usage records and only the owner does', () => {
+  it('says the creator may use an AI assistant on the records, which carry the account code and no name or e-mail', () => {
+    render(<PrivacidadePage />);
+
+    const analise = topic('Para que usamos').getByText(/assistente de IA/);
+    expect(analise).toHaveTextContent('O criador pode usar um assistente de IA (o Claude, da Anthropic) para analisar esses registros');
+    expect(analise).toHaveTextContent('só o código da sua conta, sem nome e sem e-mail');
+  });
+
+  it('does not contradict that in the line about Anthropic: the help sends only the verse, the analysis is named too', () => {
+    render(<PrivacidadePage />);
+
+    const anthropic = topic('Quem mais recebe dados').getByText(/^Anthropic \(Claude\):/);
+    expect(anthropic).toHaveTextContent('enviamos só o verso da música e a palavra destacada, e nenhum dado seu vai junto');
+    expect(anthropic).toHaveTextContent('O criador também pode usar o Claude para analisar os registros de uso');
+    expect(anthropic).toHaveTextContent('entra o código da sua conta, sem nome e sem e-mail');
+  });
+
+  it('says no member sees the usage records and only the creator does', () => {
     render(<PrivacidadePage />);
 
     const membros = topic('O que os outros membros veem');
     expect(membros.getByText(/^Nenhum membro vê os registros de uso, nem os seus nem os dos outros\./)).toBeInTheDocument();
-    expect(membros.getByText(/Só o dono vê, em um painel que só ele abre, e pode exportar os dados\./)).toBeInTheDocument();
+    expect(
+      membros.getByText(/Só o criador do Hookbop vê, em um painel que só ele abre, e pode exportar os dados\./),
+    ).toBeInTheDocument();
+  });
+
+  it('says that asking to delete your data deletes the usage records too', () => {
+    render(<PrivacidadePage />);
+
+    const direitos = topic('Seus direitos');
+    expect(direitos.getByText(/pedir para ver, corrigir, apagar ou levar os seus dados/)).toBeInTheDocument();
+    expect(
+      direitos.getByText('Quando você pede para apagar seus dados, os registros de uso também são apagados.'),
+    ).toBeInTheDocument();
   });
 
   it('keeps the usage records for 12 months and the game in progress on the device for 24 hours', () => {
@@ -140,14 +171,29 @@ describe('PrivacidadePage: usage records', () => {
     expect(tempo.getByText(/partida em andamento de uma música fica guardada por até 24 horas/)).toBeInTheDocument();
   });
 
-  it('tells, in the paragraph about the device, of the game in progress and the session code that goes with the tab', () => {
+  it('lists, in the paragraph about the device, everything the app keeps there: cookies, settings, game, marks, session', () => {
     render(<PrivacidadePage />);
 
     const aparelho = topic('O que guardamos').getByText(/^No seu aparelho:/);
-    expect(aparelho).toHaveTextContent('a partida em andamento de cada música');
-    expect(aparelho).toHaveTextContent('para você continuar de onde parou');
-    expect(aparelho).toHaveTextContent('um código aleatório da sessão (que some quando você fecha a aba)');
-    expect(aparelho).toHaveTextContent('os cookies que mantêm você conectado');
+    // Cookies (login and invite) and the pages kept for offline use.
+    expect(aparelho).toHaveTextContent('os cookies que mantêm você conectado e guardam o convite');
+    expect(aparelho).toHaveTextContent('as páginas guardadas para o app abrir sem internet');
+    // In the browser's storage: settings, the game in progress and the two marks of the install prompt.
+    expect(aparelho).toHaveTextContent('as suas configurações do jogo');
+    expect(aparelho).toHaveTextContent('a partida em andamento de cada música, para você continuar de onde parou');
+    expect(aparelho).toHaveTextContent(
+      'duas marcas do aviso para instalar o app (que você já terminou uma música e que tocou em "Agora não")',
+    );
+    // In the tab only: the session code and the mark that the app was opened.
+    expect(aparelho).toHaveTextContent(
+      'um código aleatório da sessão e a marca de que o app já foi aberto nela, que somem quando você fecha a aba',
+    );
+  });
+
+  it('never calls the creator "o dono"', () => {
+    render(<PrivacidadePage />);
+
+    expect(document.body.textContent ?? '').not.toMatch(/\bdono\b/i);
   });
 
   it('mentions the usage record, 12 months and 24 hours somewhere on the page', () => {

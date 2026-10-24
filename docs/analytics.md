@@ -8,7 +8,7 @@ A fonte da verdade do esquema é `supabase/migrations/0006_metrics.sql`. O paine
 
 ## 0. Antes de consultar
 
-- **Só leitura.** Analise com `select`. Não grave, não altere e não apague linhas dessas tabelas.
+- **Só leitura.** Analise com `select`. Não grave, não altere e não apague linhas dessas tabelas. A única exceção é a seção 12, que só o criador do Hookbop roda, a pedido da pessoa.
 - **Dados pessoais.** `user_id` e `session_id` identificam pessoas e aberturas do app. Prefira respostas agregadas (contagens, somas, médias). Só cruze `user_id` com `profiles` (nome de cada pessoa) se o dono pedir.
 - **Quem pode ler.** Só a chave de serviço (`service_role`) e o dono do banco (`postgres`). Nenhum membro do app lê esses dados: o RLS está ligado, sem nenhuma política, e `anon` e `authenticated` não têm permissão nas tabelas, nas views nem nas funções.
 - **O dono também joga.** Os dados incluem o uso do próprio dono. Para tirá-lo de uma análise, filtre `user_id not in (select id from profiles where is_owner)`.
@@ -448,3 +448,40 @@ select count(*) filter (where name = 'install_prompt_shown') as vezes_mostrado,
 from app_events
 where created_at >= now() - interval '30 days';
 ```
+
+## 12. Apagar os dados de uma pessoa
+
+A política de privacidade diz que, quando uma pessoa pede para apagar os dados dela, os registros de uso também são apagados. `ai_usage` e `app_events` não têm chave estrangeira (seção 2): apagar a conta ou o perfil **não** apaga essas linhas. É preciso apagá-las pelo `user_id`.
+
+Só o criador do Hookbop faz isso, a pedido da pessoa, no SQL do Supabase. Um assistente de IA que só analisa os dados não apaga nada (seção 0). Esta seção cobre só essas duas tabelas.
+
+1. **Ache o `user_id`** antes de apagar a conta, pelo e-mail dela. O `user_id` é o `id` do perfil:
+
+```sql
+select p.id as user_id, p.display_name, u.email
+from profiles p
+join auth.users u on u.id = p.id
+where u.email = 'maria.inventada@example.com';
+-- user_id                              | display_name | email
+-- 00000000-0000-4000-8000-000000000001 | Maria        | maria.inventada@example.com   (valores inventados)
+```
+
+2. **Apague as linhas das duas tabelas de uma vez** e confira quantas saíram de cada uma:
+
+```sql
+with ia as (
+  delete from ai_usage
+  where user_id = '00000000-0000-4000-8000-000000000001'
+  returning 1
+), eventos as (
+  delete from app_events
+  where user_id = '00000000-0000-4000-8000-000000000001'
+  returning 1
+)
+select (select count(*) from ia) as linhas_ai_usage_apagadas,
+       (select count(*) from eventos) as linhas_app_events_apagadas;
+-- linhas_ai_usage_apagadas | linhas_app_events_apagadas
+--                       14 |                        230      (valores inventados)
+```
+
+O comando apaga as duas tabelas juntas: ou saem as duas, ou nenhuma. Um arquivo de "Exportar dados" já baixado não muda: apague também as cópias que existirem. Sem pedido de apagamento, as linhas saem sozinhas depois de 12 meses (seção 6).

@@ -40,6 +40,7 @@ const TOPICS: Topic[] = [
     paragraphs: [
       'privacidade.uso.p1',
       'privacidade.uso.registros',
+      'privacidade.uso.analise',
       'privacidade.uso.registrosLimite',
       'privacidade.uso.p2',
     ],
@@ -62,7 +63,7 @@ const TOPICS: Topic[] = [
     title: 'privacidade.tempo.title',
     paragraphs: ['privacidade.tempo.p1', 'privacidade.tempo.registros', 'privacidade.tempo.aparelho'],
   },
-  { title: 'privacidade.direitos.title', paragraphs: ['privacidade.direitos.p1'] },
+  { title: 'privacidade.direitos.title', paragraphs: ['privacidade.direitos.p1', 'privacidade.direitos.apagar'] },
   { title: 'privacidade.idade.title', paragraphs: ['privacidade.idade.p1'] },
   { title: 'privacidade.mudancas.title', paragraphs: ['privacidade.mudancas.p1'] },
 ];
