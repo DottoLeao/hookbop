@@ -77,6 +77,23 @@ describe('proxy', () => {
     expect(await destinationOf('/api/song')).toBe('/entrar?erro=servico');
   });
 
+  it('lets a request for the events route reach it with no session, for it to answer 401 and not a redirect', async () => {
+    sessionSays({ signedIn: false });
+
+    const response = await proxy(new NextRequest('http://localhost:3000/api/events', { method: 'POST' }));
+
+    expect(response.headers.get('location')).toBeNull();
+    expect(response.status).toBe(200);
+    expect(updateSession).toHaveBeenLastCalledWith(expect.anything(), { checkMembership: false });
+  });
+
+  it('still sends a request for the other API routes with no session to sign-in', async () => {
+    sessionSays({ signedIn: false });
+
+    expect(await destinationOf('/api/help')).toBe('/entrar');
+    expect(await destinationOf('/api/song')).toBe('/entrar');
+  });
+
   it('lets anyone reach a public page, without checking the membership', async () => {
     sessionSays({ signedIn: false });
 

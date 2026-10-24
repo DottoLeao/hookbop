@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { t } from '@/i18n/t';
 import { FADE_IN_MS } from '@/lib/game/timing';
 import { MAX_OFFSET_MS } from '@/lib/lyrics/offset';
+import { track } from '@/lib/metrics/track';
 import type { PlayerAdapter } from '@/lib/player/adapter';
 import { createFader, supportsVolume } from '@/lib/player/fade';
 
@@ -94,6 +95,7 @@ export function CalibrationSheet({
       setSaving(false);
       return;
     }
+    track('calibration_done', { youtubeId });
     onSaved(medianMs);
   }
 

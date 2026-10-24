@@ -14,6 +14,8 @@ import { postHelp, useLineHelp, type HelpRequester } from '@/lib/help/useLineHel
 import { cleanTitle } from '@/lib/lyrics/cleanTitle';
 import type { VideoRecord } from '@/lib/lyrics/resolveSong';
 import { lastStartedLineIndex } from '@/lib/lyrics/startedLine';
+// Named apart: this screen has a `track` of its own, the name of the song (`cleanTitle`).
+import { track as trackEvent } from '@/lib/metrics/track';
 import type { PlayerAdapter } from '@/lib/player/adapter';
 import { createFader, supportsVolume } from '@/lib/player/fade';
 import { usePlayerTime } from '@/lib/player/usePlayerTime';
@@ -29,6 +31,7 @@ import { SettingsSheet } from './SettingsSheet';
 import { focusRing } from './styles';
 import { ToolsBar } from './ToolsBar';
 import { useAwayAndBack } from './useAwayAndBack';
+import { useGameAbandoned } from './useGameAbandoned';
 import { useHelpSheet } from './useHelpSheet';
 import { useLineTranslations } from './useLineTranslations';
 import { startingGame, useSavedProgress } from './useSavedProgress';
@@ -174,6 +177,10 @@ const ANSWER_START = [
  * The game in progress is kept on the device (`progressStorage`, see `useSavedProgress`) after each answer and tile,
  * every 5 s, and as the app goes away, and forgotten when the song ends. Given a saved game (`resume`) that is this
  * game's, it goes on from there, the clip starting again at the line it was in.
+ *
+ * The owner's panel hears (`track`) of each ask for help (`help_explain`, `help_translate`: only what the player asks
+ * for, not the translations that come by themselves), of "Continuar" after coming back (`continue_after_leave`), and of
+ * a game left without finishing (`game_abandoned`, see `useGameAbandoned`).
  */
 export function GameScreen({
   adapter,
@@ -325,7 +332,16 @@ export function GameScreen({
 
   // Leaving the app and coming back (spec §6, ruling R84): the clip never plays in the background nor comes back by
   // itself, and "Continuar" brings the music back.
-  const away = useAwayAndBack({ adapter, gameRef, run, send, dispatch, nextFocus, clipPositionMs });
+  const away = useAwayAndBack({
+    adapter,
+    gameRef,
+    run,
+    send,
+    dispatch,
+    nextFocus,
+    clipPositionMs,
+    onContinue: () => trackEvent('continue_after_leave', { youtubeId: video.youtubeId, mode }),
+  });
   const { backFromAway, continueRef, isAway, stopsPhonePlay, focusContinue, continueAfterAway } = away;
   useEffect(() => {
     endAwayRef.current = away.end;
@@ -408,6 +424,9 @@ export function GameScreen({
 
   useEffect(() => () => clearTimeout(djTimerRef.current), []);
 
+  // Leaving the game before the song is over is told to the owner's panel; a game that reported its end is not that.
+  useGameAbandoned({ youtubeId: video.youtubeId, mode, finished: () => endReportedRef.current });
+
   const karaoke = mode === 'karaoke';
   const lineIndex = currentLineIndex(game);
   const blank = currentBlank(game, lineIndex);
@@ -428,6 +447,11 @@ export function GameScreen({
   // DJ Bop's explanation, in place of the game area, and the translations of the lyric panel. With "Mostrar tradução
   // sempre" on, the line in play is translated as it comes into play; Karaokê's view asks for its own.
   const help = useHelpSheet({ explain: lineHelp.explain, gameRef, run: send });
+  /** "Não entendi", a tapped word or "Não entendi a ordem": the explanation opens, and the panel hears that it was asked for. */
+  const explain = (target: string, lineIndex: number, opener: HTMLElement) => {
+    trackEvent('help_explain', { youtubeId: video.youtubeId, mode, props: { lineIndex } });
+    help.open(target, lineIndex, opener);
+  };
   const { translations, translateLine } = useLineTranslations(
     lineHelp.translate,
     !karaoke && settings.alwaysShowTranslation ? lineIndex : null,
@@ -439,6 +463,7 @@ export function GameScreen({
    * answering lets the music go; a clip the player stopped is left alone.
    */
   function translateVerse(index: number) {
+    trackEvent('help_translate', { youtubeId: video.youtubeId, mode, props: { lineIndex: index } });
     translateLine(index);
     if (translatePaused || !clipPlays(gameRef.current)) return;
     run([{ type: 'pause', fade: true }]);
@@ -581,7 +606,7 @@ export function GameScreen({
               lines={lines}
               timeMs={game.lastTickMs}
               fetchTranslation={lineHelp.translate}
-              onExplain={help.open}
+              onExplain={explain}
               showTranslations={showTranslations}
               visible={!settingsOpen && help.ask === null}
             />
@@ -597,7 +622,7 @@ export function GameScreen({
               onTranslate={translateVerse}
               // Back from away, the game area's own "Continuar" stands for this one too.
               onContinue={translatePaused && !backFromAway ? () => send([{ type: 'play', fade: true }]) : undefined}
-              onExplain={help.open}
+              onExplain={explain}
             />
           )}
           {blank && options && (
@@ -629,7 +654,7 @@ export function GameScreen({
               solved={solved}
               answered={solved || game.status[blank.id] === 'wrong'}
               onTile={(word) => placeTile(blank, word)}
-              onExplain={help.open}
+              onExplain={explain}
             />
           )}
           <ToolsBar

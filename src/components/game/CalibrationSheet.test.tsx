@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FADE_IN_MS } from '@/lib/game/timing';
+import { track } from '@/lib/metrics/track';
 import { FakePlayerAdapter } from '@/lib/player/fakeAdapter';
 import { CalibrationSheet } from './CalibrationSheet';
 
@@ -41,6 +42,10 @@ function setup({
 function tap(name: string) {
   fireEvent.click(screen.getByRole('button', { name }));
 }
+
+beforeEach(() => {
+  vi.mocked(track).mockClear();
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -337,6 +342,60 @@ describe('CalibrationSheet', () => {
 
     expect(onSkip).toHaveBeenCalledOnce();
     expect(saveOffsetVote).not.toHaveBeenCalled();
+  });
+
+  describe('calibration_done, for the owner’s panel', () => {
+    it('is tracked once the vote is saved, with the song, and before the sheet hands over', async () => {
+      const { onSaved } = setup();
+
+      tap('Começou!');
+      tap('Salvar');
+
+      await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+      expect(track).toHaveBeenCalledExactlyOnceWith('calibration_done', { youtubeId: ID });
+      expect(vi.mocked(track).mock.invocationCallOrder[0]).toBeLessThan(onSaved.mock.invocationCallOrder[0]);
+    });
+
+    it('is tracked once for a double tap on Salvar, since one vote is sent', async () => {
+      const { onSaved } = setup();
+
+      tap('Começou!');
+      tap('Salvar');
+      tap('Salvar');
+
+      await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+      expect(track).toHaveBeenCalledOnce();
+    });
+
+    it('is not tracked while the vote is on its way, when saving fails, nor when the offset is past the limit', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const saveOffsetVote = vi.fn<Save>().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(25700);
+      const { adapter, onSaved } = setup({ saveOffsetVote });
+
+      adapter.seekTo(130000);
+      tap('Começou!');
+      tap('Salvar');
+      expect(saveOffsetVote).not.toHaveBeenCalled();
+
+      adapter.seekTo(26000);
+      tap('Começou!');
+      tap('Salvar');
+      expect(track).not.toHaveBeenCalled();
+      await screen.findByText('Não rolou salvar. Tenta de novo?');
+      expect(track).not.toHaveBeenCalled();
+
+      tap('Salvar');
+      await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+      expect(track).toHaveBeenCalledExactlyOnceWith('calibration_done', { youtubeId: ID });
+    });
+
+    it('is not tracked when the player skips', () => {
+      setup();
+
+      tap('Pular');
+
+      expect(track).not.toHaveBeenCalled();
+    });
   });
 
   it('offers the official audio version in a new tab', () => {

@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { track } from '@/lib/metrics/track';
 import { clearInstallEvent, listenForInstallEvent } from '@/lib/pwa/installEvent';
 import { InstallPromptGate } from './InstallPromptGate';
 
@@ -30,6 +31,7 @@ function offerInstall(outcome: 'accepted' | 'dismissed' = 'accepted') {
 }
 
 beforeEach(() => {
+  vi.mocked(track).mockClear();
   localStorage.clear();
   localStorage.setItem('hb_first_finish', '1');
   stopListening = listenForInstallEvent();
@@ -146,5 +148,93 @@ describe('InstallPromptGate', () => {
     const { container } = render(<InstallPromptGate />);
 
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe('InstallPromptGate: what the owner’s panel hears', () => {
+  const tracked = () => vi.mocked(track).mock.calls.map(([name]) => name);
+
+  it('install_prompt_shown: once, when the iPhone steps come up', () => {
+    pretendToBe(IPHONE_UA);
+
+    const { rerender } = render(<InstallPromptGate />);
+    rerender(<InstallPromptGate />);
+
+    expect(track).toHaveBeenCalledExactlyOnceWith('install_prompt_shown');
+  });
+
+  it('install_prompt_shown: on Android, when the browser offers to install and the button comes up, not before', () => {
+    pretendToBe(ANDROID_UA);
+    render(<InstallPromptGate />);
+    expect(track).not.toHaveBeenCalled();
+
+    offerInstall();
+
+    expect(track).toHaveBeenCalledExactlyOnceWith('install_prompt_shown');
+  });
+
+  it.each([
+    ['the first song is not finished yet', () => localStorage.removeItem('hb_first_finish'), IPHONE_UA],
+    ['the player said "Agora não"', () => localStorage.setItem('hb_install_dismissed', '1'), IPHONE_UA],
+    ['the platform has nothing to offer', () => {}, 'Mozilla/5.0 (X11; Linux x86_64) Firefox/124.0'],
+  ])('install_prompt_shown: not tracked when %s, since nothing shows', (_what, arrange, userAgent) => {
+    arrange();
+    pretendToBe(userAgent);
+
+    render(<InstallPromptGate />);
+
+    expect(track).not.toHaveBeenCalled();
+  });
+
+  it('install_prompt_shown: not tracked when the app already runs installed', () => {
+    pretendToBe(IPHONE_UA, { standalone: true });
+
+    render(<InstallPromptGate />);
+
+    expect(track).not.toHaveBeenCalled();
+  });
+
+  it('install_accepted: when the player accepts the browser’s install dialog', async () => {
+    pretendToBe(ANDROID_UA);
+    render(<InstallPromptGate />);
+    offerInstall('accepted');
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Instalar' }));
+
+    await waitFor(() => expect(tracked()).toEqual(['install_prompt_shown', 'install_accepted']));
+  });
+
+  it('install_accepted: not when the player cancels the browser’s dialog, nor when "Agora não" is tapped', async () => {
+    pretendToBe(ANDROID_UA);
+    const { unmount } = render(<InstallPromptGate />);
+    offerInstall('dismissed');
+    fireEvent.click(await screen.findByRole('button', { name: 'Instalar' }));
+    await waitFor(() => expect(localStorage.getItem('hb_install_dismissed')).toBe('1'));
+    expect(tracked()).toEqual(['install_prompt_shown']);
+    unmount();
+
+    vi.mocked(track).mockClear();
+    localStorage.clear();
+    localStorage.setItem('hb_first_finish', '1');
+    pretendToBe(IPHONE_UA);
+    render(<InstallPromptGate />);
+    fireEvent.click(screen.getByRole('button', { name: 'Agora não' }));
+
+    expect(tracked()).toEqual(['install_prompt_shown']);
+  });
+
+  it('install_accepted: not when the browser refuses to open its dialog', async () => {
+    pretendToBe(ANDROID_UA);
+    render(<InstallPromptGate />);
+    const event = new Event('beforeinstallprompt', { cancelable: true });
+    Object.assign(event, { prompt: vi.fn().mockRejectedValue(new Error('not allowed')), userChoice: new Promise(() => {}) });
+    act(() => {
+      window.dispatchEvent(event);
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Instalar' }));
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Instalar' })).not.toBeInTheDocument());
+    expect(tracked()).toEqual(['install_prompt_shown']);
   });
 });

@@ -17,6 +17,17 @@ test.describe('without a session', () => {
       await expect(page).toHaveURL(/\/entrar$/);
     });
   }
+
+  // The events route answers for itself (src/lib/auth/paths.ts): a beacon from a page with no session gets a status.
+  test('/api/events answers a POST with 401, not a redirect, and keeps nothing in a cache', async ({ request }) => {
+    const response = await request.post('/api/events', {
+      data: { sessionId: randomUUID(), events: [{ name: 'app_opened' }] },
+      maxRedirects: 0,
+    });
+
+    expect(response.status()).toBe(401);
+    expect(response.headers()['cache-control']).toBe('no-store');
+  });
 });
 
 test.describe('sign-in page', () => {

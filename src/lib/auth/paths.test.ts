@@ -10,6 +10,8 @@ describe('isPublicPath', () => {
     '/sw.js',
     '/icons/icon-192.png',
     '/privacidade',
+    // The route answers 401 and 403 itself (src/app/api/events/route.ts).
+    '/api/events',
   ])('lets %s through without a session', (path) => {
     expect(isPublicPath(path)).toBe(true);
   });
@@ -31,6 +33,9 @@ describe('isPublicPath', () => {
     '/sw.js.map',
     '/privacidade-fake',
     '/privacidade/x',
+    '/api/events/x',
+    '/api/events-fake',
+    '/api/event',
   ])(
     'does not treat the look-alike %s as public',
     (path) => {

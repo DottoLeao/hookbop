@@ -22,6 +22,8 @@ interface AwayAndBackOptions {
    * clip is about to be and not from where it was. Should keep its identity between renders.
    */
   clipPositionMs: () => number;
+  /** The player tapped "Continuar", the way back to the music: called first, before the music comes back. */
+  onContinue?: () => void;
 }
 
 /** Gives `el` the focus and brings it into view only if it is not already: the page stays where the player left it. */
@@ -45,7 +47,16 @@ export function focusInView(el: HTMLElement): void {
  * played through the pause point of a blank still to answer goes back to the start of that blank's line (ruling S18),
  * the clip is paused, the game is told it is stopped, and `backFromAway` puts up "Continuar", which takes the focus.
  */
-export function useAwayAndBack({ adapter, gameRef, run, send, dispatch, nextFocus, clipPositionMs }: AwayAndBackOptions) {
+export function useAwayAndBack({
+  adapter,
+  gameRef,
+  run,
+  send,
+  dispatch,
+  nextFocus,
+  clipPositionMs,
+  onContinue,
+}: AwayAndBackOptions) {
   const awayRef = useRef(false);
   // Where the clip was when the page went away, to see what the phone played meanwhile.
   const leftAtMsRef = useRef(0);
@@ -133,6 +144,7 @@ export function useAwayAndBack({ adapter, gameRef, run, send, dispatch, nextFocu
    * unguarded, but a phone only does that as the page comes back, which is over by then.
    */
   function continueAfterAway() {
+    onContinue?.();
     end();
     const next = dispatch({ type: 'RESYNC', timeMs: adapter.getCurrentTimeMs() });
     if (next.phase === 'playing') send([{ type: 'play', fade: true }]);

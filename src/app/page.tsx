@@ -3,6 +3,7 @@ import { Logo } from '@/components/brand/Logo';
 import { GangSongs, HomeShortcuts, PasteLinkWithShareError } from '@/components/home/HomeSections';
 import { HomeLinks } from '@/components/home/HomeLinks';
 import { PasteLink } from '@/components/home/PasteLink';
+import { AppOpened } from '@/components/metrics/AppOpened';
 import { InstallPromptGate } from '@/components/pwa/InstallPromptGate';
 import { t } from '@/i18n/t';
 
@@ -12,6 +13,7 @@ import { t } from '@/i18n/t';
 export default function Home({ searchParams }: { searchParams: Promise<{ erro?: string | string[] }> }) {
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-6 px-4 py-6">
+      <AppOpened />
       <header className="flex justify-center py-2">
         {/* The heading says the name to screen readers, so the logo next to it is only decoration: read once. */}
         <h1 className="sr-only">{t('home.title')}</h1>

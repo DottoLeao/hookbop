@@ -4,12 +4,17 @@ export const CALLBACK_PATH = '/auth/callback';
 // Reachable without a session: the sign-in page, the route that finishes
 // sign-in, the invite landing pages, what the browser needs to install the app,
 // and the privacy policy, which Google and anyone deciding whether to sign in must be able to read.
+//
+// '/api/events' is the odd one out: it needs a session and a membership, and checks both itself (src/app/api/events/
+// route.ts). It is here so that someone with no session, or who is not a member, gets that route's 401 or 403 and not
+// a redirect to a page, and so that a batch of events costs one membership check (the route's), not two.
 const PUBLIC_PATHS: ReadonlySet<string> = new Set([
   LOGIN_PATH,
   CALLBACK_PATH,
   '/manifest.webmanifest',
   '/sw.js',
   '/privacidade',
+  '/api/events',
 ]);
 const PUBLIC_PREFIXES = ['/convite/', '/icons/'];
 

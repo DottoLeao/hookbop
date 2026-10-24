@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useSyncExternalStore } from 'react';
+import { track } from '@/lib/metrics/track';
 import { clearInstallEvent, getInstallEvent, subscribeInstallEvent } from '@/lib/pwa/installEvent';
 import { dismissInstallPrompt, installPromptDue } from '@/lib/pwa/installPromptState';
 import { detectPlatform, isStandalone, type Platform } from '@/lib/pwa/platform';
@@ -40,6 +41,7 @@ export function InstallPromptGate() {
       const choice = await event.userChoice;
       // Cancelling the browser's dialog is the same answer as "Agora não".
       if (choice.outcome === 'dismissed') dismissInstallPrompt();
+      else if (choice.outcome === 'accepted') track('install_accepted');
     } catch {
       // The browser refused to open its dialog. The offer is gone; the browser menu still has "Instalar app".
     }
@@ -52,6 +54,7 @@ export function InstallPromptGate() {
       standalone={standalone}
       onInstall={offer ? install : undefined}
       onDismiss={dismiss}
+      onShown={() => track('install_prompt_shown')}
     />
   );
 }

@@ -21,6 +21,7 @@ import { cleanTitle } from '@/lib/lyrics/cleanTitle';
 import { linesOfVideo } from '@/lib/lyrics/linesOfVideo';
 import { applyOffset } from '@/lib/lyrics/lrc';
 import type { SongResolution, VideoRecord } from '@/lib/lyrics/resolveSong';
+import { track } from '@/lib/metrics/track';
 import { useScreenSwap } from '@/lib/motion/transitions';
 import type { PlayerAdapter, PlayerError } from '@/lib/player/adapter';
 import { usePauseWhenHidden } from '@/lib/player/usePauseWhenHidden';
@@ -35,6 +36,7 @@ import { EndScreen } from './EndScreen';
 import { GameScreen } from './GameScreen';
 import { ModePicker } from './ModePicker';
 import { useGameSave, type SavePlay } from './useGameSave';
+import { startingGame } from './useSavedProgress';
 
 /** YouTube may report a duration of 0 until it has the video's details, so it is read again this often... */
 const DURATION_POLL_MS = 100;
@@ -276,6 +278,9 @@ function PasteAnother({ className }: { className: string }) {
  * short change (`useScreenSwap`): that box comes down into place from a few px below, fading in. Only that box is
  * animated. The player's box is a sibling above it, outside every transition, so a change of screen never remounts,
  * moves, resizes, covers or animates the player.
+ *
+ * The owner's panel hears (`track`) when the song is ready (`song_opened`), when a game begins (`mode_selected` and
+ * `game_started`, but not for one that goes on from a saved game: ruling S43) and when it finishes (`game_finished`).
  */
 export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: string; deps?: SongScreenDeps }) {
   const { resolve, createAdapter, saveOffsetVote, doubleXp } = deps;
@@ -317,6 +322,10 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
   const screenRef = useRef<HTMLDivElement>(null);
   // How many songs this screen has finished: only the first one waited for the song to get ready.
   const finishedGamesRef = useRef(0);
+  // The owner's panel hears of the song once, when it is ready, whatever makes the lookup run again.
+  const songOpenedRef = useRef(false);
+  // When the game on screen started (`now`), for how long it took.
+  const gameStartedAtRef = useRef(0);
 
   // The clip never plays in the background (spec §4, ruling R84). Outside a game (calibrating, picking a mode, or any
   // other state with a player) the screen pauses it when the page is hidden; during a game the game screen does it
@@ -416,6 +425,10 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
       if (next.kind === 'calibration' || next.kind === 'picker') {
         const elapsedMs = Math.round(now() - (openedAtRef.current ?? 0));
         setTimeToReadyMs((known) => known ?? elapsedMs);
+        if (!songOpenedRef.current) {
+          songOpenedRef.current = true;
+          track('song_opened', { youtubeId });
+        }
       }
       setPhase(next);
     }
@@ -456,17 +469,18 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
     difficulty: Difficulty,
     resume?: SavedProgress,
   ) {
+    const blanks = blanksFor(mode, lines, difficulty, youtubeId);
     gameSave.reset();
-    setPhase({
-      kind: 'game',
-      adapter: player,
-      video,
-      lines,
-      mode,
-      difficulty,
-      blanks: blanksFor(mode, lines, difficulty, youtubeId),
-      resume,
-    });
+    gameStartedAtRef.current = now();
+    // A game that goes on from a saved one is the same game, counted when it began (ruling S43), so it is not counted
+    // again. A saved game that is not this round's (the lyrics changed) is dropped by the game screen, and what starts
+    // then is a new game.
+    const resumed = resume !== undefined && startingGame({ mode, lines, blanks }, resume).resumeAtMs !== null;
+    if (!resumed) {
+      track('mode_selected', { youtubeId: video.youtubeId, mode });
+      track('game_started', { youtubeId: video.youtubeId, mode });
+    }
+    setPhase({ kind: 'game', adapter: player, video, lines, mode, difficulty, blanks, resume });
   }
 
   /** "Começar do zero": the saved game is forgotten, and the picker stays for the player to start a new one. */
@@ -488,6 +502,15 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
       timeToReadyMs: finishedGamesRef.current === 0 ? timeToReadyMs : null,
     });
     finishedGamesRef.current += 1;
+    track('game_finished', {
+      youtubeId: video.youtubeId,
+      mode,
+      props: {
+        pct: summary.pct,
+        durationMs: Math.max(0, Math.round(now() - gameStartedAtRef.current)),
+        totalBlanks: summary.totalBlanks,
+      },
+    });
     setPhase({ kind: 'end', adapter: player, video, lines, mode, difficulty, summary, helped: helpedBlanks(records) });
   }
 

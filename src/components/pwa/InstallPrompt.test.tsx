@@ -57,4 +57,43 @@ describe('InstallPrompt', () => {
       expect(className).toMatch(/\bmin-h-(11|12)\b/);
     }
   });
+
+  describe('onShown', () => {
+    it('is called once when the prompt is drawn, whatever happens to the screen after', () => {
+      const onShown = vi.fn();
+      const { rerender } = render(<InstallPrompt platform="ios" standalone={false} onShown={onShown} />);
+      rerender(<InstallPrompt platform="ios" standalone={false} onShown={onShown} onDismiss={vi.fn()} />);
+
+      expect(onShown).toHaveBeenCalledTimes(1);
+    });
+
+    it('is called by the Android prompt once the browser has offered to install, not before', () => {
+      const onShown = vi.fn();
+      const { rerender } = render(<InstallPrompt platform="android" standalone={false} onShown={onShown} />);
+      expect(onShown).not.toHaveBeenCalled();
+
+      rerender(<InstallPrompt platform="android" standalone={false} onInstall={vi.fn()} onShown={onShown} />);
+
+      expect(onShown).toHaveBeenCalledTimes(1);
+    });
+
+    it('is not called when the prompt draws nothing: installed already, or a platform with nothing to offer', () => {
+      const onShown = vi.fn();
+      render(<InstallPrompt platform="ios" standalone={true} onShown={onShown} />);
+      render(<InstallPrompt platform="other" standalone={false} onInstall={vi.fn()} onShown={onShown} />);
+
+      expect(onShown).not.toHaveBeenCalled();
+    });
+
+    it('is called only with the latest function given, when it changes between renders', () => {
+      const first = vi.fn();
+      const second = vi.fn();
+      const { rerender } = render(<InstallPrompt platform="android" standalone={false} onShown={first} />);
+
+      rerender(<InstallPrompt platform="android" standalone={false} onInstall={vi.fn()} onShown={second} />);
+
+      expect(first).not.toHaveBeenCalled();
+      expect(second).toHaveBeenCalledTimes(1);
+    });
+  });
 });
