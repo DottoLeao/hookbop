@@ -231,26 +231,46 @@ export const ptBR = {
   'metricas.empty': 'Nada no período ainda.',
   'metricas.inBrl': '≈ {valor}',
 
+  // Contagens: ".one" para exatamente 1, ".other" para qualquer outro número, o zero também (veja tCount).
+  'metricas.n.people.one': '{n} pessoa',
+  'metricas.n.people.other': '{n} pessoas',
+  'metricas.n.activePeople.one': '{n} pessoa ativa',
+  'metricas.n.activePeople.other': '{n} pessoas ativas',
+  'metricas.n.gamesStarted.one': '{n} partida começada',
+  'metricas.n.gamesStarted.other': '{n} partidas começadas',
+  'metricas.n.songsPlayed.one': '{n} música jogada',
+  'metricas.n.songsPlayed.other': '{n} músicas jogadas',
+  'metricas.n.games.one': '{n} partida',
+  'metricas.n.games.other': '{n} partidas',
+  'metricas.n.finished.one': '{n} terminada',
+  'metricas.n.finished.other': '{n} terminadas',
+  'metricas.n.opens.one': '{n} abertura',
+  'metricas.n.opens.other': '{n} aberturas',
+  'metricas.n.selections.one': '{n} escolha do modo',
+  'metricas.n.selections.other': '{n} escolhas do modo',
+  'metricas.n.reused.one': '{n} reaproveitado do refrão',
+  'metricas.n.reused.other': '{n} reaproveitados do refrão',
+
   'metricas.spend.title': 'Gasto da IA',
 
   'metricas.average.title': 'Custo médio',
   'metricas.average.perPerson': 'Por pessoa ativa',
   'metricas.average.perGame': 'Por partida',
   'metricas.average.perSong': 'Por música',
-  'metricas.average.basis': '{pessoas} pessoas ativas · {partidas} partidas começadas · {musicas} músicas jogadas',
+  'metricas.average.basis': '{pessoas} · {partidas} · {musicas}',
 
   'metricas.projection.title': 'Projeção',
   'metricas.projection.people': 'Pessoas por mês',
-  'metricas.projection.result': 'Com {n} pessoas por mês, o gasto seria',
+  'metricas.projection.result': 'Com {pessoas} por mês, o gasto seria',
   'metricas.projection.basis':
-    'Pela média de {valor} por pessoa ativa nos últimos 30 dias, horário de Brasília ({pessoas} pessoas).',
+    'Pela média de {valor} por pessoa ativa nos últimos 30 dias, horário de Brasília ({pessoas}).',
   'metricas.projection.noData': 'Ainda não há pessoas ativas nos últimos 30 dias para projetar.',
   'metricas.projection.invalid': 'Digite um número inteiro de pessoas.',
 
   'metricas.ai.title': 'Tokens e memória',
   'metricas.ai.calls': 'Pedidos de ajuda à IA',
   'metricas.ai.memory': 'Da memória',
-  'metricas.ai.memoryDetail': '{cache} do cache por verso · {reuse} reaproveitados do refrão · {model} do modelo',
+  'metricas.ai.memoryDetail': '{cache} do cache por verso · {reuse} · {model} do modelo',
   'metricas.ai.inputTokens': 'Tokens de entrada',
   'metricas.ai.outputTokens': 'Tokens de saída',
   'metricas.ai.latency': 'Tempo médio de resposta',
@@ -258,7 +278,7 @@ export const ptBR = {
   'metricas.ai.failures': 'Recusados: {recusados} · Com erro: {erros}',
 
   'metricas.modes.title': 'Modos mais jogados',
-  'metricas.modes.line': '{partidas} partidas começadas · {escolhas} escolhas do modo',
+  'metricas.modes.line': '{partidas} · {escolhas}',
 
   'metricas.games.title': 'Partidas por modo',
   'metricas.games.started': 'Começadas',
@@ -271,12 +291,11 @@ export const ptBR = {
     'Conclusão: terminadas ÷ começadas. Saída: a pessoa saiu da partida pelo menos uma vez, e pode ter voltado e terminado.',
 
   'metricas.songs.title': 'Músicas mais jogadas',
-  'metricas.songs.line': '{partidas} partidas · {terminadas} terminadas · {aberturas} aberturas',
+  'metricas.songs.line': '{partidas} · {terminadas} · {aberturas}',
   'metricas.songs.untitled': 'Música {id}',
 
   'metricas.help.title': 'Pedidos de ajuda por modo',
   'metricas.help.line': '{explicar} "Não entendi" · {traduzir} "Traduzir verso"',
-  'metricas.help.avgLine': 'Em média no verso {n}',
   'metricas.help.noMode': 'Sem modo',
 
   'metricas.rate.title': 'Cotação do dólar',

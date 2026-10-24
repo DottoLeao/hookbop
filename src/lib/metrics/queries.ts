@@ -31,18 +31,20 @@ export const PAGE_SIZE = 1000;
 type PageResult<T> = { data: T[] | null; error: { message: string } | null };
 
 /**
- * Every row of a read, one page of PAGE_SIZE after another, until a page comes back short. `page(from, to)` is the
- * read with `.range(from, to)`, over an order that does not change between pages. A page that fails fails it all:
- * a sum over part of the rows would look right and be wrong.
+ * Every row of a read, page after page, until a page comes back empty. `page(from, to)` is the read with
+ * `.range(from, to)`, over an order that does not change between pages. Each page asks for PAGE_SIZE rows and the next
+ * one starts after the last row that came, so a server whose `max_rows` is lower than PAGE_SIZE still gives every row:
+ * a short page is not taken for the end. That costs one empty read at the end. A page that fails fails it all: a sum
+ * over part of the rows would look right and be wrong.
  */
 export async function readAll<T>(what: string, page: (from: number, to: number) => PromiseLike<PageResult<T>>): Promise<T[]> {
   const rows: T[] = [];
-  for (let from = 0; ; from += PAGE_SIZE) {
+  for (;;) {
+    const from = rows.length;
     const { data, error } = await page(from, from + PAGE_SIZE - 1);
     if (error) throw new Error(`Could not read ${what}: ${error.message}`);
-    const got = data ?? [];
-    rows.push(...got);
-    if (got.length < PAGE_SIZE) return rows;
+    if (!data || data.length === 0) return rows;
+    rows.push(...data);
   }
 }
 

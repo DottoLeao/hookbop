@@ -203,16 +203,36 @@ describe('MetricsPanel', () => {
     expect(items[0]).toHaveTextContent('3 partidas · 2 terminadas · 4 aberturas');
   });
 
-  it('shows the help asked for in each mode, and around which line', async () => {
+  it('shows the help asked for in each mode, with no average line, which would mix songs of different lengths', async () => {
     await renderPanel(seeded());
 
-    const [karaoke, escolha] = card('Pedidos de ajuda por modo').getAllByRole('listitem');
+    const help = card('Pedidos de ajuda por modo');
+    const [karaoke, escolha] = help.getAllByRole('listitem');
     expect(karaoke).toHaveTextContent('Karaokê');
     expect(karaoke).toHaveTextContent('0 "Não entendi" · 7 "Traduzir verso"');
-    // lineIndex counts from 0; the panel counts lines from 1.
-    expect(karaoke).toHaveTextContent('Em média no verso 12');
     expect(escolha).toHaveTextContent('3 "Não entendi" · 1 "Traduzir verso"');
-    expect(escolha).toHaveTextContent('Em média no verso 5');
+    expect(help.queryByText(/verso \d/)).not.toBeInTheDocument();
+    expect(help.queryByText(/em média/i)).not.toBeInTheDocument();
+  });
+
+  it('writes a count of one in the singular', async () => {
+    const db = new FakeMetricsDb();
+    db.tables.metrics_ai_daily = [
+      { day: '2026-10-20', calls: 3, calls_model: 1, calls_cache: 1, calls_reuse: 1, calls_declined: 0, calls_error: 0, input_tokens: 300, output_tokens: 100, cost_usd: 0.5 },
+    ];
+    db.tables.metrics_modes = [
+      { day: '2026-10-20', mode: 'escolha', mode_selections: 1, games_started: 1, games_finished: 1, games_abandoned: 0, avg_pct: 80, avg_duration_ms: 90_000 },
+    ];
+    db.tables.metrics_songs = [song('aaaaaaaaaaa', 'Invented Artist - Paper Lanterns', 1, 1, 1)];
+    db.tables.app_events = [event(1, 'user-a', 'game_started'), event(2, 'user-a', 'game_finished')];
+
+    await renderPanel(db);
+
+    expect(card('Custo médio').getByText('1 pessoa ativa · 1 partida começada · 1 música jogada')).toBeInTheDocument();
+    expect(card('Tokens e memória').getByText('1 do cache por verso · 1 reaproveitado do refrão · 1 do modelo')).toBeInTheDocument();
+    expect(card('Modos mais jogados').getByText('1 partida começada · 1 escolha do modo')).toBeInTheDocument();
+    expect(card('Músicas mais jogadas').getByText('1 partida · 1 terminada · 1 abertura')).toBeInTheDocument();
+    expect(card('Projeção').getByText(/\(1 pessoa\)\.$/)).toBeInTheDocument();
   });
 
   it('shows the rate it used, in a form the owner can change it with', async () => {

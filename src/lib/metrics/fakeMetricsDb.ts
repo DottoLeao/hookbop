@@ -4,7 +4,7 @@ import type { Database } from '@/lib/supabase/database.types';
 /**
  * A stand-in for the service client, for tests: the metrics tables and views as plain rows in memory, read the way
  * PostgREST reads them. Like the real API (`max_rows = 1000` in supabase/config.toml), one read never returns more than
- * 1000 rows, so a read that forgets to page comes back short here too.
+ * `maxRows` rows (1000 unless a test lowers it), so a read that forgets to page comes back short here too.
  *
  * Only what the metrics code uses is here: `select`, `eq`, `gte`, `gt`, `lte`, `lt`, `not(column, 'is', null)`,
  * `order`, `range`, `maybeSingle`, `upsert` and the `metrics_active_people` function, which it counts from `app_events`.
@@ -124,7 +124,7 @@ class FakeQuery implements PromiseLike<{ data: unknown; error: { message: string
     if (this.single) return { data: rows[0] ?? null, error: null };
 
     const [from, to] = this.window ?? [0, Number.MAX_SAFE_INTEGER];
-    const end = Math.min(to + 1, from + FAKE_MAX_ROWS);
+    const end = Math.min(to + 1, from + this.db.maxRows);
     return { data: rows.slice(from, end), error: null };
   }
 
@@ -139,6 +139,8 @@ class FakeQuery implements PromiseLike<{ data: unknown; error: { message: string
 export class FakeMetricsDb {
   /** The rows of each table and view, by name. */
   tables: Record<string, Row[]> = {};
+  /** The most rows one read returns, as PostgREST's `max_rows`. */
+  maxRows = FAKE_MAX_ROWS;
   /** A table or view whose reads fail with this message. */
   failures = new Map<string, string>();
   /** Every read, in order: which table, which columns, which filters and which page. */

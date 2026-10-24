@@ -19,6 +19,21 @@ describe('Projection', () => {
     ).toBeInTheDocument();
   });
 
+  it('shows a cost per person around a cent precisely enough that the basis times the people gives the result', () => {
+    // US$ 0,40 over the last 30 days and 30 people: 0,01333… a person.
+    render(<Projection perPersonUsd={0.4 / 30} people={30} brlRate={5.5} />);
+
+    const basis = screen.getByText(/^Pela média de/);
+    expect(basis).toHaveTextContent('Pela média de US$ 0,0133 por pessoa ativa');
+    expect(screen.getByText('US$ 0,67')).toBeInTheDocument();
+    expect(screen.getByText('≈ R$ 3,67')).toBeInTheDocument();
+
+    // The basis the owner reads, times 50, lands within a cent of the result shown (0,0133 × 50 = 0,665). Rounded to the
+    // cent, as before, it read 0,01, and 0,01 × 50 = 0,50 is 17 cents off.
+    const shown = Number(/US\$\s([\d,]+)/.exec(basis.textContent ?? '')?.[1].replace(',', '.'));
+    expect(Math.abs(shown * 50 - 0.67)).toBeLessThan(0.01);
+  });
+
   it('follows the number of people as it is typed', () => {
     render(<Projection perPersonUsd={0.32} people={8} brlRate={5.5} />);
 
@@ -27,6 +42,15 @@ describe('Projection', () => {
     expect(screen.getByText('Com 1.000 pessoas por mês, o gasto seria')).toBeInTheDocument();
     expect(screen.getByText(`US$ 320,00`)).toBeInTheDocument();
     expect(screen.getByText(`≈ R$ 1.760,00`)).toBeInTheDocument();
+  });
+
+  it('says "pessoa" for one person, in the field and in the basis', () => {
+    render(<Projection perPersonUsd={0.32} people={1} brlRate={5.5} />);
+
+    fireEvent.change(screen.getByLabelText('Pessoas por mês'), { target: { value: '1' } });
+
+    expect(screen.getByText('Com 1 pessoa por mês, o gasto seria')).toBeInTheDocument();
+    expect(screen.getByText(/\(1 pessoa\)\.$/)).toBeInTheDocument();
   });
 
   it.each([

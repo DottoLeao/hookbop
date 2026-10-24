@@ -35,7 +35,31 @@ describe('BrlRateForm', () => {
     submit('50');
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Use um número entre 1 e 20, como 5,50.');
-    expect(screen.getByLabelText('Reais por dólar')).toHaveAttribute('aria-invalid', 'true');
+    const field = screen.getByLabelText('Reais por dólar');
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+    expect(field).toHaveAccessibleDescription('Use um número entre 1 e 20, como 5,50.');
+  });
+
+  it('keeps what the owner typed after a refusal, so it can be corrected rather than typed again', async () => {
+    vi.mocked(saveBrlRateAction).mockResolvedValue({ status: 'invalid' });
+    render(<BrlRateForm rate={5.5} />);
+
+    submit('50');
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    // React resets a form after its action; the field must not go back to the rate in use.
+    await waitFor(() => expect(saveBrlRateAction).toHaveBeenCalledOnce());
+    expect(screen.getByLabelText('Reais por dólar')).toHaveValue('50');
+  });
+
+  it('keeps the saved rate in the field after saving', async () => {
+    vi.mocked(saveBrlRateAction).mockResolvedValue({ status: 'saved' });
+    render(<BrlRateForm rate={5.5} />);
+
+    submit('6,2');
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Cotação salva.');
+    expect(screen.getByLabelText('Reais por dólar')).toHaveValue('6,2');
   });
 
   it('says it did not work when the rate could not be saved', async () => {

@@ -339,12 +339,8 @@ describe('buildPanel: help', () => {
     expect(help[2]).toMatchObject({ explain: 1, translate: 0, total: 1 });
   });
 
-  it('weighs the average line by the requests that carried it', () => {
-    const [karaoke, escolha, noMode] = buildPanel(input()).help;
-
-    expect(escolha.avgLineIndex).toBeCloseTo((10 * 6 + 4 * 2) / 8, 6);
-    expect(karaoke.avgLineIndex).toBe(20);
-    expect(noMode.avgLineIndex).toBe(3);
+  it('carries no average line: line numbers of songs of different lengths do not average into a part of a song', () => {
+    expect(buildPanel(input()).help[0]).toEqual({ mode: 'karaoke', explain: 2, translate: 10, total: 12 });
   });
 });
 

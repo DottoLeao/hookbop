@@ -9,24 +9,33 @@ import type { Day } from './period';
 function currency(code: 'USD' | 'BRL') {
   return {
     cents: new Intl.NumberFormat('pt-BR', { style: 'currency', currency: code }),
-    // One help costs a small fraction of a cent: two significant digits keep it from reading as 0,00.
-    fraction: new Intl.NumberFormat('pt-BR', { style: 'currency', currency: code, maximumSignificantDigits: 2 }),
+    small: new Intl.NumberFormat('pt-BR', { style: 'currency', currency: code, maximumSignificantDigits: 3 }),
   };
 }
 
 const USD = currency('USD');
 const BRL = currency('BRL');
 
+/** Below this, an amount keeps three significant digits instead of being rounded to the cent. */
+const SMALL_AMOUNT = 0.1;
+
+/**
+ * One help costs a fraction of a cent, and the cost per person or per game is around a cent. Rounded to the cent, those
+ * would read 0,00 or 0,01, and a projection made from them would not match what it says it multiplies. So an amount
+ * below 0,10 keeps three significant digits (0,0133, 0,0034); from 0,10 up, cents. An amount that rounds up to 0,10 is
+ * written in cents too, so it reads 0,10 and not 0,1.
+ */
 function money(formats: ReturnType<typeof currency>, value: number): string {
-  return value !== 0 && Math.abs(value) < 0.01 ? formats.fraction.format(value) : formats.cents.format(value);
+  const small = value !== 0 && Math.abs(Number(value.toPrecision(3))) < SMALL_AMOUNT;
+  return small ? formats.small.format(value) : formats.cents.format(value);
 }
 
-/** Dollars, as Anthropic charges: US$ 12,35, or US$ 0,0034 below a cent. */
+/** Dollars, as Anthropic charges: US$ 12,35, or US$ 0,0133 below 0,10. */
 export function formatUsd(value: number): string {
   return money(USD, value);
 }
 
-/** Reais: R$ 1.234,50, or R$ 0,0046 below a cent. */
+/** Reais: R$ 1.234,50, or R$ 0,0733 below 0,10. */
 export function formatBrl(value: number): string {
   return money(BRL, value);
 }

@@ -45,7 +45,7 @@ function appEventRows(n: number, start: string, firstId = 1, userId = USER_A) {
 }
 
 describe('readAll', () => {
-  it('asks for one page of 1000 rows after another until a page comes back short', async () => {
+  it('asks for one page of 1000 rows after another, going on from the last row it got, until a page is empty', async () => {
     const all = Array.from({ length: 2345 }, (_, index) => index);
     const page = vi.fn(async (from: number, to: number) => ({ data: all.slice(from, to + 1), error: null }));
 
@@ -57,15 +57,24 @@ describe('readAll', () => {
       [0, 999],
       [1000, 1999],
       [2000, 2999],
+      [2345, 3344],
     ]);
   });
 
-  it('asks once more when the rows end exactly at the end of a page', async () => {
-    const all = Array.from({ length: 2000 }, (_, index) => index);
-    const page = vi.fn(async (from: number, to: number) => ({ data: all.slice(from, to + 1), error: null }));
+  it('gets every row from a server that returns fewer rows per read than it asks for', async () => {
+    // As if the hosted max_rows were 300: a short page is not the end.
+    const all = Array.from({ length: 1234 }, (_, index) => index);
+    const page = vi.fn(async (from: number, to: number) => ({ data: all.slice(from, Math.min(to + 1, from + 300)), error: null }));
 
-    expect(await readAll('the numbers', page)).toHaveLength(2000);
-    expect(page).toHaveBeenCalledTimes(3);
+    expect(await readAll('the numbers', page)).toEqual(all);
+    expect(page.mock.calls.map(([from]) => from)).toEqual([0, 300, 600, 900, 1200, 1234]);
+  });
+
+  it('reads one empty page when there is nothing', async () => {
+    const page = vi.fn(async () => ({ data: [], error: null }));
+
+    expect(await readAll('the numbers', page)).toEqual([]);
+    expect(page).toHaveBeenCalledOnce();
   });
 
   it('fails, saying what it was reading, when a page cannot be read', async () => {
@@ -217,6 +226,7 @@ describe('readPanelData', () => {
     expect(db.readsOf('metrics_songs').map((call) => call.range)).toEqual([
       [0, 999],
       [1000, 1999],
+      [1500, 2499],
     ]);
     expect(panel.averages.songsPlayed).toBe(1500);
   });
@@ -251,11 +261,24 @@ describe('readExport', () => {
       [0, 999],
       [1000, 1999],
       [2000, 2999],
+      [2500, 3499],
     ]);
     expect(db.readsOf('app_events').map((call) => call.range)).toEqual([
       [0, 999],
       [1000, 1999],
+      [1200, 2199],
     ]);
+  });
+
+  it('gets every record from a database that returns fewer than 1000 rows per read', async () => {
+    const db = seededForExport();
+    db.maxRows = 300;
+
+    const exported = await readExport(db.asClient(), { days: 30, now: NOW });
+
+    expect(exported.records.ai_usage).toHaveLength(2500);
+    expect(exported.records.app_events).toHaveLength(1200);
+    expect(new Set(exported.records.ai_usage.map((row) => row.id)).size).toBe(2500);
   });
 
   it('keeps the whole row, user_id included, and nothing from before the period', async () => {

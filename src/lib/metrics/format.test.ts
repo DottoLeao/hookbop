@@ -21,10 +21,22 @@ describe('formatUsd and formatBrl', () => {
     expect(formatUsd(0)).toBe(`US$${NBSP}0,00`);
   });
 
-  it('keep two significant digits of an amount below a cent, which is what one help costs', () => {
+  it('keep three significant digits below 0,10, where one help and the cost per person or per game are', () => {
     expect(formatUsd(0.0034)).toBe(`US$${NBSP}0,0034`);
     expect(formatUsd(0.000081)).toBe(`US$${NBSP}0,000081`);
-    expect(formatBrl(0.00456)).toBe(`R$${NBSP}0,0046`);
+    expect(formatBrl(0.00456)).toBe(`R$${NBSP}0,00456`);
+    // US$ 0,40 over 30 people: not "US$ 0,01", which times 50 people would be 0,50 instead of 0,67.
+    expect(formatUsd(0.4 / 30)).toBe(`US$${NBSP}0,0133`);
+    expect(formatUsd(0.05)).toBe(`US$${NBSP}0,05`);
+    expect(formatUsd(0.099)).toBe(`US$${NBSP}0,099`);
+    expect(formatBrl((0.4 / 30) * 5.5)).toBe(`R$${NBSP}0,0733`);
+  });
+
+  it('go back to cents from 0,10, including an amount that rounds up to it', () => {
+    expect(formatUsd(0.1)).toBe(`US$${NBSP}0,10`);
+    expect(formatUsd(0.09996)).toBe(`US$${NBSP}0,10`);
+    expect(formatUsd(0.32)).toBe(`US$${NBSP}0,32`);
+    expect(formatBrl(0.5)).toBe(`R$${NBSP}0,50`);
   });
 });
 

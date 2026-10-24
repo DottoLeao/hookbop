@@ -10,7 +10,7 @@ import { inPeriod, lastDays, monthSoFar, PROJECTION_DAYS, type Day, type Period,
  * - the counts and the cost add up, so a period is the sum of its days;
  * - people do not (a person active on two days is one person), so they come from metrics_active_people, never from
  *   adding up the daily active_users;
- * - the views' averages do not either, so they are weighed by the games or requests behind them.
+ * - the views' averages do not either, so they are weighed by the games behind them.
  */
 
 type Views = Database['public']['Views'];
@@ -96,8 +96,6 @@ export interface HelpSummary {
   explain: number;
   translate: number;
   total: number;
-  /** The average line asked about, as `lineIndex` counts (from 0). */
-  avgLineIndex: number | null;
 }
 
 export interface PanelData {
@@ -260,23 +258,22 @@ function summarizeSongs(rows: SongRow[]): SongSummary[] {
   );
 }
 
+/**
+ * The help asked for in each mode, by kind. There is no average line here: `avg_line_index` is a line number, and
+ * line 30 is the end of a short song and the middle of a long one, so averaging it across songs says nothing about the
+ * part of a song. The export keeps each request's `lineIndex` for that question.
+ */
 function summarizeHelp(rows: HelpRow[]): HelpSummary[] {
-  const byMode = new Map<string | null, { summary: HelpSummary; line: Weighted }>();
+  const byMode = new Map<string | null, HelpSummary>();
   for (const row of rows) {
-    let entry = byMode.get(row.mode);
-    if (!entry) {
-      entry = { summary: { mode: row.mode, explain: 0, translate: 0, total: 0, avgLineIndex: null }, line: new Weighted() };
-      byMode.set(row.mode, entry);
-    }
+    const summary = byMode.get(row.mode) ?? { mode: row.mode, explain: 0, translate: 0, total: 0 };
     const requests = n(row.requests);
-    if (row.kind === 'explain') entry.summary.explain += requests;
-    if (row.kind === 'translate') entry.summary.translate += requests;
-    entry.summary.total += requests;
-    entry.line.add(row.avg_line_index, requests);
+    if (row.kind === 'explain') summary.explain += requests;
+    if (row.kind === 'translate') summary.translate += requests;
+    summary.total += requests;
+    byMode.set(row.mode, summary);
   }
-  return [...byMode.values()]
-    .map(({ summary, line }) => ({ ...summary, avgLineIndex: line.value }))
-    .sort((a, b) => b.total - a.total || String(a.mode).localeCompare(String(b.mode)));
+  return [...byMode.values()].sort((a, b) => b.total - a.total || String(a.mode).localeCompare(String(b.mode)));
 }
 
 /** Every number of the panel, from the rows of its period, of the month and of the last 30 days. */

@@ -1,7 +1,7 @@
 import { connection } from 'next/server';
 import { EmptyNote, MetricCard, Stat, Stats } from '@/components/admin/MetricCard';
 import { Projection } from '@/components/admin/Projection';
-import { t, type MessageKey } from '@/i18n/t';
+import { t, tCount, type CountKey, type MessageKey } from '@/i18n/t';
 import { HELP_MODEL, PRICES } from '@/lib/help/pricing';
 import {
   formatBrl,
@@ -33,6 +33,11 @@ function modeName(mode: string | null): string {
 }
 
 const NONE = t('metricas.none');
+
+/** A count with its words, singular for one: "1 partida", "2 partidas". */
+function count(key: CountKey, n: number): string {
+  return tCount(key, n, formatCount(n));
+}
 
 function usdOrNone(value: number | null): string {
   return value === null ? NONE : formatUsd(value);
@@ -87,9 +92,9 @@ function Averages({ panel, caption }: { panel: PanelData; caption: string }) {
       </Stats>
       <p className="text-label text-muted">
         {t('metricas.average.basis', {
-          pessoas: formatCount(averages.people),
-          partidas: formatCount(averages.gamesStarted),
-          musicas: formatCount(averages.songsPlayed),
+          pessoas: count('metricas.n.activePeople', averages.people),
+          partidas: count('metricas.n.gamesStarted', averages.gamesStarted),
+          musicas: count('metricas.n.songsPlayed', averages.songsPlayed),
         })}
       </p>
     </MetricCard>
@@ -107,7 +112,7 @@ function Ai({ panel, caption }: { panel: PanelData; caption: string }) {
           value={percentOrNone(ai.memoryShare)}
           detail={t('metricas.ai.memoryDetail', {
             cache: formatCount(ai.cache),
-            reuse: formatCount(ai.reuse),
+            reuse: count('metricas.n.reused', ai.reuse),
             model: formatCount(ai.model),
           })}
         />
@@ -138,7 +143,10 @@ function TopModes({ panel, caption }: { panel: PanelData; caption: string }) {
             <li key={mode.mode} className="flex flex-col rounded-answer bg-elevated px-3 py-2">
               <h3 className="text-button font-semibold">{modeName(mode.mode)}</h3>
               <p className="text-body text-muted tabular-nums">
-                {t('metricas.modes.line', { partidas: formatCount(mode.started), escolhas: formatCount(mode.selections) })}
+                {t('metricas.modes.line', {
+                  partidas: count('metricas.n.gamesStarted', mode.started),
+                  escolhas: count('metricas.n.selections', mode.selections),
+                })}
               </p>
             </li>
           ))}
@@ -199,9 +207,9 @@ function TopSongs({ panel, caption }: { panel: PanelData; caption: string }) {
               </h3>
               <p className="text-body text-muted tabular-nums">
                 {t('metricas.songs.line', {
-                  partidas: formatCount(song.started),
-                  terminadas: formatCount(song.finished),
-                  aberturas: formatCount(song.opens),
+                  partidas: count('metricas.n.games', song.started),
+                  terminadas: count('metricas.n.finished', song.finished),
+                  aberturas: count('metricas.n.opens', song.opens),
                 })}
               </p>
             </li>
@@ -228,12 +236,6 @@ function HelpByMode({ panel, caption }: { panel: PanelData; caption: string }) {
               <p className="text-body text-muted tabular-nums">
                 {t('metricas.help.line', { explicar: formatCount(row.explain), traduzir: formatCount(row.translate) })}
               </p>
-              {row.avgLineIndex !== null && (
-                // lineIndex counts lines from 0; people count them from 1.
-                <p className="text-body text-muted tabular-nums">
-                  {t('metricas.help.avgLine', { n: formatCount(Math.round(row.avgLineIndex + 1)) })}
-                </p>
-              )}
             </li>
           ))}
         </ul>

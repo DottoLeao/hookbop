@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useId } from 'react';
+import { useActionState, useId, useState } from 'react';
 import { focusRing } from '@/components/game/styles';
 import { t } from '@/i18n/t';
 import { formatRateInput } from '@/lib/metrics/format';
@@ -12,9 +12,13 @@ const IDLE: BrlRateState = { status: 'idle' };
  * Changes the rate the panel turns dollars into reais with. The field takes a comma or a dot (5,50 or 5.50); the action
  * checks the owner and the rate again, so nothing here is trusted. The text is 16 px, which keeps a phone from zooming
  * into the field.
+ *
+ * The field is controlled: React resets a form's uncontrolled fields once its action is done, which would put the rate
+ * in use back over a refused entry. Here what the owner typed stays, to be corrected, under the message that says why.
  */
 export function BrlRateForm({ rate }: { rate: number }) {
   const [state, formAction, pending] = useActionState(saveBrlRateAction, IDLE);
+  const [text, setText] = useState(() => formatRateInput(rate));
   const id = useId();
   const messageId = `${id}-message`;
   const invalid = state.status === 'invalid';
@@ -31,7 +35,8 @@ export function BrlRateForm({ rate }: { rate: number }) {
           type="text"
           inputMode="decimal"
           autoComplete="off"
-          defaultValue={formatRateInput(rate)}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
           aria-invalid={invalid}
           aria-describedby={state.status === 'idle' ? undefined : messageId}
           className={`min-h-11 min-w-0 flex-1 rounded-button border-[1.5px] bg-bg px-4 text-button text-text tabular-nums ${focusRing} ${

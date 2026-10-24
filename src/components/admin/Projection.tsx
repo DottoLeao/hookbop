@@ -2,7 +2,7 @@
 
 import { useId, useState } from 'react';
 import { focusRing } from '@/components/game/styles';
-import { t } from '@/i18n/t';
+import { t, tCount } from '@/i18n/t';
 import { formatBrl, formatCount, formatUsd } from '@/lib/metrics/format';
 
 /** The people a month the projection starts at. */
@@ -56,14 +56,19 @@ export function Projection({ perPersonUsd, people, brlRate }: { perPersonUsd: nu
           </p>
         ) : (
           <div className="flex flex-col">
-            <p className="text-body text-muted">{t('metricas.projection.result', { n: formatCount(count) })}</p>
+            <p className="text-body text-muted">
+              {t('metricas.projection.result', { pessoas: tCount('metricas.n.people', count, formatCount(count)) })}
+            </p>
             <p className="font-heading text-title font-bold tabular-nums">{formatUsd(costUsd)}</p>
             <p className="text-body text-muted tabular-nums">{t('metricas.inBrl', { valor: formatBrl(costUsd * brlRate) })}</p>
           </div>
         )}
       </div>
       <p className="text-label text-muted">
-        {t('metricas.projection.basis', { valor: formatUsd(perPersonUsd), pessoas: formatCount(people) })}
+        {t('metricas.projection.basis', {
+          valor: formatUsd(perPersonUsd),
+          pessoas: tCount('metricas.n.people', people, formatCount(people)),
+        })}
       </p>
     </div>
   );

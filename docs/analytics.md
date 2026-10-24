@@ -111,7 +111,7 @@ Cinco views, todas `security_invoker` (rodam com as permissões de quem lê) e s
 - `metrics_usage_daily` (de `app_events`): `active_users` = pessoas distintas com qualquer ação no dia; `sessions` = aberturas distintas do app no dia.
 - `metrics_modes` (das ações `mode_selected`, `game_started`, `game_finished` e `game_abandoned` que têm modo): `avg_pct` é a média de `pct` das partidas terminadas que tinham lacunas (o Karaokê fica de fora, então é null para ele); `avg_duration_ms` é a média de `durationMs` das terminadas, arredondada.
 - `metrics_songs` (das ações de música e de partida que têm música): `title` vem de `videos` e é null para uma música que essa tabela não tem; `players` = pessoas distintas que começaram uma partida naquele dia.
-- `metrics_help` (das ações `help_explain` e `help_translate`, que têm o modo; `ai_usage` não tem): `kind` usa os mesmos valores de `ai_usage.kind`; `avg_line_index` é a média de `lineIndex`, contando do 0, com uma casa decimal.
+- `metrics_help` (das ações `help_explain` e `help_translate`, que têm o modo; `ai_usage` não tem): `kind` usa os mesmos valores de `ai_usage.kind`; `avg_line_index` é a média de `lineIndex`, contando do 0, com uma casa decimal, e mistura as músicas do dia (veja os cuidados).
 
 ## 4. Pessoas num período: `metrics_active_people(p_from, p_to)`
 
@@ -157,7 +157,7 @@ O painel mostra um período de 7 ou 30 dias (`?dias=7` ou `?dias=30`; qualquer o
 | Acerto médio | `avg_pct` ponderado por `games_finished`: soma de `avg_pct × games_finished` ÷ soma de `games_finished`, nas linhas em que `avg_pct` não é null. |
 | Duração média | `avg_duration_ms` ponderado do mesmo jeito. |
 | Músicas mais jogadas | Por música, somas de `games_started`, `games_finished` e `song_opens`; ordem por partidas começadas e depois por aberturas; as 10 primeiras. |
-| Pedidos de ajuda por modo | Por modo, soma de `requests` de cada `kind`; "em média no verso N" é `avg_line_index` ponderado por `requests`, mais 1 (o painel conta os versos a partir de 1). |
+| Pedidos de ajuda por modo | Por modo, soma de `requests` de cada `kind`. O painel não mostra um verso médio (veja os cuidados): para saber em que parte das músicas se pede ajuda, use o `lineIndex` de cada pedido, que está em `app_events` e no arquivo exportado. |
 
 ## 8. Cuidados
 
@@ -169,13 +169,13 @@ O painel mostra um período de 7 ou 30 dias (`?dias=7` ou `?dias=30`; qualquer o
 - **Karaokê não tem acerto.** Termina com `pct = 0` e `totalBlanks = 0`; `avg_pct` o deixa de fora.
 - **Duas contagens de ajuda.** `help_explain` e `help_translate` (em `app_events`, com modo) contam os toques de quem pediu. `ai_usage` conta os pedidos que o servidor atendeu e inclui as traduções que aparecem sozinhas no Karaokê e em "Mostrar tradução sempre", que não geram `help_translate`. Os números não batem, e não devem bater.
 - **`ai_usage` não tem modo.** Para ajuda por modo, use `metrics_help`.
-- **`lineIndex` e `line_index` contam do 0** e são posições na letra, não uma parte relativa da música: o verso 30 é o fim de uma música curta e o meio de uma longa.
+- **`lineIndex` e `line_index` contam do 0** e são posições na letra, não uma parte relativa da música: o verso 30 é o fim de uma música curta e o meio de uma longa. Por isso `avg_line_index` só faz sentido dentro de uma mesma música, e o painel não mostra média de verso. Para comparar músicas, divida o `lineIndex` pelo número de versos da letra de cada uma.
 - **O custo é estimado** pelos tokens registrados e pelo preço guardado no código, não pela fatura da Anthropic.
 - **A latência de uma linha de erro** é o tempo até falhar. Médias de latência usam só `source = 'model'` e `outcome = 'ok'`.
 - **`app_opened`** só é gravado na tela inicial e na tela de uma música, uma vez por sessão. Uma sessão que começa em outra tela só conta quando chega a uma dessas duas.
 - **`mode_selected`** sai junto com cada `game_started`, inclusive em "Jogar de novo".
 - **`install_prompt_shown`** conta cada vez que o convite aparece, não pessoas.
-- **Leitura pela API (PostgREST).** Uma leitura devolve no máximo 1000 linhas (`max_rows`). Pela API, pagine com `.range()`; o painel e o exportar já fazem isso. SQL direto pelo conector não tem esse limite.
+- **Leitura pela API (PostgREST).** Uma leitura devolve no máximo `max_rows` linhas (1000 neste projeto). Pela API, pagine com `.range()` e só pare numa página vazia, porque uma página curta pode ser só o limite; o painel e o exportar fazem assim. SQL direto pelo conector não tem esse limite.
 
 ## 9. O arquivo de "Exportar dados"
 
@@ -327,22 +327,17 @@ order by usd desc
 limit 10;
 ```
 
-**Ajuda por modo e tipo, com o verso médio ponderado:**
+**Ajuda por modo e tipo** (sem verso médio: ele mistura músicas de tamanhos diferentes):
 
 ```sql
-select
-  mode,
-  kind,
-  sum(requests) as pedidos,
-  sum(avg_line_index * requests) filter (where avg_line_index is not null)
-    / nullif(sum(requests) filter (where avg_line_index is not null), 0) as verso_medio_contando_do_0
+select mode, kind, sum(requests) as pedidos
 from metrics_help
 where day >= (now() at time zone 'America/Sao_Paulo')::date - 29
 group by mode, kind
 order by pedidos desc;
 ```
 
-**Em que versos se pede ajuda (distribuição), numa música:**
+**Em que versos se pede ajuda (distribuição), numa música** (dentro de uma mesma música o número do verso compara):
 
 ```sql
 select (props ->> 'lineIndex')::int as verso_contando_do_0, count(*) as pedidos
