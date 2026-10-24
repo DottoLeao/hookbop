@@ -329,6 +329,89 @@ describe('createFader', () => {
     });
   });
 
+  describe('silence', () => {
+    it('sets the volume to 0 at once, with no ramp, and a fadeIn brings it back to the volume it had', () => {
+      const p = new FakePlayerAdapter(180000);
+      p.setVolume(70);
+      p.calls.length = 0;
+      const fader = createFader(p, { volume: true });
+
+      fader.silence();
+      expect(p.calls).toEqual(['volume:0']);
+      expect(fader.fading()).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+
+      fader.fadeIn(800);
+      vi.advanceTimersByTime(800);
+      const seen = volumes(p).slice(1);
+      expectStrictlyIncreasing(seen);
+      expect(seen.at(-1)).toBe(70);
+    });
+
+    it('stops a fadeOut, whose done never comes, and keeps the volume that fadeOut began from', () => {
+      const p = new FakePlayerAdapter(180000);
+      p.setVolume(70);
+      const done = vi.fn();
+      const fader = createFader(p, { volume: true });
+      fader.fadeOut(1000, done);
+      vi.advanceTimersByTime(500);
+      p.calls.length = 0;
+
+      fader.silence();
+      vi.advanceTimersByTime(5000);
+      expect(done).not.toHaveBeenCalled();
+      expect(p.calls).toEqual(['volume:0']);
+
+      fader.restore();
+      expect(p.getVolume()).toBe(70);
+    });
+
+    it('stops a fadeIn, and keeps the volume it was climbing to', () => {
+      const p = new FakePlayerAdapter(180000);
+      p.setVolume(70);
+      const fader = createFader(p, { volume: true });
+      fader.fadeOut(500, () => {});
+      vi.advanceTimersByTime(500);
+      fader.fadeIn(800);
+      vi.advanceTimersByTime(400);
+      expect(p.getVolume()).toBeGreaterThan(0);
+
+      fader.silence();
+      vi.advanceTimersByTime(5000);
+      expect(p.getVolume()).toBe(0);
+
+      fader.fadeIn(800);
+      vi.advanceTimersByTime(800);
+      expect(p.getVolume()).toBe(70);
+    });
+
+    it('makes no call when the music is already silent', () => {
+      const p = new FakePlayerAdapter(180000);
+      const fader = createFader(p, { volume: true });
+      fader.fadeOut(500, () => {});
+      vi.advanceTimersByTime(500);
+      p.calls.length = 0;
+
+      fader.silence();
+
+      expect(p.calls).toEqual([]);
+    });
+
+    it('without volume control, only stops what runs: no volume call, and done never comes', () => {
+      const p = new FakePlayerAdapter(180000);
+      const done = vi.fn();
+      const fader = createFader(p, { volume: false });
+      fader.fadeOut(1000, done);
+
+      fader.silence();
+      vi.advanceTimersByTime(5000);
+
+      expect(done).not.toHaveBeenCalled();
+      expect(p.calls).toEqual([]);
+      expect(fader.fading()).toBeNull();
+    });
+  });
+
   describe('cancel', () => {
     it('stops a fadeOut in the middle without calling done', () => {
       const p = new FakePlayerAdapter(180000);

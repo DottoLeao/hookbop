@@ -43,22 +43,87 @@ describe('usePauseWhenHidden', () => {
 
   it('listens to nothing while it is off', () => {
     const pause = vi.fn();
-    renderHook(() => usePauseWhenHidden(pause, false));
+    const onVisible = vi.fn();
+    renderHook(() => usePauseWhenHidden(pause, false, onVisible));
 
     setVisibility('hidden');
     window.dispatchEvent(new Event('pagehide'));
+    setVisibility('visible');
+    window.dispatchEvent(new Event('pageshow'));
 
     expect(pause).not.toHaveBeenCalled();
+    expect(onVisible).not.toHaveBeenCalled();
+  });
+
+  describe('onVisible', () => {
+    it('is called when the page is visible again after it was hidden, and only then', () => {
+      const pause = vi.fn();
+      const onVisible = vi.fn();
+      renderHook(() => usePauseWhenHidden(pause, true, onVisible));
+
+      setVisibility('visible');
+      expect(onVisible).not.toHaveBeenCalled();
+
+      setVisibility('hidden');
+      expect(onVisible).not.toHaveBeenCalled();
+      setVisibility('visible');
+      expect(onVisible).toHaveBeenCalledOnce();
+      expect(pause).toHaveBeenCalledOnce();
+    });
+
+    it('is called once per return, however many times the browser says the page is visible', () => {
+      const onVisible = vi.fn();
+      renderHook(() => usePauseWhenHidden(vi.fn(), true, onVisible));
+
+      setVisibility('hidden');
+      setVisibility('visible');
+      setVisibility('visible');
+      window.dispatchEvent(new Event('pageshow'));
+      expect(onVisible).toHaveBeenCalledOnce();
+
+      setVisibility('hidden');
+      setVisibility('visible');
+      expect(onVisible).toHaveBeenCalledTimes(2);
+    });
+
+    it('is called when the page comes back from pagehide (pageshow), as some phones say it', () => {
+      const onVisible = vi.fn();
+      renderHook(() => usePauseWhenHidden(vi.fn(), true, onVisible));
+
+      window.dispatchEvent(new Event('pagehide'));
+      window.dispatchEvent(new Event('pageshow'));
+
+      expect(onVisible).toHaveBeenCalledOnce();
+    });
+
+    it('still knows the page was hidden when the callbacks change in between', () => {
+      const first = vi.fn();
+      const second = vi.fn();
+      const { rerender } = renderHook(({ onVisible }) => usePauseWhenHidden(vi.fn(), true, onVisible), {
+        initialProps: { onVisible: first },
+      });
+
+      setVisibility('hidden');
+      rerender({ onVisible: second });
+      setVisibility('visible');
+
+      expect(first).not.toHaveBeenCalled();
+      expect(second).toHaveBeenCalledOnce();
+    });
   });
 
   it('stops listening when it goes away', () => {
     const pause = vi.fn();
-    const { unmount } = renderHook(() => usePauseWhenHidden(pause));
+    const onVisible = vi.fn();
+    const { unmount } = renderHook(() => usePauseWhenHidden(pause, true, onVisible));
+    setVisibility('hidden');
     unmount();
 
+    setVisibility('visible');
     setVisibility('hidden');
     window.dispatchEvent(new Event('pagehide'));
 
-    expect(pause).not.toHaveBeenCalled();
+    expect(pause).toHaveBeenCalledOnce();
+    expect(onVisible).not.toHaveBeenCalled();
   });
 });

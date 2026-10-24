@@ -78,6 +78,29 @@ describe('usePlayerTime', () => {
     expect(renders).toBe(settled);
   });
 
+  it('goes on reading the clock while the page is hidden and after it comes back (spec section 6)', () => {
+    const p = new FakePlayerAdapter(180000);
+    p.play();
+    const { result } = renderHook(() => usePlayerTime(p));
+    const setVisibility = (state: DocumentVisibilityState) => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+    };
+
+    setVisibility('hidden');
+    p.advance(1000);
+    tick(100);
+    expect(result.current).toBe(1000);
+
+    setVisibility('visible');
+    p.advance(500);
+    tick(100);
+    expect(result.current).toBe(1500);
+    expect(vi.getTimerCount()).toBe(1);
+  });
+
   it('stops polling on unmount', () => {
     const p = new FakePlayerAdapter(180000);
     const spy = vi.spyOn(p, 'getCurrentTimeMs');

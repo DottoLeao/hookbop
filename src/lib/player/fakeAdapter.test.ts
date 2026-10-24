@@ -150,6 +150,24 @@ describe('FakePlayerAdapter', () => {
     expect(p.getPlayerState()).toBe('ended');
   });
 
+  it('setStateUnreported changes the state, which advance and getPlayerState follow, and tells no listener', () => {
+    const p = new FakePlayerAdapter(180000);
+    const onState = vi.fn();
+    p.onState(onState);
+
+    p.setStateUnreported('playing');
+    p.advance(1000);
+
+    expect(p.getPlayerState()).toBe('playing');
+    expect(p.getCurrentTimeMs()).toBe(1000);
+    expect(onState).not.toHaveBeenCalled();
+    expect(p.calls).toEqual([]);
+
+    p.setStateUnreported('paused');
+    p.advance(1000);
+    expect(p.getCurrentTimeMs()).toBe(1000);
+  });
+
   it('emitError reaches every error listener', () => {
     const p = new FakePlayerAdapter(180000);
     const a: PlayerError[] = [];

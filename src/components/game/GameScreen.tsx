@@ -35,6 +35,7 @@ import { LazyDigitacaoArea, preloadDigitacaoArea } from './LazyDigitacaoArea';
 import { LyricPanel } from './LyricPanel';
 import { MontarArea } from './MontarArea';
 import { SettingsSheet } from './SettingsSheet';
+import { focusRing } from './styles';
 import { ToolsBar } from './ToolsBar';
 import { useHelpSheet } from './useHelpSheet';
 import { useLineTranslations } from './useLineTranslations';
@@ -136,6 +137,28 @@ function LineIcon({ children }: { children: ReactNode }) {
 }
 
 /**
+ * "Continuar" after the page was away (spec §6): big and lime, the first thing in the game area, so right under the
+ * player and never over it. It takes the focus when it appears, without scrolling, as the way back to the music. The
+ * ring is the page's lime one, offset from the button, as on the lyrics' own "Continuar".
+ */
+function ContinueAfterAway({ onClick }: { onClick: () => void }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    ref.current?.focus({ preventScroll: true });
+  }, []);
+  return (
+    <button
+      ref={ref}
+      type="button"
+      onClick={onClick}
+      className={`flex min-h-12 w-full items-center justify-center rounded-button bg-lime px-4 text-button font-bold text-bg ${focusRing}`}
+    >
+      {t('jogo.continue')}
+    </button>
+  );
+}
+
+/**
  * The game: the header, the lyrics around the clip, the answer area of the mode, and the tools
  * (design/canvas/Escolha.dc.html in the Limão colors). The player sits above it, in the song screen.
  *
@@ -155,6 +178,9 @@ function LineIcon({ children }: { children: ReactNode }) {
  * clip) fade it out for `FADE_OUT_MS` and then pause the clip; it plays again with its volume rising over
  * `FADE_IN_MS`. Where the device ignores the volume (an iPhone) the fade is only the wait. Leaving the app is the one
  * pause with no fade. After "Traduzir verso", "Continuar" plays the music again, since no answer is due to do it.
+ *
+ * Coming back to the app (spec §6), the lyrics go to where the clip is, the music never comes back by itself, and a big
+ * "Continuar" in the game area brings it back with its volume rising (see `awayRef`).
  */
 export function GameScreen({
   adapter,
@@ -188,6 +214,14 @@ export function GameScreen({
   const gearRef = useRef<HTMLButtonElement>(null);
   // "Traduzir verso" paused the clip (outside Karaokê, with no wait holding it), so the lyrics offer "Continuar".
   const [translatePaused, setTranslatePaused] = useState(false);
+  // Away from the app (spec §6): from the moment the page is hidden until the game itself lets the music go again
+  // ("Continuar", an answer, "Repetir verso"...). A clip that starts meanwhile was started by the phone, not by the
+  // player: Android plays a video again by itself when the page comes back. It is paused at once and kept from the
+  // game, which would read it as the player's own play and skip the blank it waits for. The clock reaches the game as
+  // RESYNC, which moves the lyrics and never starts a wait or skips a blank.
+  const awayRef = useRef(false);
+  // The page is back, and the game area offers "Continuar".
+  const [backFromAway, setBackFromAway] = useState(false);
   const lineHelp = useLineHelp({ youtubeId: video.youtubeId, lyricsRef: video.lyricsRef, lines, request: requestHelp });
 
   // One fader for the player's volume. When the screen goes away a fade still running must not pause what comes next,
@@ -203,9 +237,10 @@ export function GameScreen({
             if (command.fade) {
               fader.fadeOut(FADE_OUT_MS, () => adapter.pause());
             } else {
-              // Leaving the app: the clip stops at once, and a fade in progress must not go on.
-              fader.cancel();
+              // Leaving the app, or a clip that started while away: it stops at once, a fade in progress does not go
+              // on, and the music stays silent until the game lets it go, so a play the phone starts is not heard.
               adapter.pause();
+              fader.silence();
             }
             break;
           case 'play':
@@ -236,21 +271,20 @@ export function GameScreen({
 
   /**
    * `run`, for what can let the music go: a play with a fade ends the pause "Continuar" stands for, whoever asked for it
-   * (an answer, "Repetir verso", the player's own play during a wait, DJ Bop's sheet closing, "Continuar" itself).
+   * (an answer, "Repetir verso", the player's own play during a wait, DJ Bop's sheet closing, "Continuar" itself). It
+   * also ends the time away, before the play goes out, so the play it is about to report is not taken for the phone's.
    */
   const send = useCallback(
     (commands: readonly Command[]) => {
+      if (commands.some((command) => command.type === 'play' && command.fade)) {
+        awayRef.current = false;
+        setBackFromAway(false);
+        setTranslatePaused(false);
+      }
       run(commands);
-      if (commands.some((command) => command.type === 'play' && command.fade)) setTranslatePaused(false);
     },
     [run],
   );
-
-  // The clip never plays in the background (spec §4, ruling R84): hiding the page pauses it through the same command
-  // path as the game's own pauses, and nothing plays it again when the page comes back. That matters most in Karaokê,
-  // which has no blank to stop the clip. The player's pause report reaches the game as any other.
-  const pauseClip = useCallback(() => run([{ type: 'pause' }]), [run]);
-  usePauseWhenHidden(pauseClip);
 
   /** One event through the reducer, then its commands to the player. Gives back the new state. */
   const dispatch = useCallback(
@@ -265,6 +299,47 @@ export function GameScreen({
     },
     [send],
   );
+
+  // The clip never plays in the background (spec §4, ruling R84): hiding the page pauses it through the same command
+  // path as the game's own pauses. That matters most in Karaokê, which has no blank to stop the clip.
+  const leaveApp = useCallback(() => {
+    awayRef.current = true;
+    run([{ type: 'pause' }]);
+  }, [run]);
+
+  /**
+   * The page is back (spec §6). The player's reports may be late or lost by now, so the player itself is asked: the
+   * lyrics go to where the clip is, a clip the phone plays again is paused at once, and the game is told the clip is
+   * stopped, whatever it last heard. The pause goes out even when the player says it is paused: on Android that report
+   * can lag behind a play the phone started. Then "Continuar" waits for the player. A clip that has ended is left to end
+   * the game.
+   */
+  const comeBack = useCallback(() => {
+    const state = adapter.getPlayerState();
+    dispatch({ type: 'RESYNC', timeMs: adapter.getCurrentTimeMs() });
+    if (state === 'ended') {
+      awayRef.current = false;
+      dispatch({ type: 'PLAYER_STATE', state });
+      return;
+    }
+    run([{ type: 'pause' }]);
+    const next = dispatch({ type: 'PLAYER_STATE', state: 'paused' });
+    if (next.phase === 'ended') awayRef.current = false;
+    else setBackFromAway(true);
+  }, [adapter, dispatch, run]);
+  usePauseWhenHidden(leaveApp, true, comeBack);
+
+  /**
+   * "Continuar" after coming back: the lyrics go to where the clip is now (the player may have moved the paused clip),
+   * and the music comes back with its volume rising. During a wait it only goes away: the answer is what lets the music
+   * go, and a play now would read to the game as the player skipping the blank.
+   */
+  function continueAfterAway() {
+    awayRef.current = false;
+    setBackFromAway(false);
+    const next = dispatch({ type: 'RESYNC', timeMs: adapter.getCurrentTimeMs() });
+    if (next.phase === 'playing') send([{ type: 'play', fade: true }]);
+  }
 
   /**
    * New settings. Auto-repeat is part of the game state, set when the round starts; the reducer has no event to
@@ -293,6 +368,11 @@ export function GameScreen({
   useEffect(
     () =>
       adapter.onState((state) => {
+        // Away from the app, a clip that starts again was started by the phone (see `awayRef`).
+        if (awayRef.current && (state === 'playing' || state === 'buffering')) {
+          run([{ type: 'pause' }]);
+          return;
+        }
         const wasStopped = !gameRef.current.clipRunning;
         dispatch({ type: 'PLAYER_STATE', state });
         // The player's own play, outside a wait (a wait lets the music go by its own command), finds the volume where
@@ -303,7 +383,7 @@ export function GameScreen({
           fader.fadeIn(FADE_IN_MS);
         }
       }),
-    [adapter, dispatch, fader],
+    [adapter, dispatch, fader, run],
   );
 
   // "Jogar" starts the round from the top of the clip. A player an earlier round left with the volume down (the song
@@ -315,11 +395,12 @@ export function GameScreen({
   }, [run, fader]);
 
   // The player's raw clock goes to the game as TICK, except just after a seek, when it may still be the old
-  // position. Nothing on screen reads it directly: the screen follows the game's clock (`lastTickMs`).
+  // position, and while away from the app, when it only realigns the lyrics (see `awayRef`). Nothing on screen reads it
+  // directly: the screen follows the game's clock (`lastTickMs`).
   const readingMs = usePlayerTime(adapter, TICK_MS);
   useEffect(() => {
     if (performance.now() < ticksFromRef.current) return;
-    dispatch({ type: 'TICK', timeMs: readingMs });
+    dispatch(awayRef.current ? { type: 'RESYNC', timeMs: readingMs } : { type: 'TICK', timeMs: readingMs });
   }, [readingMs, dispatch]);
 
   // The song is over: its result goes to the song screen, once.
@@ -488,6 +569,7 @@ export function GameScreen({
         {/* DJ Bop's explanation stands in for the game area the same way. */}
         {help.ask && !settingsOpen && <HelpSheet target={help.ask.target} load={help.ask.load} onClose={help.close} />}
         <div hidden={settingsOpen || help.ask !== null} className="contents">
+          {backFromAway && <ContinueAfterAway onClick={continueAfterAway} />}
           {karaoke ? (
             <KaraokeView
               lines={lines}
@@ -507,7 +589,8 @@ export function GameScreen({
               corrected={corrected}
               translation={translations[lineIndex]}
               onTranslate={translateVerse}
-              onContinue={translatePaused ? () => send([{ type: 'play', fade: true }]) : undefined}
+              // Back from away, the game area's own "Continuar" stands for this one too.
+              onContinue={translatePaused && !backFromAway ? () => send([{ type: 'play', fade: true }]) : undefined}
               onExplain={help.open}
             />
           )}

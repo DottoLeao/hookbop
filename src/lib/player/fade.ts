@@ -17,9 +17,9 @@ export function supportsVolume(nav: { userAgent: string; maxTouchPoints: number 
 /**
  * Brings the music down before a pause and back up when it resumes. It never pauses or plays by itself.
  *
- * The volume to come back to is kept by the first `fadeOut` of a sequence, and held until a `fadeIn` has brought the
- * music all the way back. So a `fadeOut` that begins in the middle of a fade, or after one that left the music low,
- * does not take that lower volume as the one to restore.
+ * The volume to come back to is kept by the first `fadeOut` (or `silence`) of a sequence, and held until a `fadeIn`
+ * has brought the music all the way back. So a `fadeOut` that begins in the middle of a fade, or after one that left
+ * the music low, does not take that lower volume as the one to restore.
  */
 export interface Fader {
   /**
@@ -29,15 +29,21 @@ export interface Fader {
    */
   fadeOut(ms: number, onDone: () => void): void;
   /**
-   * Raises the volume from where it is to the kept volume, over `ms`. With no kept volume (no `fadeOut` of this fader is
-   * undone yet) it raises to 100 only a player that is silent, which a fade left that way; a player with any volume
-   * keeps it, since it may be one the listener lowered, and the app never raises that.
+   * Raises the volume from where it is to the kept volume, over `ms`. With no kept volume (no `fadeOut` or `silence`
+   * of this fader is undone yet) it raises to 100 only a player that is silent, which a fade left that way; a player
+   * with any volume keeps it, since it may be one the listener lowered, and the app never raises that.
    * On every platform it first cancels a `fadeOut` that is still pending, and that `onDone` is never called.
    * Without volume control there is no volume to raise, so that is all it does.
    */
   fadeIn(ms: number): void;
   /** Stops whatever is running, at the volume it reached. It does not call `onDone`. */
   cancel(): void;
+  /**
+   * For a pause that must keep the music silent until a `fadeIn` brings it back (leaving the app): stops whatever is
+   * running, like `cancel`, keeps the volume to come back to as `fadeOut` does, and sets 0 at once, with no ramp. A
+   * player that is already silent gets no call. Without volume control it only stops what is running.
+   */
+  silence(): void;
   /**
    * For when the fader's owner goes away: stops whatever is running, like `cancel`, and if a volume is kept (a fade left
    * the music below it) sets it at once, with no ramp, and forgets it. With none kept it sets nothing. No timer is left.
@@ -185,6 +191,15 @@ export function createFader(adapter: PlayerAdapter, opts: FaderOptions): Fader {
     },
 
     cancel,
+
+    silence() {
+      cancel();
+      if (!opts.volume) return;
+      const from = currentVolume();
+      restoreTo ??= from; // kept only once, see the `Fader` docs
+      level = 0;
+      if (from !== 0) adapter.setVolume(0);
+    },
 
     restore,
 

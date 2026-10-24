@@ -394,15 +394,16 @@ describe('GameScreen: the page in the background (ruling R84)', () => {
     const before = fake.calls.length;
 
     setVisibility('hidden');
-    expect(fake.calls.slice(before)).toEqual(['pause']);
+    expect(fake.calls.slice(before)[0]).toBe('pause');
 
     setVisibility('visible');
     act(() => vi.advanceTimersByTime(5000));
-    expect(fake.calls.slice(before)).toEqual(['pause']);
+    expect(fake.calls.slice(before)).not.toContain('play');
+    expect(fake.getPlayerState()).toBe('paused');
     expect(fake.getCurrentTimeMs()).toBe(2000);
   });
 
-  it('pauses the clip when the page is left or put away (pagehide)', () => {
+  it('pauses the clip when the page is left or put away (pagehide), and leaves the music silent', () => {
     renderGame({ blanks: [FERRY] });
     playTo(2000);
     const before = fake.calls.length;
@@ -411,22 +412,365 @@ describe('GameScreen: the page in the background (ruling R84)', () => {
       window.dispatchEvent(new Event('pagehide'));
     });
 
-    expect(fake.calls.slice(before)).toEqual(['pause']);
+    expect(fake.calls.slice(before)).toEqual(['pause', 'volume:0']);
   });
 
-  it('plays on only when the player presses play, and the game goes on from there', () => {
+  it('plays on from "Continuar" (spec section 6), and the game goes on from there', () => {
     const onEnd = renderGame({ blanks: [FERRY] });
     playTo(2000);
     setVisibility('hidden');
     setVisibility('visible');
 
-    // The player's own play button.
-    act(() => fake.emitState('playing'));
+    fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
     playTo(11850);
+    finishFadeOut();
 
     expect(fake.calls.at(-1)).toBe('pause');
     expect(screen.getByTestId('line-current')).toHaveTextContent('Then every lacuna horn sings across the bay');
     expect(onEnd).not.toHaveBeenCalled();
+  });
+});
+
+/** "Continuar", the way back to the music after the page was away, when it is there. */
+function resumeButton() {
+  return screen.queryByRole('button', { name: 'Continuar' });
+}
+
+/**
+ * What the owner saw on Android (spec section 6): the clip, paused as the page went away, plays again by itself, and
+ * its report reaches the game late, once it has already played on for `playedMs`.
+ */
+function resumeOnItsOwn(playedMs = 1000) {
+  act(() => {
+    fake.setStateUnreported('playing');
+    fake.advance(playedMs);
+    fake.emitState('playing');
+  });
+}
+
+/** A player whose pause stops the clip, but whose report of it never reaches the game. */
+class UnreportedPausePlayer extends FakePlayerAdapter {
+  override pause(): void {
+    this.calls.push('pause');
+    this.setStateUnreported('paused');
+  }
+}
+
+/** The clip and the game's clock go on together, a second at a time. */
+function runFor(ms: number) {
+  for (let left = ms; left > 0; left -= 1000) {
+    act(() => {
+      fake.advance(Math.min(1000, left));
+      vi.advanceTimersByTime(Math.min(1000, left));
+    });
+  }
+}
+
+describe('GameScreen: coming back to the app (spec section 6)', () => {
+  afterEach(() => {
+    setVisibility('visible');
+  });
+
+  describe('the owner’s report: away for a second, and the clip plays again by itself', () => {
+    it('in the middle of a line: the lyrics follow the clip, and the blank of the line that went by is not skipped', () => {
+      const onEnd = renderGame({ blanks: [LET] });
+      playTo(3500);
+
+      setVisibility('hidden');
+      resumeOnItsOwn(1000);
+      setVisibility('visible');
+      act(() => vi.advanceTimersByTime(300));
+
+      // The clip is in the second line, and so are the lyrics.
+      expect(fake.getCurrentTimeMs()).toBe(4500);
+      expect(screen.getByTestId('line-current')).toHaveTextContent('She gave each kite a name');
+
+      // "let" went by while the app was away, so it is still owed: the end of the clip waits for it.
+      fireEvent.click(resumeButton()!);
+      playTo(DURATION_MS);
+      expect(onEnd).not.toHaveBeenCalled();
+      expect(screen.getByTestId('line-current')).toHaveTextContent("Grandpa won't lacuna geese drive");
+      expect(option('let')).toBeInTheDocument();
+    });
+
+    it('in the fade of a wait: the clip stays stopped, and the blank is still the one waited for', () => {
+      renderGame({ blanks: [LET] });
+      playTo(3850);
+      runFor(500);
+
+      setVisibility('hidden');
+      resumeOnItsOwn(1000);
+      setVisibility('visible');
+      runFor(3000);
+
+      expect(fake.getPlayerState()).toBe('paused');
+      expect(screen.getByTestId('line-current')).toHaveTextContent("Grandpa won't lacuna geese drive");
+      expect(option('let')).toBeInTheDocument();
+    });
+
+    it('in the fade of a wait, with a pause whose report never comes: no music plays under lyrics that stand still', () => {
+      fake = new UnreportedPausePlayer(DURATION_MS);
+      renderGame({ blanks: [LET] });
+      playTo(3850);
+      runFor(500);
+
+      setVisibility('hidden');
+      resumeOnItsOwn(1000);
+      setVisibility('visible');
+      runFor(5000);
+
+      // The game still waits for "let", and the clip does not play on under it.
+      expect(screen.getByTestId('line-current')).toHaveTextContent("Grandpa won't lacuna geese drive");
+      expect(fake.getPlayerState()).toBe('paused');
+      expect(fake.getCurrentTimeMs()).toBe(5350);
+    });
+  });
+
+  describe('on the way back', () => {
+    it('leaves the music silent as the page goes away, so a clip the phone plays again is not heard', () => {
+      renderGame({ blanks: [FERRY] });
+      playTo(2000);
+      const before = fake.calls.length;
+
+      setVisibility('hidden');
+
+      expect(fake.calls.slice(before)).toEqual(['pause', 'volume:0']);
+    });
+
+    it('pauses at once, with no fade, a clip the phone is playing again when the page comes back', () => {
+      renderGame({ blanks: [FERRY] });
+      playTo(2000);
+      setVisibility('hidden');
+      // The phone plays the clip again as the page comes back, and its report is not in yet.
+      act(() => fake.setStateUnreported('playing'));
+      const before = fake.calls.length;
+
+      setVisibility('visible');
+
+      expect(fake.calls.slice(before)).toEqual(['pause']);
+      expect(fake.getPlayerState()).toBe('paused');
+    });
+
+    it('sends that pause even when the player says it is paused: its word can lag behind a play the phone started', () => {
+      renderGame({ blanks: [FERRY] });
+      playTo(2000);
+      setVisibility('hidden');
+      act(() => fake.setStateUnreported('playing'));
+      vi.spyOn(fake, 'getPlayerState').mockReturnValue('paused');
+      const before = fake.calls.length;
+
+      setVisibility('visible');
+
+      expect(fake.calls.slice(before)).toEqual(['pause']);
+    });
+
+    it('stops a clip that starts again while the page is away or "Continuar" is up, and the game never hears of it', () => {
+      const onEnd = renderGame({ blanks: [LET] });
+      playTo(3000);
+      setVisibility('hidden');
+
+      act(() => fake.emitState('playing'));
+      expect(fake.getPlayerState()).toBe('paused');
+
+      setVisibility('visible');
+      act(() => fake.emitState('buffering'));
+      expect(fake.getPlayerState()).toBe('paused');
+      act(() => fake.emitState('playing'));
+      expect(fake.getPlayerState()).toBe('paused');
+
+      // Still no wait, no skip: "let" is waited for at the end of its line once the music is back.
+      expect(resumeButton()).toBeVisible();
+      fireEvent.click(resumeButton()!);
+      playTo(3850);
+      finishFadeOut();
+      expect(fake.calls.at(-1)).toBe('pause');
+      expect(option('let')).toBeInTheDocument();
+      expect(onEnd).not.toHaveBeenCalled();
+    });
+
+    it('while away, lets the clock move the lyrics but never start a wait, even when the game missed the pause report', () => {
+      fake = new UnreportedPausePlayer(DURATION_MS);
+      renderGame({ blanks: [LET] });
+      playTo(3500);
+      setVisibility('hidden');
+
+      // The phone plays the clip again, its report not in yet, and the page reads the clock past the end of the line.
+      act(() => {
+        fake.setStateUnreported('playing');
+        fake.advance(1000);
+        vi.advanceTimersByTime(100);
+      });
+      setVisibility('visible');
+
+      expect(screen.getByTestId('line-current')).toHaveTextContent('She gave each kite a name');
+      expect(screen.queryByRole('group', { name: 'Escolha a palavra que falta' })).not.toBeInTheDocument();
+      expect(fake.getPlayerState()).toBe('paused');
+    });
+
+    it('shows a big "Continuar" in the game area, under the player and not over it, with the focus on it', () => {
+      renderGame({ blanks: [FERRY] });
+      playTo(2000);
+      expect(resumeButton()).not.toBeInTheDocument();
+
+      setVisibility('hidden');
+      setVisibility('visible');
+
+      const button = resumeButton()!;
+      expect(button).toBeVisible();
+      expect(button).toHaveClass('min-h-12', 'w-full', 'bg-lime', 'text-bg');
+      expect(button).toHaveFocus();
+      expect(button.closest('section')).not.toBeNull();
+      expect(inOrder(button, screen.getByTestId('line-current'))).toBe(true);
+    });
+
+    it('reads where the clip is as the page comes back: a jump of seconds moves the lyrics and skips no blank', () => {
+      const onEnd = renderGame({ blanks: [LET] });
+      playTo(2000);
+
+      setVisibility('hidden');
+      // Far enough to read as a seek, which skips the blanks it jumps over.
+      resumeOnItsOwn(3000);
+      setVisibility('visible');
+
+      // Right away, before the next reading of the clock.
+      expect(screen.getByTestId('line-current')).toHaveTextContent('She gave each kite a name');
+      expect(parseFloat(screen.getByTestId('progress').style.width)).toBeCloseTo((5000 / DURATION_MS) * 100, 5);
+
+      fireEvent.click(resumeButton()!);
+      playTo(DURATION_MS);
+      expect(onEnd).not.toHaveBeenCalled();
+      expect(option('let')).toBeInTheDocument();
+    });
+
+    it('"Continuar" plays the clip from where it is, the music rising from silence, and goes away', () => {
+      renderGame({ blanks: [FERRY] });
+      playTo(2000);
+      setVisibility('hidden');
+      setVisibility('visible');
+      const before = fake.calls.length;
+
+      fireEvent.click(resumeButton()!);
+      finishFadeIn();
+
+      expect(fake.calls.slice(before)).toEqual(['play', ...FADE_IN_STEPS]);
+      expect(fake.getVolume()).toBe(100);
+      expect(resumeButton()).not.toBeInTheDocument();
+
+      playTo(5000);
+      expect(screen.getByTestId('line-current')).toHaveTextContent('She gave each kite a name');
+    });
+
+    it('"Continuar" brings back the volume the player had, not a louder one', () => {
+      fake.setVolume(40);
+      renderGame({ blanks: [FERRY] });
+      playTo(2000);
+      setVisibility('hidden');
+      setVisibility('visible');
+
+      fireEvent.click(resumeButton()!);
+      finishFadeIn();
+
+      expect(fake.getVolume()).toBe(40);
+    });
+
+    it('"Continuar" puts the lyrics where the clip is first, wherever the player left it while paused', () => {
+      renderGame({ blanks: [FERRY] });
+      playTo(2000);
+      setVisibility('hidden');
+      setVisibility('visible');
+      // The player drags the paused clip along YouTube's own bar.
+      act(() => fake.seekTo(6000));
+
+      fireEvent.click(resumeButton()!);
+
+      expect(screen.getByTestId('line-current')).toHaveTextContent('She gave each kite a name');
+    });
+
+    it('during a wait, "Continuar" only goes away: the answer is what lets the music go', () => {
+      renderGame({ blanks: [LET] });
+      playTo(3850);
+      finishFadeOut();
+      setVisibility('hidden');
+      setVisibility('visible');
+      const before = fake.calls.length;
+
+      fireEvent.click(resumeButton()!);
+
+      expect(resumeButton()).not.toBeInTheDocument();
+      expect(fake.calls.slice(before)).toEqual([]);
+      expect(option('let')).toBeInTheDocument();
+
+      fireEvent.click(option('let'));
+      finishFadeIn();
+      expect(fake.calls.slice(before)).toEqual(['play', ...FADE_IN_STEPS]);
+    });
+
+    it('tells the game the clip is stopped, so a pause report that never came cannot hold a wait while music plays', () => {
+      fake = new UnreportedPausePlayer(DURATION_MS);
+      const onEnd = renderGame({ blanks: [LET] });
+      playTo(3850);
+      runFor(500);
+      setVisibility('hidden');
+      setVisibility('visible');
+      fireEvent.click(resumeButton()!);
+
+      // The player's own play button, later on: the game reads it as the player moving on, and the lyrics follow.
+      act(() => fake.emitState('playing'));
+      finishFadeIn();
+      playTo(9000);
+
+      expect(screen.getByTestId('line-current')).toHaveTextContent('Then every ferry horn sings across the bay');
+      expect(fake.getVolume()).toBe(100);
+      expect(onEnd).not.toHaveBeenCalled();
+    });
+
+    it('on a device that ignores the volume, "Continuar" plays the clip in its own tap, with no volume call', () => {
+      device.canSetVolume = false;
+      renderGame({ blanks: [FERRY] });
+      playTo(2000);
+      setVisibility('hidden');
+      setVisibility('visible');
+      const before = fake.calls.length;
+
+      fireEvent.click(resumeButton()!);
+
+      expect(fake.calls.slice(before)).toEqual(['play']);
+      expect(volumesIn(fake.calls)).toEqual([]);
+    });
+
+    it('after "Traduzir verso", shows one "Continuar" only, and it brings the music back', async () => {
+      renderGame({ blanks: [FERRY], requestHelp: helpService() });
+      playTo(1000);
+      fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
+      await settleHelp();
+      finishFadeOut();
+
+      setVisibility('hidden');
+      setVisibility('visible');
+      expect(screen.getAllByRole('button', { name: 'Continuar' })).toHaveLength(1);
+      const before = fake.calls.length;
+
+      fireEvent.click(resumeButton()!);
+      finishFadeIn();
+
+      expect(fake.calls.slice(before)).toEqual(['play', ...FADE_IN_STEPS]);
+      expect(resumeButton()).not.toBeInTheDocument();
+    });
+
+    it('goes away when the game itself plays the music again (Repetir verso), and that play is not stopped', () => {
+      renderGame({ blanks: [FERRY] });
+      playTo(5000);
+      setVisibility('hidden');
+      setVisibility('visible');
+      const before = fake.calls.length;
+
+      fireEvent.click(screen.getByRole('button', { name: 'Repetir verso' }));
+      finishFadeIn();
+
+      expect(fake.calls.slice(before)).toEqual(['seek:4000', 'play', ...FADE_IN_STEPS]);
+      expect(fake.getPlayerState()).toBe('playing');
+      expect(resumeButton()).not.toBeInTheDocument();
+    });
   });
 });
 
@@ -685,17 +1029,17 @@ describe('GameScreen: smooth fades (spec sections 1 and 2)', () => {
       setVisibility('visible');
     });
 
-    it('pauses at once with no volume step, and a fade in progress never comes back', () => {
+    it('pauses at once with no volume ramp, the music left silent, and a fade in progress never comes back', () => {
       renderGame();
       playTo(3850);
       act(() => vi.advanceTimersByTime(500));
       const before = fake.calls.length;
 
       setVisibility('hidden');
-      expect(fake.calls.slice(before)).toEqual(['pause']);
+      expect(fake.calls.slice(before)).toEqual(['pause', 'volume:0']);
 
       finishFadeOut();
-      expect(fake.calls.slice(before)).toEqual(['pause']);
+      expect(fake.calls.slice(before)).toEqual(['pause', 'volume:0']);
     });
   });
 
@@ -2820,8 +3164,27 @@ describe('GameScreen: Karaokê', () => {
     setVisibility('visible');
     act(() => vi.advanceTimersByTime(5000));
 
-    expect(fake.calls.slice(before)).toEqual(['pause']);
+    expect(fake.calls.slice(before)).not.toContain('play');
+    expect(fake.getPlayerState()).toBe('paused');
     expect(fake.getCurrentTimeMs()).toBe(6000);
+  });
+
+  it('after the page was away, follows the clip at once and plays again only from "Continuar" (spec section 6)', () => {
+    renderKaraoke();
+    playTo(6000);
+    setVisibility('hidden');
+    resumeOnItsOwn(3000);
+    setVisibility('visible');
+
+    expect(currentRow()).toHaveTextContent('Hold the line till the morning comes');
+    expect(fake.getPlayerState()).toBe('paused');
+    const before = fake.calls.length;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
+    finishFadeIn();
+
+    expect(fake.calls.slice(before)).toEqual(['play', ...FADE_IN_STEPS]);
+    expect(fake.getCurrentTimeMs()).toBe(9000);
   });
 
   it('shows "Livre" in the header in place of the combo, and no combo or points anywhere', () => {

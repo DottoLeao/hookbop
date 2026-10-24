@@ -93,6 +93,14 @@ export class FakePlayerAdapter implements PlayerAdapter {
     for (const cb of [...this.stateListeners]) cb(s);
   }
 
+  /**
+   * Test helper: the player changes state but tells no listener, as when YouTube's report comes late or never (a phone
+   * that pauses or plays the video by itself while the page is away). `advance` and `getPlayerState` follow it.
+   */
+  setStateUnreported(s: PlayerState): void {
+    this.state = s;
+  }
+
   /** Test helper: reports an error as YouTube would. */
   emitError(e: PlayerError): void {
     for (const cb of [...this.errorListeners]) cb(e);
