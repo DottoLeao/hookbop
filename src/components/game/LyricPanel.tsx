@@ -3,11 +3,13 @@
 import { Fragment, useEffect, useRef, type MouseEvent } from 'react';
 import { t } from '@/i18n/t';
 import type { BlankStatus } from '@/lib/game/reducer';
+import { useReducedMotion } from '@/lib/motion/useReducedMotion';
 import type { Blank, LyricLine } from '@/lib/types';
 import { CorrectedWord } from './CorrectedWord';
 import { pieces, tappable } from './lineWords';
 import { ResultIcon } from './ResultIcon';
 import { focusRing } from './styles';
+import { useLineTransition } from './useLineTransition';
 
 interface LyricPanelProps {
   lines: LyricLine[];
@@ -235,6 +237,8 @@ function Pill({ onClick, children }: { onClick: (event: MouseEvent<HTMLButtonEle
  * play the answer area holds it (ruling R59): the panel then draws neither that line nor the line after it, only the
  * line before, "Traduzir verso" and the translation, so nothing here changes size when the line is solved. A puzzle
  * line never gets "Não entendi": that pill would explain the hidden line, and the area has "Não entendi a ordem".
+ *
+ * When the song moves on to the next line, the lyrics slide up to it (`useLineTransition`); the buttons do not move.
  */
 export function LyricPanel({
   lines,
@@ -248,6 +252,9 @@ export function LyricPanel({
   onContinue,
   onExplain,
 }: LyricPanelProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const reducedMotion = useReducedMotion();
+  useLineTransition(panelRef, current, reducedMotion);
   const line = lines[current];
   if (!line) return null;
   const previous = lines[current - 1];
@@ -271,14 +278,14 @@ export function LyricPanel({
   const explain = (target: string, opener: HTMLElement) => onExplain(target, current, opener);
 
   return (
-    <div className="flex flex-col gap-2.5">
+    <div ref={panelRef} className="flex flex-col gap-2.5">
       {previous && (
-        <p data-testid="line-previous" className="text-lyric text-muted">
+        <p data-line="previous" data-testid="line-previous" className="text-lyric text-muted">
           <LineText text={previous.text} blanks={blanksOf(current - 1)} status={status} />
         </p>
       )}
       {!inArea && (
-        <p data-testid="line-current" className="font-heading text-verse leading-snug font-bold">
+        <p data-line="current" data-testid="line-current" className="font-heading text-verse leading-snug font-bold">
           <LineText
             text={line.text}
             blanks={own}
@@ -310,7 +317,7 @@ export function LyricPanel({
         </div>
       )}
       {next && !inArea && (
-        <p data-testid="line-next" className="text-lyric text-muted">
+        <p data-line="next" data-testid="line-next" className="text-lyric text-muted">
           <LineText text={next.text} blanks={blanksOf(current + 1)} status={status} />
         </p>
       )}

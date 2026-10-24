@@ -1,8 +1,12 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import gsap from 'gsap';
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LyricLine } from '@/lib/types';
 import { KaraokeView } from './KaraokeView';
+
+// jsdom has no animation, so GSAP is only watched: what the view asks it to animate, and how.
+vi.mock('gsap');
 
 // Invented lines, not lyrics. Six lines of four seconds each, the first one starting after a 2 s intro.
 const LINES: LyricLine[] = [
@@ -78,7 +82,11 @@ beforeEach(() => {
   });
   vi.stubGlobal(
     'matchMedia',
-    vi.fn((query: string) => ({ matches: reducedMotion && query === '(prefers-reduced-motion: reduce)' })),
+    vi.fn((query: string) => ({
+      matches: reducedMotion && query === '(prefers-reduced-motion: reduce)',
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
   );
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
 });
@@ -523,19 +531,19 @@ describe('KaraokeView: the keyboard on a word when the song moves on', () => {
   });
 });
 
-describe('KaraokeView: following the song', () => {
-  /** The list is 300 px tall and starts at y 100 of the page, scrolled by 50. The current line is 60 px tall, at y 400. */
-  function layOut() {
-    const rect = (top: number, height: number) => ({ top, height, bottom: top + height }) as DOMRect;
-    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
-      if (this.getAttribute('aria-label') === 'Letra') return rect(100, 300);
-      if (this.getAttribute('aria-current') === 'true') return rect(400, 60);
-      return rect(0, 0);
-    });
-    vi.spyOn(Element.prototype, 'clientHeight', 'get').mockReturnValue(300);
-    vi.spyOn(Element.prototype, 'scrollTop', 'get').mockReturnValue(50);
-  }
+/** The list is 300 px tall and starts at y 100 of the page, scrolled by 50. The current line is 60 px tall, at y 400. */
+function layOut() {
+  const rect = (top: number, height: number) => ({ top, height, bottom: top + height }) as DOMRect;
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+    if (this.getAttribute('aria-label') === 'Letra') return rect(100, 300);
+    if (this.getAttribute('aria-current') === 'true') return rect(400, 60);
+    return rect(0, 0);
+  });
+  vi.spyOn(Element.prototype, 'clientHeight', 'get').mockReturnValue(300);
+  vi.spyOn(Element.prototype, 'scrollTop', 'get').mockReturnValue(50);
+}
 
+describe('KaraokeView: following the song', () => {
   it('centers the current line in the list: the list scrolls and nothing else does', () => {
     layOut();
     renderKaraoke(15000);
@@ -681,5 +689,105 @@ describe('KaraokeView: following the song', () => {
     renderKaraoke(15000);
 
     expect(lineList()).toHaveAttribute('tabindex', '0');
+  });
+});
+
+describe('KaraokeView: the highlight of the current line', () => {
+  type Vars = Record<string, unknown>;
+
+  /** Every animation the view asked GSAP for, each with the elements it moves. */
+  function tweens() {
+    // fromTo(targets, fromVars, toVars), the one form the code uses (the types read the calls as its last overload).
+    const calls = vi.mocked(gsap.fromTo).mock.calls as unknown as [gsap.TweenTarget, Vars, Vars][];
+    return calls.map(([targets, from, to]) => ({ targets: [targets].flat() as Element[], from, to }));
+  }
+
+  function properties(tween: ReturnType<typeof tweens>[number]) {
+    return [...Object.keys(tween.from), ...Object.keys(tween.to)];
+  }
+
+  it('does not animate the line that is current when the view first shows', () => {
+    renderKaraoke(15000);
+
+    expect(gsap.fromTo).not.toHaveBeenCalled();
+  });
+
+  it('lights the new current line up when the song moves on, and leaves the sweep of the list as it was', () => {
+    layOut();
+    renderKaraoke(15000);
+    scrollTo.mockClear();
+
+    update({ timeMs: 18100 });
+
+    const [tween, ...others] = tweens();
+    expect(others).toEqual([]);
+    expect(tween.targets).toEqual([rows()[4]]);
+    expect(rows()[4]).toHaveAttribute('aria-current', 'true');
+    // It grows into place and brightens, without moving up or down: the list's own scroll does the rising.
+    expect(tween.from.scale).toBeLessThan(1);
+    expect(tween.from.opacity).toBeLessThan(1);
+    expect(tween.to).toEqual(expect.objectContaining({ scale: 1, opacity: 1 }));
+    expect(properties(tween)).not.toContain('y');
+    expect(Number(tween.to.delay ?? 0) + Number(tween.to.duration)).toBeLessThan(0.45);
+    // The scroll is the one the view already had: once, smooth, to the same place.
+    expect(scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 230, behavior: 'smooth' });
+    expect(scrollTo.mock.instances[0]).toBe(lineList());
+  });
+
+  it('lights up the first line too, when it starts after the intro', () => {
+    renderKaraoke(500);
+
+    update({ timeMs: 2500 });
+
+    expect(tweens().map((tween) => tween.targets)).toEqual([[rows()[0]]]);
+  });
+
+  it('only fades the highlight in, without scale, when the phone is set to reduce motion', () => {
+    reducedMotion = true;
+    renderKaraoke(15000);
+
+    update({ timeMs: 18100 });
+
+    const [tween, ...others] = tweens();
+    expect(others).toEqual([]);
+    expect(tween.targets).toEqual([rows()[4]]);
+    expect(properties(tween)).not.toContain('scale');
+    expect(properties(tween)).not.toContain('y');
+    expect(tween.from.opacity).toBeLessThan(1);
+    expect(tween.to.opacity).toBe(1);
+  });
+
+  it('only fades the highlight in for a seek, a jump forward or a rewind, as the list jumps there at once', () => {
+    renderKaraoke(15000);
+
+    update({ timeMs: 23000 });
+    update({ timeMs: 7000 });
+
+    expect(tweens().map((tween) => tween.targets)).toEqual([[rows()[5]], [rows()[1]]]);
+    for (const tween of tweens()) {
+      expect(properties(tween)).not.toContain('scale');
+      expect(properties(tween)).not.toContain('y');
+    }
+  });
+
+  it('does not animate while the same line goes on, nor when the translations come in or are hidden', async () => {
+    renderKaraoke(15000);
+    await settle();
+
+    update({ timeMs: 17000 });
+    update({ showTranslations: false });
+    update({ showTranslations: true });
+
+    expect(gsap.fromTo).not.toHaveBeenCalled();
+  });
+
+  it('keeps the focus moving to the first word of the new line, as it did', () => {
+    renderKaraoke(15000);
+    const first = within(rows()[3]).getAllByRole('button')[0];
+    first.focus();
+
+    update({ timeMs: 18100 });
+
+    expect(within(rows()[4]).getAllByRole('button')[0]).toHaveFocus();
   });
 });

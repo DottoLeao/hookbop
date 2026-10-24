@@ -3931,7 +3931,7 @@ describe('GameScreen: Karaokê', () => {
     Object.defineProperty(Element.prototype, 'scrollTo', { configurable: true, writable: true, value: scrollTo });
     vi.stubGlobal(
       'matchMedia',
-      vi.fn(() => ({ matches: false })),
+      vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
     );
   });
 

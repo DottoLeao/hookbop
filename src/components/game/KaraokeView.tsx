@@ -3,9 +3,11 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { t } from '@/i18n/t';
 import { lastStartedLineIndex } from '@/lib/lyrics/startedLine';
+import { useReducedMotion } from '@/lib/motion/useReducedMotion';
 import type { LyricLine } from '@/lib/types';
 import { pieces, tappableShape } from './lineWords';
 import { focusRing } from './styles';
+import { useLineHighlight } from './useLineTransition';
 
 interface KaraokeViewProps {
   lines: LyricLine[];
@@ -41,10 +43,6 @@ interface KaraokeViewProps {
  */
 const LIST_HEIGHT = 'max-h-[calc(100dvh-27rem)] min-h-48 flex-1';
 
-function prefersReducedMotion(): boolean {
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-}
-
 /**
  * Karaokê (design/canvas/Karaoke.dc.html in the Limão colors): all the lyrics in a list that follows the song, each
  * line with its Portuguese translation under it. The current line is lime, in Space Grotesk, and every word of it can
@@ -61,7 +59,9 @@ function prefersReducedMotion(): boolean {
  * `scrollTo` on the list. `scrollIntoView` would also scroll the page to center the line in the window, and push the
  * player off the screen. The list sweeps only when the song moves on to the next line; every other time it is put back
  * in place at once, including when the translation of the current or the next line comes in, as that changes the
- * heights around the line.
+ * heights around the line. When the song moves on, the new current line also lights up (`useLineHighlight`): it grows
+ * into place without moving, so the place the list scrolls to stays the same. With reduced motion the list jumps and
+ * the line only fades in.
  *
  * The words of the current line are the only buttons, so when the song moves on, the one that had the keyboard focus
  * goes away and the focus would fall to the page. The view then puts it on the first word of the new line, or on the
@@ -84,6 +84,8 @@ export function KaraokeView({
   const focusOnWord = useRef(false);
   // What the list was centered on the last time, to tell the song moving on from every other reason to center again.
   const centered = useRef<{ line: number; visible: boolean } | null>(null);
+  const reducedMotion = useReducedMotion();
+  useLineHighlight(listRef, current, reducedMotion);
 
   useEffect(() => {
     if (!showTranslations) return;
@@ -126,9 +128,9 @@ export function KaraokeView({
     const roomAround = list.clientHeight - line.getBoundingClientRect().height;
     list.scrollTo({
       top: list.scrollTop + aboveLine - roomAround / 2,
-      behavior: songMovedOn && !prefersReducedMotion() ? 'smooth' : 'auto',
+      behavior: songMovedOn && !reducedMotion ? 'smooth' : 'auto',
     });
-  }, [current, showTranslations, visible, currentTranslation, nextTranslation]);
+  }, [current, showTranslations, visible, currentTranslation, nextTranslation, reducedMotion]);
 
   return (
     <ol
