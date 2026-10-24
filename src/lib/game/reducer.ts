@@ -3,6 +3,7 @@ import type { AnswerRecord, AttemptKind, Blank, Command, LyricLine, Mode, PlaySu
 import { tokenize } from './blanks';
 import { createScore, recordAnswer, summarize, type ScoreState } from './scoring';
 import { isNextTileCorrect } from './tiles';
+import { FADE_OUT_MS } from './timing';
 
 /**
  * A wait starts this long before the end of a line that still has a blank with no answer. The music does not stop
@@ -14,11 +15,11 @@ export const PAUSE_LEAD_MS = 150;
 const SEEK_JUMP_MS = 1500;
 
 /**
- * The furthest back the music goes to replay a line the fade ran into: the fade lasts 2000 ms (the game screen sets it)
- * and the clock can be a tick or two late. A line further back than this was not heard in the fade, as when the stopped
- * clip was scrubbed far ahead during the wait, so the music plays on from where it is.
+ * The furthest back the music goes to replay a line the fade ran into: the fade lasts `FADE_OUT_MS` and the clock can be
+ * a tick or two late, so a second more covers it. A line further back than this was not heard in the fade, as when the
+ * stopped clip was scrubbed far ahead during the wait, so the music plays on from where it is.
  */
-const WAY_BACK_MAX_MS = 3000;
+const WAY_BACK_MAX_MS = FADE_OUT_MS + 1000;
 
 /**
  * `skipped`: the player went past the line without answering (a seek, or playing on from the player's own
@@ -142,6 +143,14 @@ export function summaryOf(s: GameState): PlaySummary {
 
 function lineOf(s: GameState, blank: Blank): LyricLine {
   return s.lines[blank.lineIndex];
+}
+
+/**
+ * The clip plays, as far as the game knows, with no wait holding it: what a pause of the game's own (the translation,
+ * DJ Bop's sheet) can stop. A clip that is stopped, or fading out for a wait, is not.
+ */
+export function clipPlays(s: GameState): boolean {
+  return s.phase === 'playing' && (s.playerState === 'playing' || s.playerState === 'buffering');
 }
 
 /** The blank a wait holds for, while the game waits. */

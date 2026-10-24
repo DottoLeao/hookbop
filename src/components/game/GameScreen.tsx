@@ -7,13 +7,23 @@ import { DjBop, type DjBopExpression } from '@/components/brand/DjBop';
 import { t } from '@/i18n/t';
 import { getEntitlements } from '@/lib/entitlements';
 import { tokenize } from '@/lib/game/blanks';
-import { awaitsAnswer, gameReducer, initGame, summaryOf, type GameEvent, type GameState } from '@/lib/game/reducer';
+import {
+  awaitsAnswer,
+  clipPlays,
+  gameReducer,
+  initGame,
+  summaryOf,
+  type GameEvent,
+  type GameState,
+} from '@/lib/game/reducer';
 import { playHit, playMiss } from '@/lib/game/sfx';
+import { FADE_IN_MS, FADE_OUT_MS } from '@/lib/game/timing';
 import { postHelp, useLineHelp, type HelpRequester } from '@/lib/help/useLineHelp';
 import { cleanTitle } from '@/lib/lyrics/cleanTitle';
 import type { VideoRecord } from '@/lib/lyrics/resolveSong';
 import { lastStartedLineIndex } from '@/lib/lyrics/startedLine';
 import type { PlayerAdapter } from '@/lib/player/adapter';
+import { createFader, supportsVolume } from '@/lib/player/fade';
 import { usePauseWhenHidden } from '@/lib/player/usePauseWhenHidden';
 import { usePlayerTime } from '@/lib/player/usePlayerTime';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from '@/lib/settings';
@@ -140,6 +150,11 @@ function LineIcon({ children }: { children: ReactNode }) {
  * open DJ Bop's explanation in place of the game area, and "Traduzir verso" puts the translation under the line. With
  * "Mostrar tradução sempre" on, the line in play is also translated as it comes into play, and Karaokê translates the
  * current and next lines. Answers are never checked with it.
+ *
+ * The music never stops short. A wait, DJ Bop's sheet and "Traduzir verso" (outside Karaokê, when no wait holds the
+ * clip) fade it out for `FADE_OUT_MS` and then pause the clip; it plays again with its volume rising over
+ * `FADE_IN_MS`. Where the device ignores the volume (an iPhone) the fade is only the wait. Leaving the app is the one
+ * pause with no fade. After "Traduzir verso", "Continuar" plays the music again, since no answer is due to do it.
  */
 export function GameScreen({
   adapter,
@@ -171,17 +186,36 @@ export function GameScreen({
   // Karaokê only. Shown at the start of every round, and not a setting: it is not saved.
   const [showTranslations, setShowTranslations] = useState(true);
   const gearRef = useRef<HTMLButtonElement>(null);
+  // "Traduzir verso" paused the clip (outside Karaokê, with no wait holding it), so the lyrics offer "Continuar".
+  const [translatePaused, setTranslatePaused] = useState(false);
   const lineHelp = useLineHelp({ youtubeId: video.youtubeId, lyricsRef: video.lyricsRef, lines, request: requestHelp });
+
+  // One fader for the player's volume. A fade still running when the screen goes away must not pause what comes next.
+  const fader = useMemo(() => createFader(adapter, { volume: supportsVolume(navigator) }), [adapter]);
+  useEffect(() => () => fader.cancel(), [fader]);
 
   const run = useCallback(
     (commands: readonly Command[]) => {
       for (const command of commands) {
         switch (command.type) {
           case 'pause':
-            adapter.pause();
+            if (command.fade) {
+              fader.fadeOut(FADE_OUT_MS, () => adapter.pause());
+            } else {
+              // Leaving the app: the clip stops at once, and a fade in progress must not go on.
+              fader.cancel();
+              adapter.pause();
+            }
             break;
           case 'play':
-            adapter.play();
+            if (command.fade) {
+              // A fade-out that has not ended has not paused the clip yet: it still plays, and only its volume rises.
+              if (fader.fading() === 'out') fader.cancel();
+              else adapter.play();
+              fader.fadeIn(FADE_IN_MS);
+            } else {
+              adapter.play();
+            }
             break;
           case 'seek':
             ticksFromRef.current = performance.now() + SEEK_SETTLE_MS;
@@ -193,7 +227,19 @@ export function GameScreen({
         }
       }
     },
-    [adapter],
+    [adapter, fader],
+  );
+
+  /**
+   * `run`, for what can let the music go: a play with a fade ends the pause "Continuar" stands for, whoever asked for it
+   * (an answer, "Repetir verso", the player's own play during a wait, DJ Bop's sheet closing, "Continuar" itself).
+   */
+  const send = useCallback(
+    (commands: readonly Command[]) => {
+      run(commands);
+      if (commands.some((command) => command.type === 'play' && command.fade)) setTranslatePaused(false);
+    },
+    [run],
   );
 
   // The clip never plays in the background (spec §4, ruling R84): hiding the page pauses it through the same command
@@ -208,10 +254,12 @@ export function GameScreen({
       const next = gameReducer(gameRef.current, event);
       gameRef.current = next;
       setGame(next);
-      run(next.commands);
+      send(next.commands);
+      // A wait holds the clip now, and answering is what lets the music go: no "Continuar".
+      if (next.phase !== 'playing') setTranslatePaused(false);
       return next;
     },
-    [run],
+    [send],
   );
 
   /**
@@ -238,7 +286,21 @@ export function GameScreen({
     if (mode === 'digitacao') preloadDigitacaoArea();
   }, [mode]);
 
-  useEffect(() => adapter.onState((state) => dispatch({ type: 'PLAYER_STATE', state })), [adapter, dispatch]);
+  useEffect(
+    () =>
+      adapter.onState((state) => {
+        const wasStopped = !gameRef.current.clipRunning;
+        dispatch({ type: 'PLAYER_STATE', state });
+        // The player's own play, outside a wait (a wait lets the music go by its own command), finds the volume where
+        // a pause of the game's own left it, and the pause "Continuar" stands for is over. A fade of the game's own
+        // that is already on its way up needs nothing more.
+        if (state === 'playing' && wasStopped && gameRef.current.phase === 'playing' && fader.fading() === null) {
+          setTranslatePaused(false);
+          fader.fadeIn(FADE_IN_MS);
+        }
+      }),
+    [adapter, dispatch, fader],
+  );
 
   // "Jogar" starts the round from the top of the clip.
   useEffect(() => {
@@ -281,11 +343,23 @@ export function GameScreen({
 
   // DJ Bop's explanation, in place of the game area, and the translations of the lyric panel. With "Mostrar tradução
   // sempre" on, the line in play is translated as it comes into play; Karaokê's view asks for its own.
-  const help = useHelpSheet({ explain: lineHelp.explain, gameRef, run });
+  const help = useHelpSheet({ explain: lineHelp.explain, gameRef, run: send });
   const { translations, translateLine } = useLineTranslations(
     lineHelp.translate,
     !karaoke && settings.alwaysShowTranslation ? lineIndex : null,
   );
+
+  /**
+   * "Traduzir verso": the translation comes whatever the clip does. Outside a wait, a clip that plays is paused with a
+   * fade, for the player to read, and "Continuar" plays it again. During a wait the clip is already stopping, and
+   * answering lets the music go; a clip the player stopped is left alone.
+   */
+  function translateVerse(index: number) {
+    translateLine(index);
+    if (translatePaused || !clipPlays(gameRef.current)) return;
+    run([{ type: 'pause', fade: true }]);
+    setTranslatePaused(true);
+  }
 
   function showReaction(expression: DjBopExpression) {
     setDj(expression);
@@ -425,7 +499,8 @@ export function GameScreen({
               inPlayId={blank?.id}
               corrected={corrected}
               translation={translations[lineIndex]}
-              onTranslate={translateLine}
+              onTranslate={translateVerse}
+              onContinue={translatePaused ? () => send([{ type: 'play', fade: true }]) : undefined}
               onExplain={help.open}
             />
           )}

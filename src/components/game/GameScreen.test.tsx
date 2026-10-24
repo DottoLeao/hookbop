@@ -5,10 +5,12 @@ import { makeDistractors } from '@/lib/game/distractors';
 import { seededRng, shuffled } from '@/lib/game/rng';
 import { playHit, playMiss } from '@/lib/game/sfx';
 import { makeTiles, tileSeed } from '@/lib/game/tiles';
+import { FADE_IN_MS, FADE_OUT_MS } from '@/lib/game/timing';
 import { HelpError } from '@/lib/help/helpError';
 import type { HelpRequest } from '@/lib/help/helpService';
 import type { HelpRequester } from '@/lib/help/useLineHelp';
 import type { VideoRecord } from '@/lib/lyrics/resolveSong';
+import { supportsVolume } from '@/lib/player/fade';
 import { FakePlayerAdapter } from '@/lib/player/fakeAdapter';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from '@/lib/settings';
 import type { Blank, LyricLine } from '@/lib/types';
@@ -20,6 +22,14 @@ import { ToolsBar } from './ToolsBar';
 // tests can see when they are used; the wireframe's "late" and "lead" stand in for the distractors.
 vi.mock('@/lib/game/sfx', () => ({ playHit: vi.fn(), playMiss: vi.fn() }));
 vi.mock('@/lib/game/distractors', () => ({ makeDistractors: vi.fn(() => ['late', 'lead']) }));
+
+// Whether the device lets the page set the volume. Real browsers say it from their user agent; a test says it here, so
+// it can be an iPhone, which does not.
+const device = vi.hoisted(() => ({ canSetVolume: true }));
+vi.mock('@/lib/player/fade', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/player/fade')>()),
+  supportsVolume: vi.fn(() => device.canSetVolume),
+}));
 
 const ID = 'dQw4w9WgXcQ';
 const DURATION_MS = 60000;
@@ -242,6 +252,33 @@ function count(call: string) {
   return fake.calls.filter((c) => c === call).length;
 }
 
+/** The fader's default time between two volume steps. */
+const FADE_STEP_MS = 50;
+
+/** What the fake player logs when the volume goes from `from` to `to` over `ms`, one step every `FADE_STEP_MS`. */
+function volumeSteps(from: number, to: number, ms: number) {
+  const steps = ms / FADE_STEP_MS;
+  return Array.from({ length: steps }, (_, i) => `volume:${Math.round(from + ((to - from) * (i + 1)) / steps)}`);
+}
+
+/** The whole fade of the music out, and the one back in. */
+const FADE_OUT_STEPS = volumeSteps(100, 0, FADE_OUT_MS);
+const FADE_IN_STEPS = volumeSteps(0, 100, FADE_IN_MS);
+
+/** The volumes the fake player was set to in these calls, in order. */
+function volumesIn(calls: readonly string[]) {
+  return calls.filter((c) => c.startsWith('volume:')).map((c) => Number(c.slice('volume:'.length)));
+}
+
+/** Time for the music to fade all the way out (and the clip to pause), or all the way back in. */
+function finishFadeOut() {
+  act(() => vi.advanceTimersByTime(FADE_OUT_MS));
+}
+
+function finishFadeIn() {
+  act(() => vi.advanceTimersByTime(FADE_IN_MS));
+}
+
 function dj() {
   return screen.getByRole('img', { name: 'DJ Bop' });
 }
@@ -264,6 +301,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
   localStorage.clear();
+  device.canSetVolume = true;
   fake = new FakePlayerAdapter(DURATION_MS);
 });
 
@@ -307,10 +345,13 @@ describe('GameScreen: the player', () => {
     renderGame();
 
     playTo(3850);
+    finishFadeOut();
     expect(fake.calls.at(-1)).toBe('pause');
+    const before = fake.calls.length;
 
     fireEvent.click(option('let'));
-    expect(fake.calls.at(-1)).toBe('play');
+    finishFadeIn();
+    expect(fake.calls.slice(before)).toEqual(['play', ...FADE_IN_STEPS]);
   });
 
   it('0.75x slows the clip down, and a second tap puts it back to normal speed', () => {
@@ -392,6 +433,354 @@ describe('GameScreen: the page in the background (ruling R84)', () => {
   });
 });
 
+describe('GameScreen: smooth fades (spec sections 1 and 2)', () => {
+  describe('at a blank', () => {
+    it('lowers the volume step by step for 2 s, and only then pauses the clip', () => {
+      renderGame();
+      playTo(3000);
+      const before = fake.calls.length;
+
+      playTo(3850);
+      // The wait has begun and the answer is open, but the music is still on.
+      expect(option('let')).toBeInTheDocument();
+      expect(count('pause')).toBe(0);
+
+      finishFadeOut();
+      expect(fake.calls.slice(before)).toEqual([...FADE_OUT_STEPS, 'pause']);
+      expect(fake.getVolume()).toBe(0);
+    });
+
+    it('plays the clip again with a rising volume once the answer is right', () => {
+      renderGame();
+      playTo(3850);
+      finishFadeOut();
+      const before = fake.calls.length;
+
+      fireEvent.click(option('let'));
+      finishFadeIn();
+
+      expect(fake.calls.slice(before)).toEqual(['play', ...FADE_IN_STEPS]);
+      expect(fake.getVolume()).toBe(100);
+    });
+
+    it('turns the fade around when the answer comes before the pause: no pause, no play, up from where it was', () => {
+      renderGame();
+      playTo(3850);
+      act(() => vi.advanceTimersByTime(1000));
+      const level = fake.getVolume();
+      expect(level).toBeGreaterThan(0);
+      expect(level).toBeLessThan(100);
+      const before = fake.calls.length;
+
+      fireEvent.click(option('let'));
+      finishFadeIn();
+      // The pause that was coming never does.
+      finishFadeOut();
+
+      const after = fake.calls.slice(before);
+      expect(after).not.toContain('pause');
+      expect(after).not.toContain('play');
+      const rising = volumesIn(after);
+      expect(rising.length).toBeGreaterThan(1);
+      expect(rising.every((volume, i) => volume > (rising[i - 1] ?? level))).toBe(true);
+      expect(rising.at(-1)).toBe(100);
+    });
+
+    it('plays a line again from its start after a miss, with the volume rising', () => {
+      renderGame();
+      playTo(3850);
+      finishFadeOut();
+      const before = fake.calls.length;
+
+      fireEvent.click(option('late'));
+      finishFadeIn();
+
+      expect(fake.calls.slice(before)).toEqual(['seek:0', 'play', ...FADE_IN_STEPS]);
+    });
+
+    it('on a device that ignores the volume, the music goes on for 2 s and pauses, with no volume step', () => {
+      device.canSetVolume = false;
+      renderGame();
+      playTo(3850);
+
+      act(() => vi.advanceTimersByTime(FADE_OUT_MS - 100));
+      expect(count('pause')).toBe(0);
+      act(() => vi.advanceTimersByTime(100));
+      expect(count('pause')).toBe(1);
+
+      fireEvent.click(option('let'));
+      finishFadeIn();
+      expect(fake.calls.at(-1)).toBe('play');
+      expect(volumesIn(fake.calls)).toEqual([]);
+    });
+  });
+
+  describe('the device', () => {
+    it('is asked about the browser it runs in whether the volume can be set', () => {
+      renderGame();
+
+      expect(supportsVolume).toHaveBeenCalledWith(navigator);
+    });
+
+    it('is not touched by a fade that was still running when the game screen went away', () => {
+      renderGame();
+      playTo(3850);
+      act(() => vi.advanceTimersByTime(500));
+      const before = fake.calls.length;
+
+      cleanup();
+      act(() => vi.advanceTimersByTime(FADE_OUT_MS));
+
+      expect(fake.calls.slice(before)).toEqual([]);
+    });
+  });
+
+  describe('leaving the app', () => {
+    afterEach(() => {
+      setVisibility('visible');
+    });
+
+    it('pauses at once with no volume step, and a fade in progress never comes back', () => {
+      renderGame();
+      playTo(3850);
+      act(() => vi.advanceTimersByTime(500));
+      const before = fake.calls.length;
+
+      setVisibility('hidden');
+      expect(fake.calls.slice(before)).toEqual(['pause']);
+
+      finishFadeOut();
+      expect(fake.calls.slice(before)).toEqual(['pause']);
+    });
+  });
+
+  describe('"Traduzir verso"', () => {
+    function renderTranslating(over: Partial<GameScreenProps> = {}) {
+      return renderGame({ requestHelp: helpService(), ...over });
+    }
+
+    function translate() {
+      fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
+    }
+
+    function continueButton() {
+      return screen.queryByRole('button', { name: 'Continuar' });
+    }
+
+    it('fades the music out and pauses it, shows the translation and a "Continuar" button', async () => {
+      renderTranslating();
+      playTo(1000);
+      const before = fake.calls.length;
+
+      translate();
+      await settleHelp();
+
+      expect(screen.getByTestId('translation')).toHaveTextContent('Tradução 0');
+      expect(continueButton()).toBeVisible();
+      expect(count('pause')).toBe(0);
+
+      finishFadeOut();
+      expect(fake.calls.slice(before)).toEqual([...FADE_OUT_STEPS, 'pause']);
+    });
+
+    it('"Continuar" plays the clip from where it stopped, the volume rising, and goes away', async () => {
+      fake = new SlowToStartPlayer(DURATION_MS);
+      renderTranslating();
+      act(() => fake.emitState('playing'));
+      playTo(1000);
+      translate();
+      await settleHelp();
+      finishFadeOut();
+      const before = fake.calls.length;
+
+      fireEvent.click(continueButton()!);
+      finishFadeIn();
+
+      expect(fake.calls.slice(before)).toEqual(['play', ...FADE_IN_STEPS]);
+      expect(fake.getCurrentTimeMs()).toBe(1000);
+      expect(continueButton()).not.toBeInTheDocument();
+    });
+
+    it('"Continuar" before the music is down turns the fade around: no pause, no play, up from where it was', async () => {
+      renderTranslating();
+      playTo(1000);
+      translate();
+      await settleHelp();
+      act(() => vi.advanceTimersByTime(1000));
+      const level = fake.getVolume();
+      const before = fake.calls.length;
+
+      fireEvent.click(continueButton()!);
+      finishFadeIn();
+      finishFadeOut();
+
+      const after = fake.calls.slice(before);
+      expect(after).not.toContain('pause');
+      expect(after).not.toContain('play');
+      expect(volumesIn(after)[0]).toBeGreaterThan(level);
+      expect(fake.getVolume()).toBe(100);
+      expect(continueButton()).not.toBeInTheDocument();
+    });
+
+    it('on a device that ignores the volume, pauses after 2 s and "Continuar" plays by the tap, with no volume step', async () => {
+      device.canSetVolume = false;
+      renderTranslating();
+      playTo(1000);
+      translate();
+      await settleHelp();
+      finishFadeOut();
+      expect(fake.calls.at(-1)).toBe('pause');
+
+      fireEvent.click(continueButton()!);
+      finishFadeIn();
+
+      expect(fake.calls.at(-1)).toBe('play');
+      expect(volumesIn(fake.calls)).toEqual([]);
+    });
+
+    it('translates and nothing else while the game waits for an answer, and answering still lets the music go', async () => {
+      renderTranslating();
+      playTo(3850);
+      finishFadeOut();
+      const before = fake.calls.length;
+
+      translate();
+      await settleHelp();
+
+      expect(screen.getByTestId('translation')).toHaveTextContent('Tradução 0');
+      expect(continueButton()).not.toBeInTheDocument();
+      expect(fake.calls.slice(before)).toEqual([]);
+
+      fireEvent.click(option('let'));
+      finishFadeIn();
+      expect(fake.calls.slice(before)).toEqual(['play', ...FADE_IN_STEPS]);
+    });
+
+    it('does not start the fade over when "Traduzir verso" is tapped again while the music is going down', async () => {
+      const requestHelp = vi
+        .fn<HelpRequester>()
+        .mockRejectedValueOnce(new HelpError(503))
+        .mockResolvedValueOnce('Tradução 0');
+      renderTranslating({ requestHelp });
+      playTo(1000);
+      const before = fake.calls.length;
+      translate();
+      await settleHelp();
+      act(() => vi.advanceTimersByTime(FADE_OUT_MS / 2));
+
+      translate();
+      await settleHelp();
+      act(() => vi.advanceTimersByTime(FADE_OUT_MS / 2));
+
+      expect(fake.calls.slice(before)).toEqual([...FADE_OUT_STEPS, 'pause']);
+      expect(screen.getByTestId('translation')).toHaveTextContent('Tradução 0');
+    });
+
+    it('drops "Continuar" when DJ Bop’s sheet, opened over the translation, plays the music again on "Valeu"', async () => {
+      fake = new SlowToStartPlayer(DURATION_MS);
+      renderTranslating({ lines: TYPING_LINES, blanks: [GET] });
+      act(() => fake.emitState('playing'));
+      fireEvent.click(option('late'));
+      playTo(1000);
+      translate();
+      await settleHelp();
+      expect(continueButton()).toBeVisible();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Não entendi' }));
+      await settleHelp();
+      finishFadeOut();
+      fireEvent.click(screen.getByRole('button', { name: 'Valeu' }));
+      finishFadeIn();
+
+      expect(continueButton()).not.toBeInTheDocument();
+      expect(fake.calls.at(-1)).toBe(FADE_IN_STEPS.at(-1));
+      expect(fake.getVolume()).toBe(100);
+    });
+
+    it('leaves a clip the player had paused alone, and shows no "Continuar" for it', async () => {
+      renderTranslating();
+      playTo(1000);
+      act(() => fake.emitState('paused'));
+      const before = fake.calls.length;
+
+      translate();
+      await settleHelp();
+      finishFadeOut();
+
+      expect(screen.getByTestId('translation')).toBeInTheDocument();
+      expect(continueButton()).not.toBeInTheDocument();
+      expect(fake.calls.slice(before)).toEqual([]);
+    });
+
+    it('hands over to the wait when the line ends during the fade: one pause, no "Continuar", the answer lets go', async () => {
+      renderTranslating();
+      playTo(3000);
+      const before = fake.calls.length;
+      translate();
+      await settleHelp();
+      expect(continueButton()).toBeVisible();
+
+      // The clip goes on for the fade and reaches the end of the line, where a blank waits for its answer.
+      playTo(3850);
+      expect(continueButton()).not.toBeInTheDocument();
+      finishFadeOut();
+      expect(fake.calls.slice(before).filter((call) => call === 'pause')).toHaveLength(1);
+      expect(fake.calls.at(-1)).toBe('pause');
+
+      fireEvent.click(option('let'));
+      finishFadeIn();
+      expect(fake.calls.at(-1)).toBe(FADE_IN_STEPS.at(-1));
+      expect(fake.calls).toContain('play');
+      expect(fake.getVolume()).toBe(100);
+      expect(continueButton()).not.toBeInTheDocument();
+    });
+
+    it('lets the music go, and drops "Continuar", when a miss plays the line again', async () => {
+      renderTranslating();
+      playTo(1000);
+      translate();
+      await settleHelp();
+      finishFadeOut();
+      const before = fake.calls.length;
+
+      fireEvent.click(option('late'));
+      finishFadeIn();
+
+      expect(fake.calls.slice(before)).toEqual(['seek:0', 'play', ...FADE_IN_STEPS]);
+      expect(continueButton()).not.toBeInTheDocument();
+    });
+
+    it('keeps "Continuar" while the player reads, after a right answer that sends nothing to the clip', async () => {
+      renderTranslating();
+      playTo(1000);
+      translate();
+      await settleHelp();
+      finishFadeOut();
+      const before = fake.calls.length;
+
+      fireEvent.click(option('let'));
+
+      expect(fake.calls.slice(before)).toEqual([]);
+      expect(continueButton()).toBeVisible();
+    });
+
+    it('drops "Continuar" and brings the volume back when the player presses play on its own', async () => {
+      renderTranslating();
+      playTo(1000);
+      translate();
+      await settleHelp();
+      finishFadeOut();
+      expect(fake.getVolume()).toBe(0);
+
+      act(() => fake.emitState('playing'));
+      finishFadeIn();
+
+      expect(continueButton()).not.toBeInTheDocument();
+      expect(fake.getVolume()).toBe(100);
+    });
+  });
+});
+
 describe('GameScreen: Escolha', () => {
   it('offers the answer and its two distractors, shuffled with the seed blank id + video id', () => {
     renderGame();
@@ -417,15 +806,17 @@ describe('GameScreen: Escolha', () => {
   it('turns a wrong option red and plays the line again from its start', () => {
     renderGame();
     playTo(3850);
+    finishFadeOut();
     const before = fake.calls.length;
 
     fireEvent.click(option('late'));
+    finishFadeIn();
 
     const miss = option('late, errou');
     expect(miss).toHaveClass('bg-error');
     expect(miss.querySelector('[data-icon="cross"]')).not.toBeNull();
     expect(document.body.textContent).not.toMatch(/acertou|errou/i);
-    expect(fake.calls.slice(before)).toEqual(['seek:0', 'play']);
+    expect(fake.calls.slice(before)).toEqual(['seek:0', 'play', ...FADE_IN_STEPS]);
   });
 
   it('shows Dica with a dashed border; the free hint greys out one wrong option and the answer counts as helped', () => {
@@ -547,13 +938,15 @@ describe('GameScreen: Digitação', () => {
   it('turns a wrong word red and plays the line again from its start, keeping the blank hidden', async () => {
     const onEnd = await renderTyping();
     playTo(3850);
+    finishFadeOut();
     const before = fake.calls.length;
 
     type('got');
+    finishFadeIn();
 
     expect(fieldBox()).toHaveClass('bg-error');
     expect(fieldBox().querySelector('[data-icon="cross"]')).not.toBeNull();
-    expect(fake.calls.slice(before)).toEqual(['seek:0', 'play']);
+    expect(fake.calls.slice(before)).toEqual(['seek:0', 'play', ...FADE_IN_STEPS]);
     expect(screen.getByTestId('line-current')).toHaveTextContent("Soon we'll lacuna there before the rain");
     expect(dj()).toHaveAttribute('data-expression', 'errou');
     expect(playMiss).toHaveBeenCalledOnce();
@@ -778,12 +1171,14 @@ describe('GameScreen: Monte o verso', () => {
   it('marks the line wrong when a tile is not the next word, clears the row, and plays the line again', () => {
     const onEnd = renderBuild();
     playTo(3850);
+    finishFadeOut();
     placeWords(['Please', 'come']);
     expect(placedRow()).toEqual(['Please', 'come']);
     const before = fake.calls.length;
 
     // "back" comes next, not "tonight".
     fireEvent.click(tile('tonight'));
+    finishFadeIn();
 
     expect(placedRow()).toEqual([]);
     const miss = tile('tonight, errou');
@@ -791,7 +1186,7 @@ describe('GameScreen: Monte o verso', () => {
     expect(miss.querySelector('[data-icon="cross"]')).not.toBeNull();
     expect(screen.getByRole('status')).toHaveTextContent('tonight, errou');
     expect(visibleText()).not.toMatch(/acertou|errou/i);
-    expect(fake.calls.slice(before)).toEqual(['seek:0', 'play']);
+    expect(fake.calls.slice(before)).toEqual(['seek:0', 'play', ...FADE_IN_STEPS]);
     expect(playMiss).toHaveBeenCalledOnce();
     expect(playHit).not.toHaveBeenCalled();
     expect(dj()).toHaveAttribute('data-expression', 'errou');
@@ -900,12 +1295,14 @@ describe('GameScreen: Monte o verso', () => {
     it('lets the line pass after a miss, keeps it hidden, and the line can still be retried while it is in play', () => {
       const onEnd = renderBuild();
       playTo(3850);
+      finishFadeOut();
       const before = fake.calls.length;
 
       fireEvent.click(tile('tonight'));
+      finishFadeIn();
 
       // The clip plays on: it does not go back to the start of the line.
-      expect(fake.calls.slice(before)).toEqual(['play']);
+      expect(fake.calls.slice(before)).toEqual(['play', ...FADE_IN_STEPS]);
       expect(placedRow()).toEqual([]);
       expect(screen.queryByTestId('line-current')).not.toBeInTheDocument();
       expect(visibleText()).not.toContain('Please come back home tonight');
@@ -1042,8 +1439,10 @@ describe('GameScreen: the clock right after a seek (ruling R44)', () => {
   it('ignores the clock for 300 ms after Repetir verso, so a stale reading does not pause the line again', () => {
     renderGame();
     playTo(3850);
+    finishFadeOut();
     expect(count('pause')).toBe(1);
 
+    const before = fake.calls.length;
     fireEvent.click(screen.getByRole('button', { name: 'Repetir verso' }));
     expect(fake.calls.slice(-2)).toEqual(['seek:0', 'play']);
 
@@ -1056,6 +1455,11 @@ describe('GameScreen: the clock right after a seek (ruling R44)', () => {
       fake.advance(10);
       vi.advanceTimersByTime(100);
     });
+    // No wait began from it: the music is only rising (a wait would bring it down), and the clip was not paused again.
+    act(() => vi.advanceTimersByTime(FADE_STEP_MS));
+    const rising = volumesIn(fake.calls.slice(before));
+    expect(rising.length).toBeGreaterThan(0);
+    expect(rising.every((volume, i) => volume > (rising[i - 1] ?? -1))).toBe(true);
     expect(count('pause')).toBe(1);
 
     // From 300 ms on, the clock counts again.
@@ -1063,6 +1467,7 @@ describe('GameScreen: the clock right after a seek (ruling R44)', () => {
       fake.advance(10);
       vi.advanceTimersByTime(100);
     });
+    finishFadeOut();
     expect(count('pause')).toBe(2);
   });
 
@@ -1077,6 +1482,9 @@ describe('GameScreen: the clock right after a seek (ruling R44)', () => {
       fake.advance(3900);
       vi.advanceTimersByTime(100);
     });
+    // A wait would have started a fade-out, whose first step comes within 50 ms.
+    act(() => vi.advanceTimersByTime(FADE_STEP_MS));
+    expect(volumesIn(fake.calls)).toEqual([]);
     expect(count('pause')).toBe(0);
   });
 });
@@ -1215,9 +1623,11 @@ describe('GameScreen: settings', () => {
     expect(screen.getByRole('button', { name: 'Configurações' })).toHaveFocus();
 
     playTo(3850);
+    finishFadeOut();
     const before = fake.calls.length;
     fireEvent.click(option('late'));
-    expect(fake.calls.slice(before)).toEqual(['play']);
+    finishFadeIn();
+    expect(fake.calls.slice(before)).toEqual(['play', ...FADE_IN_STEPS]);
   });
 
   it('stands in for the game area instead of covering the player, and gives the game back as it was', () => {
@@ -1344,6 +1754,16 @@ class SlowToReportPlayer extends FakePlayerAdapter {
   }
 }
 
+/**
+ * A player whose play is not reported back at once, as YouTube's may not be: the game goes on seeing it stopped, so
+ * nothing in the test but the game's own command can tell the screen that the music is back.
+ */
+class SlowToStartPlayer extends FakePlayerAdapter {
+  override play(): void {
+    this.calls.push('play');
+  }
+}
+
 describe('GameScreen: help with a line', () => {
   /** The typing lines, in Escolha, with "get" blanked. */
   function renderHelped(over: Partial<GameScreenProps> = {}) {
@@ -1447,10 +1867,12 @@ describe('GameScreen: help with a line', () => {
 
       fireEvent.click(word('rain'));
       await settleHelp();
+      finishFadeOut();
       fireEvent.keyDown(helpSheet(), { key: 'Escape' });
+      finishFadeIn();
 
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-      expect(fake.calls.slice(before)).toEqual(['pause', 'play']);
+      expect(fake.calls.slice(before)).toEqual([...FADE_OUT_STEPS, 'pause', 'play', ...FADE_IN_STEPS]);
       expect(word('rain')).toHaveFocus();
     });
 
@@ -1462,16 +1884,42 @@ describe('GameScreen: help with a line', () => {
 
       fireEvent.click(word('rain'));
       await settleHelp();
-      expect(fake.calls.slice(before)).toEqual(['pause']);
+      // The music goes down first, and the clip pauses once it is.
+      expect(count('pause')).toBe(0);
+      finishFadeOut();
+      expect(fake.calls.slice(before)).toEqual([...FADE_OUT_STEPS, 'pause']);
 
       fireEvent.click(screen.getByRole('button', { name: 'Valeu' }));
-      expect(fake.calls.slice(before)).toEqual(['pause', 'play']);
+      finishFadeIn();
+      expect(fake.calls.slice(before)).toEqual([...FADE_OUT_STEPS, 'pause', 'play', ...FADE_IN_STEPS]);
+    });
+
+    it('turns the fade around on "Valeu" before the music is down: no pause, no play, the volume rises again', async () => {
+      renderHelped();
+      answerFirst();
+      playTo(1000);
+
+      fireEvent.click(word('rain'));
+      await settleHelp();
+      act(() => vi.advanceTimersByTime(1000));
+      const level = fake.getVolume();
+      const before = fake.calls.length;
+      fireEvent.click(screen.getByRole('button', { name: 'Valeu' }));
+      finishFadeIn();
+      finishFadeOut();
+
+      const after = fake.calls.slice(before);
+      expect(after).not.toContain('pause');
+      expect(after).not.toContain('play');
+      expect(volumesIn(after)[0]).toBeGreaterThan(level);
+      expect(fake.getVolume()).toBe(100);
     });
 
     it('leaves a clip the game paused for an answer alone, and still paused after "Valeu"', async () => {
       renderHelped();
       answerFirst();
       playTo(3850);
+      finishFadeOut();
       expect(fake.calls.at(-1)).toBe('pause');
       const before = fake.calls.length;
 
@@ -1482,7 +1930,8 @@ describe('GameScreen: help with a line', () => {
       expect(fake.calls.slice(before)).toEqual([]);
       // The game still waits for the answer, which plays the clip on.
       fireEvent.click(option('get'));
-      expect(fake.calls.slice(before)).toEqual(['play']);
+      finishFadeIn();
+      expect(fake.calls.slice(before)).toEqual(['play', ...FADE_IN_STEPS]);
     });
 
     it('does not play on after "Valeu" when the game began to wait for an answer while the sheet was open', async () => {
@@ -1692,6 +2141,32 @@ describe('LyricPanel', () => {
       const line = screen.getByTestId('line-current');
       expect(within(line).queryByText('lacuna, errou')).not.toBeInTheDocument();
       expect(within(line).getByText('lacuna').parentElement).toHaveClass('border-lime', 'bg-card');
+    });
+  });
+
+  describe('"Continuar" (the music paused for the translation)', () => {
+    it('is not there unless the panel is given something to do with it', () => {
+      renderPanel();
+
+      expect(screen.queryByRole('button', { name: 'Continuar' })).not.toBeInTheDocument();
+    });
+
+    it('is a button of at least 44 px, next to the translation, that does what it was given', () => {
+      const onContinue = vi.fn<() => void>();
+      renderPanel({ onContinue, translation: { status: 'done', text: 'Vovô não deixa os gansos dirigirem' } });
+
+      const button = screen.getByRole('button', { name: 'Continuar' });
+      expect(button).toHaveClass('min-h-11');
+      expect(inOrder(screen.getByTestId('translation'), button, screen.getByTestId('line-next'))).toBe(true);
+      fireEvent.click(button);
+      expect(onContinue).toHaveBeenCalledOnce();
+    });
+
+    it('stays while the translation is on its way, next to "Traduzir verso" when that is still there', () => {
+      renderPanel({ onContinue: vi.fn(), translation: { status: 'error', message: 'Não rolou agora. Tenta de novo?' } });
+
+      expect(screen.getByRole('button', { name: 'Continuar' })).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Traduzir verso' })).toBeVisible();
     });
   });
 
@@ -2349,9 +2824,25 @@ describe('GameScreen: Karaokê', () => {
 
     fireEvent.click(within(currentRow()!).getByRole('button', { name: 'river' }));
     await settleHelp();
+    finishFadeOut();
     fireEvent.click(screen.getByRole('button', { name: 'Valeu' }));
+    finishFadeIn();
 
-    expect(fake.calls.slice(before)).toEqual(['pause', 'play']);
+    expect(fake.calls.slice(before)).toEqual([...FADE_OUT_STEPS, 'pause', 'play', ...FADE_IN_STEPS]);
+  });
+
+  it('has no "Traduzir verso": the translations come by themselves, and showing or hiding them leaves the clip alone', async () => {
+    renderKaraoke({ requestHelp: helpService() });
+    playTo(1000);
+    await settleHelp();
+    const before = fake.calls.length;
+
+    expect(screen.queryByRole('button', { name: 'Traduzir verso' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Esconder tradução' }));
+    finishFadeOut();
+
+    expect(screen.queryByRole('button', { name: 'Continuar' })).not.toBeInTheDocument();
+    expect(fake.calls.slice(before)).toEqual([]);
   });
 
   it('centers the current line again after the settings sheet, which hides the list and loses its scroll', () => {

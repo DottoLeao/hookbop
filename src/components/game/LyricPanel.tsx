@@ -7,7 +7,7 @@ import type { Blank, LyricLine } from '@/lib/types';
 import { CorrectedWord } from './CorrectedWord';
 import { pieces, tappable } from './lineWords';
 import { ResultIcon } from './ResultIcon';
-import { focusRing } from './styles';
+import { focusOutline, focusRing } from './styles';
 
 interface LyricPanelProps {
   lines: LyricLine[];
@@ -36,6 +36,11 @@ interface LyricPanelProps {
   translation?: TranslationView;
   /** "Traduzir verso", with the index of the line it is under. */
   onTranslate: (lineIndex: number) => void;
+  /**
+   * "Continuar": the music is paused for the player to read the translation, and this plays it from where it stopped.
+   * Given only while that pause lasts; the button is not there without it.
+   */
+  onContinue?: () => void;
   /**
    * "Não entendi", or a tap on a word of the line in play: the word or expression to explain, the index of the line
    * that was drawn (the clock may have moved past it by the time of the tap), and the button that was tapped, which
@@ -184,6 +189,19 @@ function LineText({ text, blanks, status, inPlay = false, onExplain, inPlayId, c
   });
 }
 
+/** The one thing to do now: lime, so it reads as the way back to the music. The focus ring is dark, as on any lime. */
+function ContinueButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`min-h-11 rounded-full bg-lime px-3.5 text-body font-bold text-bg ${focusOutline} focus-visible:outline-bg`}
+    >
+      {t('jogo.continue')}
+    </button>
+  );
+}
+
 function Pill({ onClick, children }: { onClick: (event: MouseEvent<HTMLButtonElement>) => void; children: string }) {
   return (
     <button
@@ -201,7 +219,8 @@ function Pill({ onClick, children }: { onClick: (event: MouseEvent<HTMLButtonEle
  * the line after in muted text. Under the line in play: its translation once there is one, and "Traduzir verso" until
  * then ("Traduzindo..." while it is on its way, and DJ Bop's calm line next to the pill when it cannot be had), and
  * "Não entendi" once every blank of the line has had its first answer. Until then the words of the line in play cannot
- * be tapped either (ruling R83); "Traduzir verso" is there all along (spec §7, ruling R60).
+ * be tapped either (ruling R83); "Traduzir verso" is there all along (spec §7, ruling R60). While the music is paused
+ * for the translation, "Continuar" is the first of those buttons, under the translation.
  *
  * A line that is a puzzle (Monte o verso) is never drawn as text until it is right (ruling R52), and while it is in
  * play the answer area holds it (ruling R59): the panel then draws neither that line nor the line after it, only the
@@ -217,6 +236,7 @@ export function LyricPanel({
   corrected,
   translation,
   onTranslate,
+  onContinue,
   onExplain,
 }: LyricPanelProps) {
   const line = lines[current];
@@ -271,8 +291,9 @@ export function LyricPanel({
           {translationNote}
         </p>
       )}
-      {(canTranslate || explained) && (
+      {(onContinue || canTranslate || explained) && (
         <div className="flex flex-wrap gap-2">
+          {onContinue && <ContinueButton onClick={onContinue} />}
           {canTranslate && <Pill onClick={() => onTranslate(current)}>{t('jogo.translate')}</Pill>}
           {explained && (
             <Pill onClick={(event) => explain(explained.answer, event.currentTarget)}>{t('jogo.explain')}</Pill>

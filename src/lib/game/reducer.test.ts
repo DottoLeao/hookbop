@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PlayerState } from '@/lib/player/adapter';
 import type { Blank, LyricLine, Mode } from '@/lib/types';
-import { PAUSE_LEAD_MS, gameReducer, initGame, summaryOf, type GameEvent, type GameState } from './reducer';
+import { PAUSE_LEAD_MS, clipPlays, gameReducer, initGame, summaryOf, type GameEvent, type GameState } from './reducer';
 import { createScore, summarize } from './scoring';
 
 const LINES: LyricLine[] = [
@@ -713,6 +713,26 @@ describe('the fade at a wait (spec §1)', () => {
       // Before the line end it is early, as ever.
       expect(lastRecord(run(waiting, answer('2:1', true, 11900)))?.beforeLineEnd).toBe(true);
     });
+  });
+});
+
+describe('clipPlays', () => {
+  it('is true for a round the player plays, and for one that stalls to buffer', () => {
+    expect(clipPlays(game())).toBe(true);
+    expect(clipPlays(run(game(), player('buffering')))).toBe(true);
+  });
+
+  it('is false once the player stopped, or ended', () => {
+    expect(clipPlays(run(game(), player('paused')))).toBe(false);
+    expect(clipPlays(run(game({ blanks: [] }), player('ended')))).toBe(false);
+  });
+
+  it('is false during a wait, even though the clip plays on to fade out', () => {
+    const waiting = run(game(), tick(3900));
+
+    expect(waiting.phase).toBe('waiting');
+    expect(waiting.playerState).toBe('playing');
+    expect(clipPlays(waiting)).toBe(false);
   });
 });
 

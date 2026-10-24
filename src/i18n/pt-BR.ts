@@ -114,6 +114,8 @@ export const ptBR = {
   'jogo.hit': '{palavra}, acertou',
   'jogo.miss': '{palavra}, errou',
   'jogo.translate': 'Traduzir verso',
+  // Depois de "Traduzir verso" a música fica parada; este botão a faz voltar de onde parou.
+  'jogo.continue': 'Continuar',
   'jogo.explain': 'Não entendi',
   'jogo.slow': '0.75x',
   'jogo.repeat': 'Repetir verso',
