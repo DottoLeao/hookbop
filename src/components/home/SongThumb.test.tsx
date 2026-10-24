@@ -24,6 +24,12 @@ describe('SongThumb', () => {
     expect(picture).toHaveClass('rounded-blank');
   });
 
+  it('tells YouTube nothing about where the request comes from: no referrer is sent with it', () => {
+    render(<SongThumb youtubeId={ID} title="Invented Song" />);
+
+    expect(screen.getByRole('img')).toHaveAttribute('referrerpolicy', 'no-referrer');
+  });
+
   it('is served by YouTube as it is: nothing is sent through the app to be resized', () => {
     render(<SongThumb youtubeId={ID} title="Invented Song" />);
 

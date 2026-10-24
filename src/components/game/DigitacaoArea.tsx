@@ -38,8 +38,9 @@ function firstLetter(answer: string): string | undefined {
  *  - A right answer turns the field lime with ✓ and read-only.
  *  - A wrong one turns it red with ✕ and selects the text, so a new try replaces it. The same wrong word sent again
  *    (the same once capitals, spaces and final punctuation are put aside) is not counted twice.
- *  - A hint asked for after a miss clears the wrong word, so the first letter shows as the example text, and puts the
- *    focus back in the field (the tap on "Dica" took it).
+ *  - A hint given after a miss (the `HINT` event stays in the game, though no button gives one now) clears the wrong
+ *    word, so the first letter shows as the example text, and puts the focus back in the field, since whatever gave
+ *    the hint may have taken it.
  * The result is said only to screen readers (a status line that is `sr-only`), never as text on screen.
  *
  * Send goes through the form, not a key event: the "done" key of some Android keyboards sends no Enter keydown.
@@ -87,8 +88,9 @@ export function DigitacaoArea({ blank, hinted = false, solved = false, corrected
     if (active === null || active === document.body) inputRef.current?.focus({ preventScroll: true });
   }, [solved]);
 
-  // The tap on "Dica" took the focus (and closed the phone keyboard). It goes back to the field: the player is about to
-  // type. Only for a hint asked for now, not for an area that appears already hinted.
+  // Giving the hint may have taken the focus (a tap on a button does, and closes the phone keyboard). It goes back to
+  // the field: the player is about to type. Only for a hint given now, not for an area that appears already hinted (a
+  // saved game that carries one).
   const wasHintedRef = useRef(hinted);
   useEffect(() => {
     const wasHinted = wasHintedRef.current;

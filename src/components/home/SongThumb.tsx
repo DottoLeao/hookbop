@@ -3,9 +3,7 @@
 import Image from 'next/image';
 import { useState } from 'react';
 import { t } from '@/i18n/t';
-
-/** The id of a YouTube video: 11 characters, letters, digits, "-" and "_". */
-const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
+import { isVideoId } from '@/lib/youtube/parseUrl';
 
 /** The box of a song's picture on its card: 80 x 45, which is 16:9, the shape of the picture YouTube keeps. */
 const WIDTH = 80;
@@ -31,7 +29,8 @@ function Disc() {
 /**
  * The picture of a song on its card: the thumbnail YouTube keeps for the video, which the page loads straight from
  * YouTube, only once the card comes on screen. The app keeps no copy of it. When there is none to show, the disc stands
- * in: the picture did not load (no network, or the video is gone), or the id is not the id of a video.
+ * in: the picture did not load (no network, or the video is gone), or the id is not the id of a video. The request
+ * carries no referrer (`referrerPolicy`), so YouTube is not told which page asked for the picture.
  *
  * It is the `next/image` component with `unoptimized`, so the address goes to the browser as it is, and nothing is
  * sent through the app to be resized (so no host has to be allowed in the config). It is chosen over a plain `<img>`
@@ -41,7 +40,7 @@ function Disc() {
 export function SongThumb({ youtubeId, title }: { youtubeId: string; title: string }) {
   const [failed, setFailed] = useState(false);
   // The id comes from a table every member can write to: only the shape of a video id gets to be part of an address.
-  if (failed || !VIDEO_ID.test(youtubeId)) return <Disc />;
+  if (failed || !isVideoId(youtubeId)) return <Disc />;
   return (
     <Image
       src={`https://i.ytimg.com/vi/${encodeURIComponent(youtubeId)}/mqdefault.jpg`}
@@ -51,6 +50,7 @@ export function SongThumb({ youtubeId, title }: { youtubeId: string; title: stri
       loading="lazy"
       decoding="async"
       unoptimized
+      referrerPolicy="no-referrer"
       onError={() => setFailed(true)}
       className="h-[45px] w-20 shrink-0 rounded-blank bg-border object-cover"
     />

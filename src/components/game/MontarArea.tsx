@@ -70,9 +70,10 @@ const tileLook = `relative inline-flex min-h-11 min-w-11 items-center justify-ce
 /**
  * "Monte o verso": the shuffled words of a whole line to tap in order (design/canvas/MonteVerso.dc.html, Limão
  * colors). The words placed so far sit in a row of lime chips followed by empty slots; their tiles stay in the pool,
- * dashed and faint. A wrong tile turns red with ✕ until the next tap (or a hint), and the row starts over (the game
- * clears it itself). When the line is right the row turns lime with ✓, and its words can be tapped to have them
- * explained: while the line is in play, this row is the only place it is drawn (ruling R59).
+ * dashed and faint. A wrong tile turns red with ✕ until the next tap (or a hint, which no button gives now, though the
+ * `HINT` event stays in the game), and the row starts over (the game clears it itself). When the line is right the row
+ * turns lime with ✓, and its words can be tapped to have them explained: while the line is in play, this row is the
+ * only place it is drawn (ruling R59).
  *
  * A tile that cannot be tapped (placed, or any tile once the line is right) is `aria-disabled`, never `disabled`: a
  * disabled button drops the focus the tap gave it, and the player would lose their place on every right tap. The tap
@@ -94,7 +95,7 @@ export function MontarArea({
     [tokens, youtubeId, blank.lineIndex],
   );
   // The tile that was a wrong tap. The red holds until the next tap, and a wrong tap always empties the row, so a
-  // row that has words again (a right tap, or a hint after the miss) is the end of it.
+  // row that has words again (a right tap, or a hint after the miss, should one be given) is the end of it.
   const [missedAt, setMissedAt] = useState<number | null>(null);
   const used = usedTiles(tiles, placed);
   const missed = placed.length === 0 ? missedAt : null;

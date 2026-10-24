@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractYouTubeIdFromShare, parseYouTubeId } from './parseUrl';
+import { extractYouTubeIdFromShare, isVideoId, parseYouTubeId } from './parseUrl';
 
 const id = 'dQw4w9WgXcQ';
 const otherId = 'oHg5SJYRHA0';
@@ -73,5 +73,36 @@ describe('extractYouTubeIdFromShare', () => {
     expect(extractYouTubeIdFromShare({ url: null, text: null, title: null })).toBeNull();
     expect(extractYouTubeIdFromShare({ text: 'só texto, sem link' })).toBeNull();
     expect(extractYouTubeIdFromShare({ text: `a música ${id} sem link` })).toBeNull();
+  });
+});
+
+describe('isVideoId', () => {
+  it.each(['aaaaaaaaaaa', 'dQw4w9WgXcQ', 'a-b_c-d_e-f', '-----------', '___________', '01234567890'])(
+    'accepts %s, 11 characters of letters, digits, "-" and "_"',
+    (candidate) => {
+      expect(isVideoId(candidate)).toBe(true);
+    },
+  );
+
+  it.each([
+    ['empty', ''],
+    ['10 characters', 'aaaaaaaaaa'],
+    ['12 characters', 'aaaaaaaaaaaa'],
+    ['a slash in it', 'aaaaa/aaaaa'],
+    ['a space in it', 'aaaaa aaaaa'],
+    ['a question mark in it', 'aaaaa?aaaaa'],
+    ['a dot in it', 'aaaaa.aaaaa'],
+    ['a path out of the folder', '../admin?x=1'],
+    ['a letter with an accent', 'aaaaaaaaaaã'],
+    ['a newline after a good id', 'aaaaaaaaaaa\n'],
+    ['a space around a good id', ' aaaaaaaaaaa '],
+  ])('refuses %s', (_case, candidate) => {
+    expect(isVideoId(candidate)).toBe(false);
+  });
+
+  it('agrees with what parseYouTubeId takes as a bare id', () => {
+    for (const candidate of ['aaaaaaaaaaa', 'a-b_c-d_e-f', 'aaaaaaaaaa', 'aaaaa/aaaaa']) {
+      expect(parseYouTubeId(candidate) !== null).toBe(isVideoId(candidate));
+    }
   });
 });

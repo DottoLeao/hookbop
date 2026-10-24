@@ -7,14 +7,13 @@ import {
   type VideoMeta,
 } from '@/lib/lyrics/resolveSong';
 import type { LyricsSource } from '@/lib/lyrics/source';
+import { isVideoId } from '@/lib/youtube/parseUrl';
 
 /** A real request is about 50 bytes; anything past this is not one, and is not even read to its end. */
 const MAX_BODY_BYTES = 1024;
 
 /** No song runs longer. A duration past it is not one a player read, so it is refused. */
 export const MAX_DURATION_S = 12 * 3600;
-
-const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 
 /**
  * What the song screen asks: the video, and how long the player says it is in seconds. `durationS` is null (or 0)
@@ -29,7 +28,7 @@ export interface SongRequest {
 export function parseSongRequest(body: unknown): SongRequest | null {
   if (typeof body !== 'object' || body === null) return null;
   const { youtubeId, durationS } = body as Record<string, unknown>;
-  if (typeof youtubeId !== 'string' || !VIDEO_ID.test(youtubeId)) return null;
+  if (typeof youtubeId !== 'string' || !isVideoId(youtubeId)) return null;
   if (durationS === null) return { youtubeId, durationS };
   if (typeof durationS !== 'number' || !Number.isFinite(durationS)) return null;
   if (durationS < 0 || durationS > MAX_DURATION_S) return null;

@@ -1,5 +1,13 @@
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 
+/**
+ * Whether this is the id of a YouTube video: 11 characters, letters, digits, "-" and "_", and nothing around them. The
+ * one place that says so, for everything that lets an id into a path, an address or a query.
+ */
+export function isVideoId(id: string): boolean {
+  return VIDEO_ID.test(id);
+}
+
 /** Hosts that serve watch, shorts and embed links. youtu.be is handled on its own. */
 const YOUTUBE_HOSTS = new Set([
   'youtube.com',
@@ -17,7 +25,7 @@ const URL_IN_TEXT = /https?:\/\/[^\s<>"']+/gi;
 const TRAILING_PUNCTUATION = /[.,;:!?)\]}]+$/;
 
 function validId(candidate: string | null | undefined): string | null {
-  return candidate && VIDEO_ID.test(candidate) ? candidate : null;
+  return candidate && isVideoId(candidate) ? candidate : null;
 }
 
 /**
@@ -26,7 +34,7 @@ function validId(candidate: string | null | undefined): string | null {
  */
 export function parseYouTubeId(input: string): string | null {
   const text = input.trim();
-  if (VIDEO_ID.test(text)) return text;
+  if (isVideoId(text)) return text;
 
   let url: URL;
   try {

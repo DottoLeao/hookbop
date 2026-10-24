@@ -55,7 +55,8 @@ interface SavedProgressOptions {
 
 /**
  * Keeping the game in progress on the device, so the player can come back to the song and go on (spec: "Continuar de onde
- * parou"). It gives back `persist`, which the screen calls after every answer, tile and hint; the hook itself saves:
+ * parou"). It gives back `persist`, which the screen calls after every answer and tile, and after a hint should it give
+ * one (the `HINT` event stays in the game, with no button for now); the hook itself saves:
  * - every `SAVE_EVERY_MS`;
  * - when the page goes to the background or is put away (ruling S23), since the phone can close an app that is away and
  *   nothing more is heard of it.
