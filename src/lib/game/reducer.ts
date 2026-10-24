@@ -19,7 +19,7 @@ const SEEK_JUMP_MS = 1500;
  * a tick or two late, so a second more covers it. A line further back than this was not heard in the fade, as when the
  * stopped clip was scrubbed far ahead during the wait, so the music plays on from where it is.
  */
-const WAY_BACK_MAX_MS = FADE_OUT_MS + 1000;
+export const WAY_BACK_MAX_MS = FADE_OUT_MS + 1000;
 
 /**
  * `skipped`: the player went past the line without answering (a seek, or playing on from the player's own
@@ -347,6 +347,25 @@ function lineToReplay(s: GameState, waitedLineIndex: number): LyricLine | undefi
     const line = lineOf(s, blank);
     const heard = blank.lineIndex > waitedLineIndex && line.startMs < s.lastTickMs;
     if (heard && awaitsAnswer(s, blank) && (!earliest || line.startMs < earliest.startMs)) earliest = line;
+  }
+  return earliest;
+}
+
+/**
+ * The line to play again after the clip ran on by itself from `fromMs` to `toMs` with the game not listening, as when a
+ * phone plays it again while the app is away (ruling S18): the earliest line with a blank that awaits an answer and
+ * whose pause point the clip went through, so that blank is waited for in its own line. None when the clip did not move
+ * forward, or ran on for longer than `WAY_BACK_MAX_MS`: a longer stretch is not undone, as the way back after a wait
+ * never undoes one either.
+ */
+export function lineMissedWhileAway(s: GameState, fromMs: number, toMs: number): LyricLine | undefined {
+  if (toMs <= fromMs || toMs - fromMs > WAY_BACK_MAX_MS) return undefined;
+  let earliest: LyricLine | undefined;
+  for (const blank of s.blanks) {
+    const line = lineOf(s, blank);
+    const pausePoint = line.endMs - PAUSE_LEAD_MS;
+    const wentThrough = fromMs < pausePoint && pausePoint <= toMs;
+    if (wentThrough && awaitsAnswer(s, blank) && (!earliest || line.startMs < earliest.startMs)) earliest = line;
   }
   return earliest;
 }

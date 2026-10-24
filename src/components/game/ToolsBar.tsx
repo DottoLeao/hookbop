@@ -1,5 +1,6 @@
 'use client';
 
+import type { Ref } from 'react';
 import { t } from '@/i18n/t';
 import type { Entitlement } from '@/lib/entitlements';
 import { focusRing } from './styles';
@@ -9,6 +10,8 @@ interface ToolsBarBaseProps {
   onSlow: () => void;
   /** "Repetir verso". */
   onRepeat: () => void;
+  /** The "Repetir verso" button, for a screen that moves the focus to it. */
+  repeatRef?: Ref<HTMLButtonElement>;
   /** The clip plays at 0.75x. */
   slow: boolean;
 }
@@ -56,7 +59,7 @@ const tool = `${toolBase} whitespace-nowrap`;
  * second line (the 44 px of the row hold two) instead of running out of the button.
  */
 export function ToolsBar(props: ToolsBarProps) {
-  const { onSlow, onRepeat, slow, action, onHint, hintPerk, hintDisabled } = props;
+  const { onSlow, onRepeat, repeatRef, slow, action, onHint, hintPerk, hintDisabled } = props;
   // A free hint with nothing to help with (it was just used, most often) is only marked unavailable, with a guard on
   // the tap, and not `disabled`: a disabled button drops the focus the player had just put on it (as ruling R58).
   const hintUnavailable = hintPerk === 'free' && hintDisabled === true;
@@ -71,7 +74,7 @@ export function ToolsBar(props: ToolsBarProps) {
       >
         {t('jogo.slow')}
       </button>
-      <button type="button" onClick={onRepeat} className={`${tool} flex-[1.3] bg-card text-text`}>
+      <button ref={repeatRef} type="button" onClick={onRepeat} className={`${tool} flex-[1.3] bg-card text-text`}>
         {t('jogo.repeat')}
       </button>
       {action && (

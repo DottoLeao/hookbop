@@ -622,7 +622,36 @@ describe('SongScreen: the page in the background (ruling R84)', () => {
     setVisibility('hidden');
     setVisibility('visible');
 
-    expect(fake.calls.slice(before)).toEqual(['pause']);
+    // Paused again on the way back, in case the phone played it (ruling S19).
+    expect(fake.calls.slice(before)).toEqual(['pause', 'pause']);
+  });
+
+  it('pauses again as the page comes back, so a clip the phone plays again by itself is stopped (ruling S19)', async () => {
+    render(<SongScreen youtubeId={ID} deps={makeDeps()} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+    act(() => fake.emitState('playing'));
+    setVisibility('hidden');
+    // Android plays the clip again as the page comes back.
+    act(() => fake.setStateUnreported('playing'));
+
+    setVisibility('visible');
+
+    expect(fake.getPlayerState()).toBe('paused');
+  });
+
+  it('pauses again on the way back from pagehide (pageshow) too', async () => {
+    render(<SongScreen youtubeId={ID} deps={makeDeps({ resolve: vi.fn<SongScreenDeps['resolve']>().mockResolvedValue(NEEDS_CALIBRATION) })} />);
+    await screen.findByRole('button', { name: 'Começou!' });
+    act(() => {
+      window.dispatchEvent(new Event('pagehide'));
+    });
+    act(() => fake.setStateUnreported('playing'));
+
+    act(() => {
+      window.dispatchEvent(new Event('pageshow'));
+    });
+
+    expect(fake.getPlayerState()).toBe('paused');
   });
 
   it('pauses the clip during the calibration, on pagehide too', async () => {

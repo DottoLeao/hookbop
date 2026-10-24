@@ -240,9 +240,10 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
 
   // The clip never plays in the background (spec §4, ruling R84). Outside a game (calibrating, picking a mode, or any
   // other state with a player) the screen pauses it when the page is hidden; during a game the game screen does it
-  // through its own commands. Nothing plays it again when the page comes back.
+  // through its own commands. Nothing plays it again when the page comes back, and it is paused once more then, since
+  // Android plays a video again by itself as the page comes back (ruling S19).
   const pausePlayer = useCallback(() => adapter?.pause(), [adapter]);
-  usePauseWhenHidden(pausePlayer, adapter !== null && phase.kind !== 'game');
+  usePauseWhenHidden(pausePlayer, adapter !== null && phase.kind !== 'game', pausePlayer);
 
   // The clock for timeToReadyMs starts when the screen opens, and retries do not restart it.
   useEffect(() => {

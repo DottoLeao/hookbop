@@ -41,7 +41,8 @@ export interface Fader {
   /**
    * For a pause that must keep the music silent until a `fadeIn` brings it back (leaving the app): stops whatever is
    * running, like `cancel`, keeps the volume to come back to as `fadeOut` does, and sets 0 at once, with no ramp. A
-   * player that is already silent gets no call. Without volume control it only stops what is running.
+   * player that is already silent gets no call, and one silent with nothing kept keeps nothing, so a later `fadeIn`
+   * treats it as any silent player. Without volume control it only stops what is running.
    */
   silence(): void;
   /**
@@ -196,6 +197,8 @@ export function createFader(adapter: PlayerAdapter, opts: FaderOptions): Fader {
       cancel();
       if (!opts.volume) return;
       const from = currentVolume();
+      // Already silent with nothing kept: nothing of this fader's to bring back, so `fadeIn` goes by its own rule.
+      if (from === 0 && restoreTo === null) return;
       restoreTo ??= from; // kept only once, see the `Fader` docs
       level = 0;
       if (from !== 0) adapter.setVolume(0);

@@ -397,6 +397,23 @@ describe('createFader', () => {
       expect(p.calls).toEqual([]);
     });
 
+    it('at 0 with nothing kept, keeps nothing: a fadeIn then raises it as it raises any silent player', () => {
+      const p = new FakePlayerAdapter(180000);
+      p.setVolume(0);
+      p.calls.length = 0;
+      const fader = createFader(p, { volume: true });
+
+      fader.silence();
+      expect(p.calls).toEqual([]);
+
+      fader.fadeIn(800);
+      vi.advanceTimersByTime(800);
+      expect(p.getVolume()).toBe(100);
+      p.calls.length = 0;
+      fader.restore();
+      expect(p.calls).toEqual([]);
+    });
+
     it('without volume control, only stops what runs: no volume call, and done never comes', () => {
       const p = new FakePlayerAdapter(180000);
       const done = vi.fn();

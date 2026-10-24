@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { tokenize } from '@/lib/game/blanks';
 import { makeDistractors } from '@/lib/game/distractors';
+import { WAY_BACK_MAX_MS } from '@/lib/game/reducer';
 import { seededRng, shuffled } from '@/lib/game/rng';
 import { playHit, playMiss } from '@/lib/game/sfx';
 import { makeTiles, tileSeed } from '@/lib/game/tiles';
@@ -472,25 +473,28 @@ describe('GameScreen: coming back to the app (spec section 6)', () => {
   });
 
   describe('the owner’s report: away for a second, and the clip plays again by itself', () => {
-    it('in the middle of a line: the lyrics follow the clip, and the blank of the line that went by is not skipped', () => {
+    it('in the middle of a line: the clip goes back to the line whose blank it played silently, and the lyrics with it', () => {
       const onEnd = renderGame({ blanks: [LET] });
       playTo(3500);
 
       setVisibility('hidden');
+      // Through the pause point of "let" (3850), with the game not listening.
       resumeOnItsOwn(1000);
       setVisibility('visible');
       act(() => vi.advanceTimersByTime(300));
 
-      // The clip is in the second line, and so are the lyrics.
-      expect(fake.getCurrentTimeMs()).toBe(4500);
-      expect(screen.getByTestId('line-current')).toHaveTextContent('She gave each kite a name');
-
-      // "let" went by while the app was away, so it is still owed: the end of the clip waits for it.
-      fireEvent.click(resumeButton()!);
-      playTo(DURATION_MS);
-      expect(onEnd).not.toHaveBeenCalled();
+      // Back to the start of the line (the round's own opening seek was the first), and the lyrics are where the clip is.
+      expect(fake.calls.filter((call) => call === 'seek:0')).toHaveLength(2);
+      expect(fake.getCurrentTimeMs()).toBe(0);
       expect(screen.getByTestId('line-current')).toHaveTextContent("Grandpa won't lacuna geese drive");
+
+      // "let" is waited for in its own line, as if the app had never been left.
+      fireEvent.click(resumeButton()!);
+      playTo(3850);
+      finishFadeOut();
+      expect(fake.calls.at(-1)).toBe('pause');
       expect(option('let')).toBeInTheDocument();
+      expect(onEnd).not.toHaveBeenCalled();
     });
 
     it('in the fade of a wait: the clip stays stopped, and the blank is still the one waited for', () => {
@@ -600,11 +604,16 @@ describe('GameScreen: coming back to the app (spec section 6)', () => {
         fake.advance(1000);
         vi.advanceTimersByTime(100);
       });
-      setVisibility('visible');
 
+      // The lyrics moved with it, and no wait began.
       expect(screen.getByTestId('line-current')).toHaveTextContent('She gave each kite a name');
       expect(screen.queryByRole('group', { name: 'Escolha a palavra que falta' })).not.toBeInTheDocument();
+
+      // Back on the page, the clip goes back to the line of "let" (ruling S18).
+      setVisibility('visible');
       expect(fake.getPlayerState()).toBe('paused');
+      expect(fake.getCurrentTimeMs()).toBe(0);
+      expect(screen.getByTestId('line-current')).toHaveTextContent("Grandpa won't lacuna geese drive");
     });
 
     it('shows a big "Continuar" in the game area, under the player and not over it, with the focus on it', () => {
@@ -623,22 +632,45 @@ describe('GameScreen: coming back to the app (spec section 6)', () => {
       expect(inOrder(button, screen.getByTestId('line-current'))).toBe(true);
     });
 
-    it('reads where the clip is as the page comes back: a jump of seconds moves the lyrics and skips no blank', () => {
+    it('reads where the clip is as the page comes back: a jump of seconds goes back to the blank it went by', () => {
       const onEnd = renderGame({ blanks: [LET] });
       playTo(2000);
 
       setVisibility('hidden');
-      // Far enough to read as a seek, which skips the blanks it jumps over.
-      resumeOnItsOwn(3000);
+      // As far as the way back reaches, and far enough to read as a seek, which skips the blanks it jumps over.
+      resumeOnItsOwn(WAY_BACK_MAX_MS);
+      const before = fake.calls.length;
       setVisibility('visible');
 
       // Right away, before the next reading of the clock.
-      expect(screen.getByTestId('line-current')).toHaveTextContent('She gave each kite a name');
-      expect(parseFloat(screen.getByTestId('progress').style.width)).toBeCloseTo((5000 / DURATION_MS) * 100, 5);
+      expect(fake.calls.slice(before)).toEqual(['pause', 'seek:0']);
+      expect(screen.getByTestId('line-current')).toHaveTextContent("Grandpa won't lacuna geese drive");
+      expect(screen.getByTestId('progress').style.width).toBe('0%');
 
+      fireEvent.click(resumeButton()!);
+      playTo(3850);
+      finishFadeOut();
+      expect(option('let')).toBeInTheDocument();
+      expect(onEnd).not.toHaveBeenCalled();
+    });
+
+    it('does not go back after a longer run than the way back allows: the lyrics follow, and no blank is skipped', () => {
+      const onEnd = renderGame({ blanks: [LET] });
+      playTo(2000);
+
+      setVisibility('hidden');
+      resumeOnItsOwn(WAY_BACK_MAX_MS + 500);
+      setVisibility('visible');
+
+      expect(fake.calls.filter((call) => call.startsWith('seek:'))).toEqual(['seek:0']);
+      expect(fake.getCurrentTimeMs()).toBe(2000 + WAY_BACK_MAX_MS + 500);
+      expect(screen.getByTestId('line-current')).toHaveTextContent('She gave each kite a name');
+
+      // "let" is still owed: the end of the clip waits for it.
       fireEvent.click(resumeButton()!);
       playTo(DURATION_MS);
       expect(onEnd).not.toHaveBeenCalled();
+      expect(screen.getByTestId('line-current')).toHaveTextContent("Grandpa won't lacuna geese drive");
       expect(option('let')).toBeInTheDocument();
     });
 
@@ -770,6 +802,187 @@ describe('GameScreen: coming back to the app (spec section 6)', () => {
       expect(fake.calls.slice(before)).toEqual(['seek:4000', 'play', ...FADE_IN_STEPS]);
       expect(fake.getPlayerState()).toBe('playing');
       expect(resumeButton()).not.toBeInTheDocument();
+    });
+
+    it('after leaving and coming back again and again, one "Continuar" brings the music back', () => {
+      renderGame({ blanks: [FERRY] });
+      playTo(2000);
+
+      for (let round = 0; round < 3; round++) {
+        setVisibility('hidden');
+        setVisibility('visible');
+      }
+      expect(screen.getAllByRole('button', { name: 'Continuar' })).toHaveLength(1);
+      expect(resumeButton()).toHaveFocus();
+      const before = fake.calls.length;
+
+      fireEvent.click(resumeButton()!);
+      finishFadeIn();
+
+      expect(fake.calls.slice(before)).toEqual(['play', ...FADE_IN_STEPS]);
+      expect(fake.getCurrentTimeMs()).toBe(2000);
+    });
+
+    it('leaving while the music rises after an answer: "Continuar" brings it all the way back from silence', () => {
+      renderGame();
+      playTo(3850);
+      finishFadeOut();
+      fireEvent.click(option('let'));
+      act(() => vi.advanceTimersByTime(FADE_IN_MS / 2));
+      expect(fake.getVolume()).toBeGreaterThan(0);
+      expect(fake.getVolume()).toBeLessThan(100);
+
+      setVisibility('hidden');
+      expect(fake.getVolume()).toBe(0);
+      setVisibility('visible');
+      const before = fake.calls.length;
+      fireEvent.click(resumeButton()!);
+      finishFadeIn();
+
+      expect(fake.calls.slice(before)).toEqual(['play', ...FADE_IN_STEPS]);
+      expect(fake.getVolume()).toBe(100);
+    });
+
+    it('lets a clip that ends while the app is away end the game: no "Continuar", and nothing plays', () => {
+      const onEnd = renderGame();
+      playTo(3850);
+      finishFadeOut();
+      fireEvent.click(option('let'));
+      playTo(DURATION_MS - 500);
+
+      setVisibility('hidden');
+      // The phone plays the clip again, and it runs to its end.
+      act(() => {
+        fake.setStateUnreported('playing');
+        fake.advance(500);
+      });
+      const before = fake.calls.length;
+      setVisibility('visible');
+
+      expect(onEnd).toHaveBeenCalledOnce();
+      expect(resumeButton()).not.toBeInTheDocument();
+      expect(fake.calls.slice(before)).not.toContain('play');
+    });
+
+    describe('with DJ Bop’s sheet or the settings open', () => {
+      function renderHelpedRound() {
+        renderGame({ lines: TYPING_LINES, blanks: [GET], requestHelp: helpService() });
+        // A first answer: help opens on a line only once its blank has had one (ruling R83).
+        fireEvent.click(option('late'));
+        playTo(1000);
+      }
+
+      function openHelpOn(name: string) {
+        fireEvent.click(within(screen.getByTestId('line-current')).getByRole('button', { name }));
+      }
+
+      it('keeps "Continuar" hidden with the game area, and "Valeu" brings the music back as the sheet would have', async () => {
+        renderHelpedRound();
+        openHelpOn('rain');
+        await settleHelp();
+        finishFadeOut();
+
+        setVisibility('hidden');
+        setVisibility('visible');
+        expect(resumeButton()).not.toBeInTheDocument();
+        const before = fake.calls.length;
+
+        fireEvent.click(screen.getByRole('button', { name: 'Valeu' }));
+        finishFadeIn();
+
+        expect(fake.calls.slice(before)).toEqual(['play', ...FADE_IN_STEPS]);
+        expect(resumeButton()).not.toBeInTheDocument();
+        expect(within(screen.getByTestId('line-current')).getByRole('button', { name: 'rain' })).toHaveFocus();
+      });
+
+      it('moves the focus to "Continuar" when a sheet that did not pause the clip closes', async () => {
+        renderHelpedRound();
+        // The player's own pause: the sheet then neither pauses the clip nor plays it on closing.
+        act(() => fake.emitState('paused'));
+        openHelpOn('rain');
+        await settleHelp();
+
+        setVisibility('hidden');
+        setVisibility('visible');
+        fireEvent.click(screen.getByRole('button', { name: 'Valeu' }));
+
+        expect(resumeButton()).toHaveFocus();
+      });
+
+      it('moves the focus to "Continuar" when the settings close', () => {
+        renderGame({ blanks: [FERRY] });
+        playTo(2000);
+        openSettings();
+
+        setVisibility('hidden');
+        setVisibility('visible');
+        expect(resumeButton()).not.toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Pronto' }));
+
+        expect(resumeButton()).toHaveFocus();
+      });
+    });
+
+    describe('the focus', () => {
+      it('goes back to "Continuar" when it stops a play the phone started', () => {
+        renderGame({ blanks: [FERRY] });
+        playTo(2000);
+        setVisibility('hidden');
+        setVisibility('visible');
+        screen.getByRole('button', { name: 'Repetir verso' }).focus();
+
+        act(() => fake.emitState('playing'));
+
+        expect(resumeButton()).toHaveFocus();
+      });
+
+      it('goes to "Repetir verso" once "Continuar" has brought the music back', () => {
+        renderGame({ blanks: [FERRY] });
+        playTo(2000);
+        setVisibility('hidden');
+        setVisibility('visible');
+
+        fireEvent.click(resumeButton()!);
+
+        expect(screen.getByRole('button', { name: 'Repetir verso' })).toHaveFocus();
+      });
+
+      it('goes to the first option during a wait in Escolha', () => {
+        renderGame();
+        playTo(3850);
+        finishFadeOut();
+        setVisibility('hidden');
+        setVisibility('visible');
+
+        fireEvent.click(resumeButton()!);
+
+        const options = within(screen.getByRole('group', { name: 'Escolha a palavra que falta' })).getAllByRole('button');
+        expect(options[0]).toHaveFocus();
+      });
+
+      it('goes to the typing field during a wait in Digitação', async () => {
+        await renderTyping();
+        playTo(3850);
+        finishFadeOut();
+        setVisibility('hidden');
+        setVisibility('visible');
+
+        fireEvent.click(resumeButton()!);
+
+        expect(field()).toHaveFocus();
+      });
+
+      it('goes to the first tile during a wait in Monte o verso', () => {
+        renderBuild();
+        playTo(3850);
+        finishFadeOut();
+        setVisibility('hidden');
+        setVisibility('visible');
+
+        fireEvent.click(resumeButton()!);
+
+        expect(allTiles()[0]).toHaveFocus();
+      });
     });
   });
 });

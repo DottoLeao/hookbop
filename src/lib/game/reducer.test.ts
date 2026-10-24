@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import type { PlayerState } from '@/lib/player/adapter';
 import type { Blank, LyricLine, Mode } from '@/lib/types';
-import { PAUSE_LEAD_MS, clipPlays, gameReducer, initGame, summaryOf, type GameEvent, type GameState } from './reducer';
+import {
+  PAUSE_LEAD_MS,
+  WAY_BACK_MAX_MS,
+  clipPlays,
+  gameReducer,
+  initGame,
+  lineMissedWhileAway,
+  summaryOf,
+  type GameEvent,
+  type GameState,
+} from './reducer';
 import { createScore, summarize } from './scoring';
 
 const LINES: LyricLine[] = [
@@ -765,6 +775,54 @@ describe('RESYNC', () => {
     expect(s.waitingBlankId).toBe('0:2');
     expect(s.status).toEqual(waiting.status);
     expect(s.commands).toEqual([]);
+  });
+});
+
+describe('lineMissedWhileAway (ruling S18)', () => {
+  it('is the line of a blank whose pause point the clip went through on its own', () => {
+    const s = run(game({ blanks: [LET, BOAT] }), tick(3500));
+    expect(lineMissedWhileAway(s, 3500, 4500)).toBe(LINES[0]);
+  });
+
+  it('is the earliest such line when the clip went through more than one', () => {
+    const short: LyricLine[] = [
+      { index: 0, startMs: 0, endMs: 2000, text: 'Low tide again' },
+      { index: 1, startMs: 2000, endMs: 3000, text: 'Gulls overhead' },
+    ];
+    const gulls: Blank = { id: '1:0', lineIndex: 1, tokenIndex: 0, answer: 'Gulls' };
+    const tide: Blank = { id: '0:1', lineIndex: 0, tokenIndex: 1, answer: 'tide' };
+    const s = game({ lines: short, blanks: [gulls, tide] });
+    expect(lineMissedWhileAway(s, 1000, 3000)).toBe(short[0]);
+  });
+
+  it('counts a blank that still awaits its answer: skipped, or missed with auto-repeat', () => {
+    const skipped = { ...game({ blanks: [LET] }), status: { '0:2': 'skipped' as const }, lastTickMs: 3500 };
+    expect(lineMissedWhileAway(skipped, 3500, 4500)).toBe(LINES[0]);
+
+    const missed = { ...game({ blanks: [LET], autoRepeat: false }), status: { '0:2': 'wrong' as const } };
+    expect(lineMissedWhileAway(missed, 3500, 4500)).toBeUndefined();
+    expect(lineMissedWhileAway({ ...missed, autoRepeat: true }, 3500, 4500)).toBe(LINES[0]);
+  });
+
+  it('is none for a blank already right, or one whose pause point the clip had passed before', () => {
+    const right = run(game({ blanks: [LET] }), answer('0:2', true, 1000), tick(3500));
+    expect(lineMissedWhileAway(right, 3500, 4500)).toBeUndefined();
+    expect(lineMissedWhileAway(game({ blanks: [LET] }), 3900, 4900)).toBeUndefined();
+  });
+
+  it('counts the pause point itself as gone through, and not the moment the clip left from', () => {
+    const s = game({ blanks: [LET] });
+    const pausePoint = LINES[0].endMs - PAUSE_LEAD_MS;
+    expect(lineMissedWhileAway(s, pausePoint - 1, pausePoint)).toBe(LINES[0]);
+    expect(lineMissedWhileAway(s, pausePoint, pausePoint + 500)).toBeUndefined();
+  });
+
+  it('is none when the clip did not move forward, or moved on for longer than the way back allows', () => {
+    const s = game({ blanks: [LET] });
+    expect(lineMissedWhileAway(s, 3500, 3500)).toBeUndefined();
+    expect(lineMissedWhileAway(s, 4500, 3500)).toBeUndefined();
+    expect(lineMissedWhileAway(s, 3000, 3000 + WAY_BACK_MAX_MS)).toBe(LINES[0]);
+    expect(lineMissedWhileAway(s, 3000, 3000 + WAY_BACK_MAX_MS + 1)).toBeUndefined();
   });
 });
 
