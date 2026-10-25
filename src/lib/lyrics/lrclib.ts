@@ -1,4 +1,5 @@
-import { pickBestCandidate, type LrclibCandidate } from './pick';
+import { parseLrc } from './lrc';
+import { isSameSong, pickBestCandidate, type LrclibCandidate } from './pick';
 import type { LyricsLookup, LyricsQuery, LyricsSource } from './source';
 
 const API_URL = 'https://lrclib.net/api';
@@ -42,6 +43,41 @@ function parseAnswer(body: unknown): Answer {
 
 function candidatesIn(answer: Answer): LrclibCandidate[] {
   return answer.kind === 'candidates' ? answer.candidates : [];
+}
+
+/** When each line starts, in ms. Two copies whose lines start at the same times are one timing. */
+function startsOf(lrc: string): number[] {
+  return parseLrc(lrc).map((line) => line.startMs);
+}
+
+function sameStarts(a: number[], b: number[]): boolean {
+  return a.length === b.length && a.every((startMs, i) => startMs === b[i]);
+}
+
+/**
+ * How long the recording the chosen lyrics were timed on lasts, in s. LRCLIB often lists one timing many times, under
+ * the lengths of an album, a compilation or a music video: a copy's duration is only a label, and one that matches the
+ * video says nothing of an intro the lyrics leave out. So among the copies of the song with the very same timing, the
+ * shortest that still holds every line is the recording (a copy shorter than its last line was cut and does not
+ * count). It is the chosen copy's own duration when no copy qualifies.
+ */
+function timingDurationS(
+  best: LrclibCandidate & { syncedLyrics: string },
+  candidates: LrclibCandidate[],
+  q: LyricsQuery,
+): number {
+  const starts = startsOf(best.syncedLyrics);
+  const lastStartMs = starts.at(-1) ?? 0;
+  const lengths = candidates
+    .filter(
+      (c) =>
+        c.syncedLyrics !== null &&
+        c.duration * 1000 >= lastStartMs &&
+        isSameSong(c, q) &&
+        sameStarts(startsOf(c.syncedLyrics), starts),
+    )
+    .map((c) => c.duration);
+  return lengths.length > 0 ? Math.min(...lengths) : best.duration;
 }
 
 /**
@@ -88,7 +124,8 @@ export function createLrclibSource(opts: { fetch: typeof fetch; client: string; 
           call('search', { track_name: q.track, artist_name: q.artist }, controller.signal),
         ]);
 
-        const best = pickBestCandidate([...candidatesIn(exact), ...candidatesIn(search)], q);
+        const candidates = [...candidatesIn(exact), ...candidatesIn(search)];
+        const best = pickBestCandidate(candidates, q);
         if (best?.syncedLyrics) {
           return {
             status: 'found',
@@ -96,7 +133,7 @@ export function createLrclibSource(opts: { fetch: typeof fetch; client: string; 
               source: 'lrclib',
               ref: String(best.id),
               syncedLrc: best.syncedLyrics,
-              durationS: best.duration,
+              durationS: timingDurationS({ ...best, syncedLyrics: best.syncedLyrics }, candidates, q),
               artist: best.artistName,
               track: best.trackName,
             },

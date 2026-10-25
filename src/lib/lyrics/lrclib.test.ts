@@ -43,7 +43,7 @@ describe('createLrclibSource', () => {
     const fetchFn = routed({
       get: status(404),
       search: answers([
-        candidate({ id: 1, duration: 175 }),
+        candidate({ id: 1, duration: 175, syncedLyrics: '[00:02.00]x' }),
         candidate({ id: 2, duration: 201 }),
         candidate({ id: 3, trackName: 'Completely Other' }),
       ]),
@@ -72,6 +72,52 @@ describe('createLrclibSource', () => {
     expect(await sourceOver(fetchFn).find(q)).toEqual({
       status: 'found',
       result: { source: 'lrclib', ref: '7', syncedLrc: lrc, durationS: 199.6, artist: 'The Artist', track: 'SONG' },
+    });
+  });
+
+  describe('when the same timing is listed under several durations', () => {
+    // One timing, copied under the length of an album, a compilation and a music video with an intro.
+    const timed = '[00:01.25]a\n[00:30.00]b\n[04:03.28]c';
+    const video = { ...q, durationS: 291 };
+
+    it('keeps the chosen copy but gives the length of the shortest copy that holds every line', async () => {
+      const fetchFn = routed({
+        get: answers(candidate({ id: 1, duration: 291, syncedLyrics: timed })),
+        search: answers([
+          candidate({ id: 1, duration: 291, syncedLyrics: timed }),
+          candidate({ id: 2, duration: 271, syncedLyrics: timed }),
+          candidate({ id: 3, duration: 280, syncedLyrics: timed }),
+        ]),
+      });
+
+      expect(await sourceOver(fetchFn).find(video)).toMatchObject({
+        status: 'found',
+        result: { ref: '1', syncedLrc: timed, durationS: 271 },
+      });
+    });
+
+    it('does not count a copy shorter than its last line, which was cut', async () => {
+      const fetchFn = routed({
+        get: status(404),
+        search: answers([
+          candidate({ id: 1, duration: 291, syncedLyrics: timed }),
+          candidate({ id: 2, duration: 238, syncedLyrics: timed }),
+        ]),
+      });
+
+      expect(await sourceOver(fetchFn).find(video)).toMatchObject({ result: { ref: '1', durationS: 291 } });
+    });
+
+    it('does not count a copy with another timing', async () => {
+      const fetchFn = routed({
+        get: status(404),
+        search: answers([
+          candidate({ id: 1, duration: 291, syncedLyrics: timed }),
+          candidate({ id: 2, duration: 250, syncedLyrics: '[00:01.25]a\n[00:31.00]b\n[04:03.28]c' }),
+        ]),
+      });
+
+      expect(await sourceOver(fetchFn).find(video)).toMatchObject({ result: { ref: '1', durationS: 291 } });
     });
   });
 

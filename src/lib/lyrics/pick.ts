@@ -75,6 +75,11 @@ function scoreOf(candidate: LrclibCandidate, q: LyricsQuery): Scored | null {
   return { candidate, score, durationDiffS };
 }
 
+/** True when the candidate could be picked for the song at all: synced lyrics, the same title and artist rules. */
+export function isSameSong(candidate: LrclibCandidate, q: LyricsQuery): boolean {
+  return scoreOf(candidate, q) !== null;
+}
+
 function isBetter(a: Scored, b: Scored): boolean {
   if (Math.abs(a.score - b.score) > SCORE_TIE) return a.score > b.score;
   return a.durationDiffS < b.durationDiffS;
