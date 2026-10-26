@@ -25,7 +25,7 @@ Decisões e contas que só você pode tomar. Marque quando estiver pronto.
 
 - [ ] **Projeto no Supabase.** Guarda o login, o banco e as regras de acesso. O plano grátis permite 2 projetos ativos: se você já tem 2, pause um (Project Settings → General → Pause project, o nome pode variar no painel) ou assine o plano Pro.
 - [ ] **Cliente OAuth no Google Cloud.** É o que faz o botão "Entrar com Google" funcionar. A seção 3.6 mostra como criar.
-- [ ] **Chave de API da Anthropic.** "Não entendi" e "Traduzir verso" chamam a IA pelo servidor. Sem a chave o jogo abre, mas a ajuda de IA falha.
+- [ ] **Chave de API da Anthropic.** "Não entendi" e a tradução (da música inteira, pedida quando a música abre, e de um verso) chamam a IA pelo servidor. Sem a chave o jogo abre, mas a ajuda de IA falha.
 - [ ] **Domínio registrado.** É o endereço do app. Escolha agora e não troque depois: trocar de domínio quebra os links já enviados e obriga todo mundo a reinstalar o app.
 - [ ] **Conta na Vercel.** Hospeda o app. O plano grátis serve para a fase 1; confira os termos dele antes de ligar anúncios ou cobrança.
 - [ ] **Provedor de SMTP para e-mail** (por exemplo Resend ou Brevo). O e-mail com o link e o código de entrada precisa chegar na caixa de qualquer amigo; a seção 3.5 explica por que o envio padrão do Supabase não serve.
@@ -237,7 +237,7 @@ Faça no endereço real, `https://<seu-domínio>`.
 - [ ] Abrir o endereço sem sessão leva à tela de entrada, com cadeado de HTTPS.
 - [ ] **Entrar pelo Google** com o e-mail do dono: cai na página inicial e aparece o botão "Admin" (prova de que o `owner_email` está certo).
 - [ ] **Entrar pelo código do e-mail**, numa janela anônima ou noutro aparelho, com um e-mail que não é o seu: o e-mail chega com o código, e o código de 6 dígitos é aceito. Sem convite, a pessoa cai na mensagem "Pede um convite pra quem te mandou", e isso está certo.
-- [ ] Cole um link do YouTube, abra a música e, num modo de jogo, toque em **"Não entendi"** num verso e depois em **"Traduzir verso"**. O objetivo é confirmar que a API real aceita os parâmetros que o app manda (modelo e configurações do pedido). Deve aparecer o texto do DJ Bop nos dois casos.
+- [ ] Cole um link do YouTube **de uma música que ninguém abriu ainda**, abra a música e, num modo de jogo, ligue **"Tradução"** nas ferramentas e depois toque em **"Não entendi"** num verso. O objetivo é confirmar que a API real aceita os parâmetros que o app manda (modelo, saída estruturada e streaming na tradução da música inteira). A tradução deve aparecer embaixo dos versos e o texto do DJ Bop na explicação.
 - [ ] **Instalação:** termine a primeira música e volte à página inicial. No Android aparece "Quer o Hookbop na tela inicial?" com o botão "Instalar". No iPhone aparece a dica "Toque em Compartilhar e depois em Adicionar à Tela de Início".
 
 Se a ajuda de IA falhar, veja a seção 9: os logs do servidor dizem o motivo (por exemplo `The model service answered 400`).
@@ -259,7 +259,7 @@ No iPhone, instale pelo **Safari** (Compartilhar → Adicionar à Tela de Iníci
 | 2 | Cola um link e a letra aparece. |  |  |  |
 | 3 | Calibra um clipe que tem introdução. |  |  |  |
 | 4 | Joga os 4 modos. |  |  |  |
-| 5 | Usa "Não entendi" e "Traduzir verso". |  |  |  |
+| 5 | Usa "Não entendi" e liga "Tradução". |  |  |  |
 | 6 | Chega na tela de fim. |  |  |  |
 | 7 | Instala na tela inicial. |  |  |  |
 | 8 | No Android, compartilha um vídeo a partir do app do YouTube (o Hookbop só aparece no menu de compartilhar depois de instalado). |  |  |  |
@@ -303,5 +303,5 @@ Mensagens do servidor que valem buscar: `The help request failed.`, `Could not s
 | Google mostra "acesso bloqueado" ou "app não verificado" | Tela de consentimento ainda em "Testando" (3.6) |
 | Google mostra `redirect_uri_mismatch` | A URI de redirecionamento autorizada no Google Cloud não é a que o Supabase mostra (3.6) |
 | O dono entra e cai em "Pede um convite" | `owner_email` diferente do e-mail usado no login (2.3) |
-| "Não entendi" ou "Traduzir verso" falham | Log `The help request failed.` e a linha `The model service answered NNN`: 401 costuma ser chave errada, 429 é limite de uso ou de gasto, 400 é pedido recusado. Se nenhuma ajuda funciona, confira se a 0002 foi aplicada (`npx supabase migration list`) |
+| "Não entendi" ou a tradução falham (na tradução da música inteira o log é `The song translation stopped short.` ou `The song translation request failed.`) | Log `The help request failed.` e a linha `The model service answered NNN`: 401 costuma ser chave errada, 429 é limite de uso ou de gasto, 400 é pedido recusado. Se nenhuma ajuda funciona, confira se a 0002 foi aplicada (`npx supabase migration list`) |
 | Tudo falha de repente depois de dias sem uso | O projeto do Supabase pode ter sido pausado no plano grátis; restaure no painel |

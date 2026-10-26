@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useEffect, useRef, type MouseEvent } from 'react';
+import { Fragment, useRef, type MouseEvent } from 'react';
 import { t } from '@/i18n/t';
 import type { BlankStatus } from '@/lib/game/reducer';
 import { useReducedMotion } from '@/lib/motion/useReducedMotion';
@@ -31,18 +31,11 @@ interface LyricPanelProps {
    */
   corrected?: Record<string, number[]>;
   /**
-   * The translation of the line in play, as far as it got: on its way, there, or not to be had (with what DJ Bop says
-   * about it). Shown whenever there is one, whatever "Mostrar tradução sempre" says: that setting only decides whether
-   * the game screen asks for it by itself (ruling R64).
+   * The translation of the line in play, as far as it got: on its way, or there. The game screen gives one only while
+   * its translation switch is on and the line may show it (no blank of it waits for its first answer); without one,
+   * nothing is drawn for it.
    */
   translation?: TranslationView;
-  /** "Traduzir verso", with the index of the line it is under. */
-  onTranslate: (lineIndex: number) => void;
-  /**
-   * "Continuar": the music is paused for the player to read the translation, and this plays it from where it stopped.
-   * Given only while that pause lasts; the button is not there without it.
-   */
-  onContinue?: () => void;
   /**
    * "Não entendi", or a tap on a word of the line in play: the word or expression to explain, the index of the line
    * that was drawn (the clock may have moved past it by the time of the tap), and the button that was tapped, which
@@ -51,10 +44,7 @@ interface LyricPanelProps {
   onExplain: (target: string, lineIndex: number, opener: HTMLElement) => void;
 }
 
-export type TranslationView =
-  | { status: 'loading' }
-  | { status: 'done'; text: string }
-  | { status: 'error'; message: string };
+export type TranslationView = { status: 'loading' } | { status: 'done'; text: string };
 
 /**
  * The `tokenIndex` of a blank for the whole line (Monte o verso, `selectTileLines`): the line is the puzzle, so no
@@ -193,28 +183,6 @@ function LineText({ text, blanks, status, inPlay = false, onExplain, inPlayId, c
   });
 }
 
-/**
- * The one thing to do now: lime, so it reads as the way back to the music. It takes the focus when it appears, since
- * the "Traduzir verso" the player tapped goes away; without scrolling, as the page is where the player left it. The
- * ring is the page's lime one, offset from the button: on the dark page around it a dark ring would not show.
- */
-function ContinueButton({ onClick }: { onClick: () => void }) {
-  const ref = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    ref.current?.focus({ preventScroll: true });
-  }, []);
-  return (
-    <button
-      ref={ref}
-      type="button"
-      onClick={onClick}
-      className={`min-h-11 rounded-full bg-lime px-3.5 text-body font-bold text-bg ${focusRing}`}
-    >
-      {t('jogo.continue')}
-    </button>
-  );
-}
-
 function Pill({ onClick, children }: { onClick: (event: MouseEvent<HTMLButtonElement>) => void; children: string }) {
   return (
     <button
@@ -229,18 +197,16 @@ function Pill({ onClick, children }: { onClick: (event: MouseEvent<HTMLButtonEle
 
 /**
  * The lyrics around the clip: the line before in muted text, the line in play in Space Grotesk with its blank, and
- * the line after in muted text. Under the line in play: its translation once there is one, and "Traduzir verso" until
- * then ("Traduzindo..." while it is on its way, and DJ Bop's calm line next to the pill when it cannot be had), and
- * "Não entendi" once every blank of the line has had its first answer. Until then the words of the line in play cannot
- * be tapped either (ruling R83); "Traduzir verso" is there all along (spec §7, ruling R60). While the music is paused
- * for the translation, "Continuar" is the first of those buttons, under the translation. While the translation is on its way,
- * "Traduzindo..." is drawn in a box a shimmer passes over (`shimmer`, in `globals.css`), where the translation will come;
- * it is still the `role="status"` that says it.
+ * the line after in muted text. Under the line in play: its translation when the game screen gives one, and "Não
+ * entendi" once every blank of the line has had its first answer. Until then the words of the line in play cannot be
+ * tapped either (ruling R83). The translation is turned on and off in the tools (the game screen's switch), never here.
+ * While it is on its way, "Traduzindo..." is drawn in a box a shimmer passes over (`shimmer`, in `globals.css`), where
+ * the translation will come; it is still the `role="status"` that says it.
  *
  * A line that is a puzzle (Monte o verso) is never drawn as text until it is right (ruling R52), and while it is in
  * play the answer area holds it (ruling R59): the panel then draws neither that line nor the line after it, only the
- * line before, "Traduzir verso" and the translation, so nothing here changes size when the line is solved. A puzzle
- * line never gets "Não entendi": that pill would explain the hidden line, and the area has "Não entendi a ordem".
+ * line before and the translation, so nothing here changes size when the line is solved. A puzzle line never gets
+ * "Não entendi": that pill would explain the hidden line, and the area has "Não entendi a ordem".
  *
  * When the song moves on to the next line, the lyrics slide up to it (`useLineTransition`); the buttons do not move.
  */
@@ -252,8 +218,6 @@ export function LyricPanel({
   inPlayId,
   corrected,
   translation,
-  onTranslate,
-  onContinue,
   onExplain,
 }: LyricPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -274,10 +238,6 @@ export function LyricPanel({
   // "Não entendi" explains the blank in play, or the line's last one.
   const explained = helpOpen ? (answerable.find((blank) => blank.id === inPlayId) ?? answerable.at(-1)) : undefined;
   const shownTranslation = translation?.status === 'done' ? translation.text : null;
-  // "Traduzir verso" until the translation is there, except while it is on its way. After a failure it asks again.
-  const canTranslate = !shownTranslation && translation?.status !== 'loading';
-  const translationNote =
-    translation?.status === 'loading' ? t('ajuda.translating') : translation?.status === 'error' ? translation.message : null;
   const translating = translation?.status === 'loading';
   // The word the player tapped belongs to the line drawn now, whatever line the clock reaches before the tap lands.
   const explain = (target: string, opener: HTMLElement) => onExplain(target, current, opener);
@@ -307,21 +267,14 @@ export function LyricPanel({
           {shownTranslation}
         </p>
       )}
-      {translationNote && (
-        <p
-          role="status"
-          className={translating ? 'shimmer rounded-blank bg-elevated px-3 py-2 text-body text-muted' : 'text-body text-muted'}
-        >
-          {translationNote}
+      {translating && (
+        <p role="status" className="shimmer rounded-blank bg-elevated px-3 py-2 text-body text-muted">
+          {t('ajuda.translating')}
         </p>
       )}
-      {(onContinue || canTranslate || explained) && (
+      {explained && (
         <div className="flex flex-wrap gap-2">
-          {onContinue && <ContinueButton onClick={onContinue} />}
-          {canTranslate && <Pill onClick={() => onTranslate(current)}>{t('jogo.translate')}</Pill>}
-          {explained && (
-            <Pill onClick={(event) => explain(explained.answer, event.currentTarget)}>{t('jogo.explain')}</Pill>
-          )}
+          <Pill onClick={(event) => explain(explained.answer, event.currentTarget)}>{t('jogo.explain')}</Pill>
         </div>
       )}
       {next && !inArea && (

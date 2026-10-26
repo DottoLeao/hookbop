@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import gsap from 'gsap';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Blank, LyricLine } from '@/lib/types';
@@ -30,7 +30,6 @@ function renderPanel(over: Partial<Props> = {}) {
     current: 1,
     blanks: [STARS, LINE],
     status: { [STARS.id]: 'pending', [LINE.id]: 'pending' },
-    onTranslate: vi.fn(),
     onExplain: vi.fn(),
     ...over,
   };
@@ -223,26 +222,13 @@ describe('LyricPanel: the lyrics slide from line to line', () => {
   });
 
   it('leaves the focus on the button that had it', () => {
-    renderPanel();
-    const translate = screen.getByRole('button', { name: 'Traduzir verso' });
-    translate.focus();
+    renderPanel({ status: { [STARS.id]: 'correct', [LINE.id]: 'wrong' } });
+    const explain = screen.getByRole('button', { name: 'Não entendi' });
+    explain.focus();
 
     update({ current: 2 });
 
-    expect(screen.getByRole('button', { name: 'Traduzir verso' })).toHaveFocus();
-  });
-
-  it('leaves "Continuar" with the focus it took, given once and without scrolling', () => {
-    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
-    renderPanel({ onContinue: vi.fn() });
-
-    update({ current: 2 });
-
-    expect(screen.getByRole('button', { name: 'Continuar' })).toHaveFocus();
-    expect(focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
-    fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
-    expect(props.onContinue).toHaveBeenCalledOnce();
-    focus.mockRestore();
+    expect(screen.getByRole('button', { name: 'Não entendi' })).toHaveFocus();
   });
 });
 
@@ -328,16 +314,14 @@ describe('LyricPanel: the translation on its way', () => {
     expect(status.tagName).toBe('P');
   });
 
-  it('keeps the pills as they are while it loads: no "Traduzir verso" until it fails, "Continuar" and "Não entendi" stay', () => {
+  it('keeps "Não entendi" as it is while it loads', () => {
     renderPanel({
       translation: { status: 'loading' },
       status: { [STARS.id]: 'correct', [LINE.id]: 'pending' },
-      onContinue: vi.fn(),
     });
 
-    expect(screen.queryByRole('button', { name: 'Traduzir verso' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Continuar' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Não entendi' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Traduzir verso' })).not.toBeInTheDocument();
   });
 
   it('shows no shimmer once the translation is there', () => {
@@ -350,27 +334,10 @@ describe('LyricPanel: the translation on its way', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
-  it('shows no shimmer when the translation failed: DJ Bop says so, and "Traduzir verso" asks again', () => {
-    renderPanel({ translation: { status: 'error', message: 'Essa agora não deu. Fica pra próxima?' } });
-
-    expect(screen.getByRole('status')).toHaveTextContent('Essa agora não deu. Fica pra próxima?');
-    expect(view.container.querySelector('.shimmer')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Traduzir verso' })).toBeInTheDocument();
-  });
-
   it('shows no shimmer, and no status, before a translation is asked for', () => {
     renderPanel();
 
     expect(view.container.querySelector('.shimmer')).toBeNull();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
-  });
-
-  it('shimmers again when a failed translation is asked for again', () => {
-    renderPanel({ translation: { status: 'error', message: 'Essa agora não deu. Fica pra próxima?' } });
-
-    update({ translation: { status: 'loading' } });
-
-    expect(screen.getByRole('status')).toHaveClass('shimmer');
-    expect(screen.getByRole('status')).toHaveTextContent('Traduzindo...');
   });
 });

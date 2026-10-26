@@ -13,11 +13,16 @@ export interface ToolsBarProps {
   repeatRef?: Ref<HTMLButtonElement>;
   /** The clip plays at 0.75x. */
   slow: boolean;
-  /** An action of the mode, as a third tool (Karaokê: the translation switch). */
+  /**
+   * An action of the mode, as a third tool: Karaokê's "Esconder tradução" / "Mostrar tradução", or the translation
+   * switch of the modes with blanks.
+   */
   action?: {
     /** What the button says. */
     label: string;
     onClick: () => void;
+    /** For a switch: whether it is on. It is then drawn and announced like 0.75x (`aria-pressed`). */
+    pressed?: boolean;
   };
 }
 
@@ -30,8 +35,9 @@ const tool = `${toolBase} whitespace-nowrap`;
  * The tools under the answers: 0.75x and "Repetir verso", which split the row between them (as the wireframes give
  * each tool `flex: 1`).
  *
- * A mode can give an `action` instead, which takes a third place in the row (Karaokê: the translation switch). Its
- * label is longer than the other two, so it gets the widest share of the row (Karaoke.dc.html gives its translation
+ * A mode can give an `action` too, which takes a third place in the row: Karaokê's translation switch, or the
+ * translation switch of the modes with blanks ("Tradução", lime and `aria-pressed` while it is on, as 0.75x). Its
+ * label can be the longest of the three, so it gets the widest share of the row (Karaoke.dc.html gives its translation
  * switch the widest too), at the cost of 0.75x, the shortest tool. At 14 px, "Esconder tradução" is 128 px wide,
  * "Repetir verso" 90 and "0.75x" 38, each plus 8 of padding, and each tool is its 8 plus its share of what the row has
  * left. The shares below keep the label on one line from a 350 px phone up, and "Repetir verso" and 0.75x whole down
@@ -60,8 +66,9 @@ export function ToolsBar({ onSlow, onRepeat, repeatRef, slow, action }: ToolsBar
       {action && (
         <button
           type="button"
+          aria-pressed={action.pressed}
           onClick={action.onClick}
-          className={`${toolBase} flex-[1.6] bg-card text-center leading-tight text-text`}
+          className={`${toolBase} flex-[1.6] text-center leading-tight ${action.pressed ? 'bg-lime text-bg' : 'bg-card text-text'}`}
         >
           {action.label}
         </button>

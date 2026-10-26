@@ -209,28 +209,64 @@ describe('GameScreen: help_explain', () => {
 });
 
 describe('GameScreen: help_translate', () => {
-  it('is tracked when "Traduzir verso" is tapped, with the song, the mode and the line', async () => {
+  /** The switch of the tools that shows the translation under the line in play. */
+  function translationSwitch() {
+    return screen.getByRole('button', { name: 'Tradução' });
+  }
+
+  it('is tracked when the translation is turned on, with the song, the mode and the line in play', async () => {
     renderGame();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
+    fireEvent.click(translationSwitch());
     await settle();
 
     expect(track).toHaveBeenCalledExactlyOnceWith('help_translate', { youtubeId: ID, mode: 'escolha', props: { lineIndex: 0 } });
   });
 
+  it('is tracked once for one tap, even under StrictMode', async () => {
+    renderGame({}, true);
+
+    fireEvent.click(translationSwitch());
+    await settle();
+
+    expect(tracked()).toEqual(['help_translate']);
+  });
+
+  it('is not tracked when the translation is turned off', async () => {
+    renderGame();
+    fireEvent.click(translationSwitch());
+    vi.mocked(track).mockClear();
+
+    fireEvent.click(translationSwitch());
+    await settle();
+
+    expect(tracked()).toEqual([]);
+  });
+
+  it('is tracked with the line in play at the tap, the one the clock reached', () => {
+    renderGame({ blanks: [FERRY] });
+    playTo(4500);
+
+    fireEvent.click(translationSwitch());
+
+    expect(track).toHaveBeenCalledExactlyOnceWith('help_translate', { youtubeId: ID, mode: 'escolha', props: { lineIndex: 1 } });
+  });
+
   it('is tracked for a line of Monte o verso that is still hidden', async () => {
     renderGame({ mode: 'montar', lines: BUILD_LINES, blanks: [WHOLE_0] });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
+    fireEvent.click(translationSwitch());
     await settle();
 
     expect(track).toHaveBeenCalledExactlyOnceWith('help_translate', { youtubeId: ID, mode: 'montar', props: { lineIndex: 0 } });
   });
 
-  it('is not tracked for the translation "Mostrar tradução sempre" asks for by itself: the player did not ask', async () => {
+  it('is not tracked for the lines translated while it stays on, nor when a game starts with it on', async () => {
     saveSettings(localStorage, { ...DEFAULT_SETTINGS, alwaysShowTranslation: true });
     const requestHelp = helpService();
-    renderGame({ requestHelp });
+    renderGame({ requestHelp, blanks: [FERRY] });
+    await settle();
+    playTo(4500);
     await settle();
 
     expect(requestHelp).toHaveBeenCalledWith(expect.objectContaining({ kind: 'translate' }));
@@ -259,14 +295,12 @@ describe('GameScreen: continue_after_leave', () => {
     expect(track).toHaveBeenCalledExactlyOnceWith('continue_after_leave', { youtubeId: ID, mode: 'escolha' });
   });
 
-  it('is not tracked for leaving the app and coming back, nor for the "Continuar" of "Traduzir verso"', async () => {
+  it('is not tracked for leaving the app and coming back, before "Continuar" is tapped', () => {
     renderGame();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
-    await settle();
+    setVisibility('hidden');
+    setVisibility('visible');
     act(() => vi.advanceTimersByTime(2000));
-    vi.mocked(track).mockClear();
-    fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
 
     expect(tracked()).toEqual([]);
   });

@@ -10,7 +10,7 @@ test.describe('without a session', () => {
     await expect(page.getByRole('img', { name: 'hookbop' })).toBeVisible();
   });
 
-  for (const path of ['/jogar/dQw4w9WgXcQ', '/convidar', '/admin', '/api/help', '/api/song']) {
+  for (const path of ['/jogar/dQw4w9WgXcQ', '/convidar', '/admin', '/api/help', '/api/song', '/api/translate-song']) {
     test(`${path} is members only`, async ({ page }) => {
       await page.goto(path);
 

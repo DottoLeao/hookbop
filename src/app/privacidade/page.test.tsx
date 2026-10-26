@@ -36,13 +36,13 @@ describe('PrivacidadePage', () => {
     ]);
   });
 
-  it('names every service that receives data, and says the AI gets only the verse', () => {
+  it('names every service that receives data, and says the AI gets only the lyrics, never the player', () => {
     render(<PrivacidadePage />);
 
     for (const service of ['Supabase', 'Vercel', 'Google', 'Anthropic', 'YouTube', 'LRCLIB']) {
       expect(screen.getAllByText(new RegExp(service)).length).toBeGreaterThan(0);
     }
-    expect(screen.getByText(/só o verso da música e a palavra destacada/)).toBeInTheDocument();
+    expect(screen.getByText(/só o verso e a palavra destacada/)).toBeInTheDocument();
   });
 
   it('says the player and the covers of the songs on the home screen both come from YouTube, and the covers are asked for without saying which page', () => {
@@ -77,7 +77,7 @@ describe('PrivacidadePage: usage records', () => {
     for (const part of [
       'o código da sua conta',
       'o vídeo',
-      'o número do verso',
+      'o número do verso (ou que foi a música inteira)',
       'explicação ou tradução',
       'veio da IA ou de uma resposta já guardada',
       'os tokens usados',
@@ -136,11 +136,15 @@ describe('PrivacidadePage: usage records', () => {
     expect(analise).toHaveTextContent('só o código da sua conta, sem nome e sem e-mail');
   });
 
-  it('does not contradict that in the line about Anthropic: the help sends only the verse, the analysis is named too', () => {
+  it('does not contradict that in the line about Anthropic: the lyrics and the verse go, no data of the player, the analysis is named too', () => {
     render(<PrivacidadePage />);
 
     const anthropic = topic('Quem mais recebe dados').getByText(/^Anthropic \(Claude\):/);
-    expect(anthropic).toHaveTextContent('enviamos só o verso da música e a palavra destacada, e nenhum dado seu vai junto');
+    expect(anthropic).toHaveTextContent(
+      'quando você abre uma música, enviamos a letra dela para traduzir (se a tradução ainda não estiver guardada)',
+    );
+    expect(anthropic).toHaveTextContent('quando você toca em "Não entendi", enviamos só o verso e a palavra destacada');
+    expect(anthropic).toHaveTextContent('Nenhum dado seu vai junto.');
     expect(anthropic).toHaveTextContent('O criador também pode usar o Claude para analisar os registros de uso');
     expect(anthropic).toHaveTextContent('entra o código da sua conta, sem nome e sem e-mail');
   });

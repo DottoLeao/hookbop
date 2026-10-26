@@ -39,7 +39,7 @@ export const postHelp: HelpRequester = async (request) => {
 export interface LineHelp {
   /** "Não entendi": `target` in the line, or the whole line for ''. */
   explain(lineIndex: number, target: string): Promise<string>;
-  /** "Traduzir verso", and the translations of Karaokê. */
+  /** The translation of one line, for a line the translation of the whole song did not give. */
   translate(lineIndex: number): Promise<string>;
 }
 

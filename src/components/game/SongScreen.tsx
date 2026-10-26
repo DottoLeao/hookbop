@@ -16,6 +16,7 @@ import {
   type SavedProgress,
 } from '@/lib/game/savedProgress';
 import { helpedBlanks } from '@/lib/game/scoring';
+import { translateSong as translateWholeSong, type SongTranslation } from '@/lib/help/songTranslation';
 import { selectTileLines } from '@/lib/game/tiles';
 import { cleanTitle } from '@/lib/lyrics/cleanTitle';
 import { linesOfVideo } from '@/lib/lyrics/linesOfVideo';
@@ -82,6 +83,11 @@ export interface SongScreenDeps {
   progressStorage?: () => ProgressStorage | null;
   /** The time of day in ms since 1970, for telling how old a saved game is. `Date.now` when left out. */
   wallClock?: () => number;
+  /**
+   * Starts the translation of the whole song (`POST /api/translate-song`), once per song and lyrics for as long as the
+   * app is open, and gives back what comes of it. Left out, there is none, and the game translates line by line.
+   */
+  translateSong?: (youtubeId: string, lyricsRef: string) => SongTranslation;
 }
 
 const defaultNow = () => performance.now();
@@ -120,6 +126,7 @@ const browserDeps: SongScreenDeps = {
   sleep: defaultSleep,
   progressStorage: browserStorage,
   wallClock: defaultWallClock,
+  translateSong: translateWholeSong,
 };
 
 /** The player's duration in ms, read again every 100 ms while it is 0, for at most 3 s. 0 if it never came. */
@@ -279,11 +286,15 @@ function PasteAnother({ className }: { className: string }) {
  * animated. The player's box is a sibling above it, outside every transition, so a change of screen never remounts,
  * moves, resizes, covers or animates the player.
  *
+ * As soon as the lyrics are known, the translation of the whole song is asked for in the background (`translateSong`),
+ * before the player taps anything, so it is ready when the game shows it. Nothing waits for it: the calibration, the
+ * picker and the game go on as they would, and a failure only means there is no translation ready.
+ *
  * The owner's panel hears (`track`) when the song is ready (`song_opened`), when a game begins (`mode_selected` and
  * `game_started`, but not for one that goes on from a saved game: ruling S43) and when it finishes (`game_finished`).
  */
 export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: string; deps?: SongScreenDeps }) {
-  const { resolve, createAdapter, saveOffsetVote, doubleXp } = deps;
+  const { resolve, createAdapter, saveOffsetVote, doubleXp, translateSong } = deps;
   const now = deps.now ?? defaultNow;
   const sleep = deps.sleep ?? defaultSleep;
   const wallClock = deps.wallClock ?? defaultWallClock;
@@ -318,6 +329,8 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
   const [playerStarted, setPlayerStarted] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
   const [timeToReadyMs, setTimeToReadyMs] = useState<number | null>(null);
+  // The translation of the whole song, once its lyrics are known: handed to every game of the song.
+  const [songTranslation, setSongTranslation] = useState<SongTranslation | null>(null);
   const gameSave = useGameSave(deps.savePlay);
   const screenRef = useRef<HTMLDivElement>(null);
   // How many songs this screen has finished: only the first one waited for the song to get ready.
@@ -402,6 +415,7 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
       setPlayerError(null);
       setPlayerStarted(false);
       setPhase({ kind: 'loading' });
+      setSongTranslation(null);
     };
   }, [createAdapter, youtubeId, playerAttempt]);
 
@@ -432,6 +446,15 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
 
       const next = phaseFor(resolution, player, () => lookUpSavedRef.current());
       if (next.kind === 'calibration' || next.kind === 'picker') {
+        const lyricsRef = next.video.lyricsRef;
+        if (translateSong && lyricsRef) {
+          try {
+            setSongTranslation(translateSong(youtubeId, lyricsRef));
+          } catch (error) {
+            // The translation is a nicety on top of the song: the game asks line by line instead.
+            console.warn('Could not ask for the translation of the song.', error);
+          }
+        }
         const elapsedMs = Math.round(now() - (openedAtRef.current ?? 0));
         setTimeToReadyMs((known) => known ?? elapsedMs);
         if (!songOpenedRef.current) {
@@ -446,7 +469,7 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
     return () => {
       closed = true;
     };
-  }, [adapter, resolve, sleep, youtubeId, now, lyricsAttempt]);
+  }, [adapter, resolve, sleep, youtubeId, now, lyricsAttempt, translateSong]);
 
   function retryPlayer() {
     setAdapter(null);
@@ -625,6 +648,7 @@ export function SongScreen({ youtubeId, deps = browserDeps }: { youtubeId: strin
             resume={phase.resume}
             progressStorage={progressStorage}
             wallClock={wallClock}
+            songTranslation={songTranslation}
           />
         );
 

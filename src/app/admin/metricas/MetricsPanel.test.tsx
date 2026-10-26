@@ -209,8 +209,8 @@ describe('MetricsPanel', () => {
     const help = card('Pedidos de ajuda por modo');
     const [karaoke, escolha] = help.getAllByRole('listitem');
     expect(karaoke).toHaveTextContent('Karaokê');
-    expect(karaoke).toHaveTextContent('0 "Não entendi" · 7 "Traduzir verso"');
-    expect(escolha).toHaveTextContent('3 "Não entendi" · 1 "Traduzir verso"');
+    expect(karaoke).toHaveTextContent('0 "Não entendi" · 7 "Tradução"');
+    expect(escolha).toHaveTextContent('3 "Não entendi" · 1 "Tradução"');
     expect(help.queryByText(/verso \d/)).not.toBeInTheDocument();
     expect(help.queryByText(/em média/i)).not.toBeInTheDocument();
   });

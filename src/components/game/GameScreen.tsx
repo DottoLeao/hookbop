@@ -6,10 +6,11 @@ import { createPortal, flushSync } from 'react-dom';
 import { DjBop, type DjBopExpression } from '@/components/brand/DjBop';
 import { t } from '@/i18n/t';
 import { tokenize } from '@/lib/game/blanks';
-import { awaitsAnswer, clipPlays, gameReducer, summaryOf, type GameEvent, type GameState } from '@/lib/game/reducer';
+import { awaitsAnswer, gameReducer, summaryOf, type GameEvent, type GameState } from '@/lib/game/reducer';
 import type { ProgressStorage, SavedProgress } from '@/lib/game/savedProgress';
 import { playHit, playMiss } from '@/lib/game/sfx';
 import { FADE_IN_MS, FADE_OUT_MS } from '@/lib/game/timing';
+import type { SongTranslation } from '@/lib/help/songTranslation';
 import { postHelp, useLineHelp, type HelpRequester } from '@/lib/help/useLineHelp';
 import { cleanTitle } from '@/lib/lyrics/cleanTitle';
 import type { VideoRecord } from '@/lib/lyrics/resolveSong';
@@ -33,7 +34,7 @@ import { ToolsBar } from './ToolsBar';
 import { useAwayAndBack } from './useAwayAndBack';
 import { useGameAbandoned } from './useGameAbandoned';
 import { useHelpSheet } from './useHelpSheet';
-import { useLineTranslations } from './useLineTranslations';
+import { useLineTranslation } from './useLineTranslation';
 import { startingGame, useSavedProgress } from './useSavedProgress';
 
 /** How often the player's clock is read and handed to the game. */
@@ -68,6 +69,11 @@ export interface GameScreenProps {
   headerSlot?: HTMLElement | null;
   /** How an ask for AI help reaches the server. `postHelp` (`POST /api/help`) when left out; tests pass a fake. */
   requestHelp?: HelpRequester;
+  /**
+   * The translation of the whole song, which the song screen asked for as soon as the lyrics were known. Without it,
+   * each line shown is asked for alone (`requestHelp`).
+   */
+  songTranslation?: SongTranslation | null;
   /**
    * The game saved on the device for this song, to go on from. It is used only if it has this game's blanks; otherwise
    * the game starts from zero and the saved one is dropped (ruling S22).
@@ -161,15 +167,20 @@ const ANSWER_START = [
  * answer area, "Livre" the place of the combo, and the translation switch a third tool beside 0.75x and "Repetir verso".
  * It follows the game's clock like the other modes, and plays through to the end report.
  *
- * The AI help (`useLineHelp`) runs only when the player asks: "Não entendi", a tapped word and "Não entendi a ordem"
- * open DJ Bop's explanation in place of the game area, and "Traduzir verso" puts the translation under the line. With
- * "Mostrar tradução sempre" on, the line in play is also translated as it comes into play, and Karaokê translates the
- * current and next lines. Answers are never checked with it.
+ * The translations come from the translation of the whole song (`songTranslation`), fetched by the song screen as
+ * soon as the lyrics were known; a line it did not give is asked for alone. In the modes with blanks, "Tradução" is the
+ * third tool, a switch: on, the line in play shows its translation under it, line by line as the song plays, and the
+ * music goes on. It is "Mostrar tradução sempre", the same setting, so it stays as it was left for the next songs. A
+ * line with a blank that has not had its first answer shows no translation until it has one, right or wrong, since it
+ * would give the meaning of the word away. Karaokê shows the translations of the current and next lines, from the same
+ * translation of the song, with its own switch.
  *
- * The music never stops short. A wait, DJ Bop's sheet and "Traduzir verso" (outside Karaokê, when no wait holds the
- * clip) fade it out for `FADE_OUT_MS` and then pause the clip; it plays again with its volume rising over
- * `FADE_IN_MS`. Where the device ignores the volume (an iPhone) the fade is only the wait. Leaving the app is the one
- * pause with no fade. After "Traduzir verso", "Continuar" plays the music again, since no answer is due to do it.
+ * DJ Bop's explanation (`useLineHelp`) runs only when the player asks: "Não entendi", a tapped word and "Não entendi a
+ * ordem" open it in place of the game area. Answers are never checked with any of the AI help.
+ *
+ * The music never stops short. A wait and DJ Bop's sheet fade it out for `FADE_OUT_MS` and then pause the clip; it
+ * plays again with its volume rising over `FADE_IN_MS`. Where the device ignores the volume (an iPhone) the fade is only
+ * the wait. Leaving the app is the one pause with no fade. A translation never pauses anything.
  *
  * Coming back to the app (spec §6), the lyrics go to where the clip is, the music never comes back by itself, and a big
  * "Continuar" in the game area brings it back with its volume rising (see `useAwayAndBack`).
@@ -178,9 +189,10 @@ const ANSWER_START = [
  * every 5 s, as the app goes away and as the screen does, and forgotten when the song ends. Given a saved game
  * (`resume`) that is this game's, it goes on from there, the clip starting again at the line it was in.
  *
- * The owner's panel hears (`track`) of each ask for help (`help_explain`, `help_translate`: only what the player asks
- * for, not the translations that come by themselves), of "Continuar" after coming back (`continue_after_leave`), and of
- * a game left without finishing (`game_abandoned`, see `useGameAbandoned`).
+ * The owner's panel hears (`track`) of each ask for help (`help_explain`, and `help_translate` when the translation
+ * switch is turned on, with the line in play: not when it is turned off, nor for the lines it then shows), of "Continuar"
+ * after coming back (`continue_after_leave`), and of a game left without finishing (`game_abandoned`, see
+ * `useGameAbandoned`).
  */
 export function GameScreen({
   adapter,
@@ -192,6 +204,7 @@ export function GameScreen({
   onEnd,
   headerSlot,
   requestHelp = postHelp,
+  songTranslation,
   resume,
   progressStorage,
   wallClock = defaultWallClock,
@@ -216,8 +229,6 @@ export function GameScreen({
   // Karaokê only. Shown at the start of every round, and not a setting: it is not saved.
   const [showTranslations, setShowTranslations] = useState(true);
   const gearRef = useRef<HTMLButtonElement>(null);
-  // "Traduzir verso" paused the clip (outside Karaokê, with no wait holding it), so the lyrics offer "Continuar".
-  const [translatePaused, setTranslatePaused] = useState(false);
   // The time away from the app (`useAwayAndBack`) ends with the first play the game sends. That hook needs `dispatch`,
   // so it comes further down, and `send` reaches its `end` through this.
   const endAwayRef = useRef<() => void>(() => {});
@@ -273,16 +284,13 @@ export function GameScreen({
   );
 
   /**
-   * `run`, for what can let the music go: a play with a fade ends the pause "Continuar" stands for, whoever asked for it
-   * (an answer, "Repetir verso", the player's own play during a wait, DJ Bop's sheet closing, "Continuar" itself). It
-   * also ends the time away, before the play goes out, so the play it is about to report is not taken for the phone's.
+   * `run`, for what can let the music go: a play with a fade ends the time away from the app, whoever asked for it (an
+   * answer, "Repetir verso", the player's own play during a wait, DJ Bop's sheet closing, "Continuar" itself), before
+   * the play goes out, so the play it is about to report is not taken for the phone's.
    */
   const send = useCallback(
     (commands: readonly Command[]) => {
-      if (commands.some((command) => command.type === 'play' && command.fade)) {
-        endAwayRef.current();
-        setTranslatePaused(false);
-      }
+      if (commands.some((command) => command.type === 'play' && command.fade)) endAwayRef.current();
       run(commands);
     },
     [run],
@@ -295,8 +303,6 @@ export function GameScreen({
       gameRef.current = next;
       setGame(next);
       send(next.commands);
-      // A wait holds the clip now, and answering is what lets the music go: no "Continuar".
-      if (next.phase !== 'playing') setTranslatePaused(false);
       return next;
     },
     [send],
@@ -378,10 +384,8 @@ export function GameScreen({
         const wasStopped = !gameRef.current.clipRunning;
         dispatch({ type: 'PLAYER_STATE', state });
         // The player's own play, outside a wait (a wait lets the music go by its own command), finds the volume where
-        // a pause of the game's own left it, and the pause "Continuar" stands for is over. A fade of the game's own
-        // that is already on its way up needs nothing more.
+        // a pause of the game's own left it. A fade of the game's own that is already on its way up needs nothing more.
         if (state === 'playing' && wasStopped && gameRef.current.phase === 'playing' && fader.fading() === null) {
-          setTranslatePaused(false);
           fader.fadeIn(FADE_IN_MS);
         }
       }),
@@ -444,31 +448,32 @@ export function GameScreen({
     [mode, blank, lines],
   );
 
-  // DJ Bop's explanation, in place of the game area, and the translations of the lyric panel. With "Mostrar tradução
-  // sempre" on, the line in play is translated as it comes into play; Karaokê's view asks for its own.
+  // DJ Bop's explanation, in place of the game area.
   const help = useHelpSheet({ explain: lineHelp.explain, gameRef, run: send });
   /** "Não entendi", a tapped word or "Não entendi a ordem": the explanation opens, and the panel hears that it was asked for. */
   const explain = (target: string, lineIndex: number, opener: HTMLElement) => {
     trackEvent('help_explain', { youtubeId: video.youtubeId, mode, props: { lineIndex } });
     help.open(target, lineIndex, opener);
   };
-  const { translations, translateLine } = useLineTranslations(
-    lineHelp.translate,
-    !karaoke && settings.alwaysShowTranslation ? lineIndex : null,
-  );
 
-  /**
-   * "Traduzir verso": the translation comes whatever the clip does. Outside a wait, a clip that plays is paused with a
-   * fade, for the player to read, and "Continuar" plays it again. During a wait the clip is already stopping, and
-   * answering lets the music go; a clip the player stopped is left alone.
-   */
-  function translateVerse(index: number) {
-    trackEvent('help_translate', { youtubeId: video.youtubeId, mode, props: { lineIndex: index } });
-    translateLine(index);
-    if (translatePaused || !clipPlays(gameRef.current)) return;
-    run([{ type: 'pause', fade: true }]);
-    setTranslatePaused(true);
-  }
+  // The translation under the line in play, while the switch is on. A line with a blank that has not had its first
+  // answer (right or wrong) shows none yet: the translation would give the meaning of the word away.
+  const lineAnswered = game.blanks
+    .filter((one) => one.lineIndex === lineIndex)
+    .every((one) => game.status[one.id] === 'correct' || game.status[one.id] === 'wrong');
+  const translation = useLineTranslation({
+    song: songTranslation,
+    translate: lineHelp.translate,
+    lineIndex,
+    shown: !karaoke && settings.alwaysShowTranslation && lineAnswered,
+  });
+
+  // Karaokê's translations, from the same translation of the song; a line it did not give is asked for alone.
+  const { translate: translateLine } = lineHelp;
+  const karaokeTranslation = useCallback(
+    async (index: number) => (await songTranslation?.line(index)) ?? translateLine(index),
+    [songTranslation, translateLine],
+  );
 
   function showReaction(expression: DjBopExpression) {
     setDj(expression);
@@ -524,6 +529,17 @@ export function GameScreen({
     applySettings(next);
     const storage = settingsStorage();
     if (storage) saveSettings(storage, next);
+  }
+
+  /**
+   * "Tradução": the switch is "Mostrar tradução sempre", so turning it on or off is kept for the next songs too. It
+   * shows or hides the translation at once and never touches the music. Turning it on tells the owner's panel, with
+   * the line in play; turning it off does not.
+   */
+  function toggleTranslation() {
+    const on = !settings.alwaysShowTranslation;
+    changeSettings({ ...settings, alwaysShowTranslation: on });
+    if (on) trackEvent('help_translate', { youtubeId: video.youtubeId, mode, props: { lineIndex } });
   }
 
   /** The focus goes back to the gear, or to "Continuar" when the music still waits for it under the sheet. */
@@ -605,7 +621,7 @@ export function GameScreen({
             <KaraokeView
               lines={lines}
               timeMs={game.lastTickMs}
-              fetchTranslation={lineHelp.translate}
+              fetchTranslation={karaokeTranslation}
               onExplain={explain}
               showTranslations={showTranslations}
               visible={!settingsOpen && help.ask === null}
@@ -618,10 +634,7 @@ export function GameScreen({
               status={game.status}
               inPlayId={blank?.id}
               corrected={corrected}
-              translation={translations[lineIndex]}
-              onTranslate={translateVerse}
-              // Back from away, the game area's own "Continuar" stands for this one too.
-              onContinue={translatePaused && !backFromAway ? () => send([{ type: 'play', fade: true }]) : undefined}
+              translation={translation}
               onExplain={explain}
             />
           )}
@@ -662,14 +675,15 @@ export function GameScreen({
             slow={slow}
             onSlow={toggleSlow}
             onRepeat={() => dispatch({ type: 'REPEAT_LINE' })}
-            // Karaokê has no blanks, so a third tool: the switch for the translations.
+            // A third tool: the switch for the translations. Karaokê's is its own, shown at the start of every round; the
+            // other modes' is "Mostrar tradução sempre".
             action={
               karaoke
                 ? {
                     label: t(showTranslations ? 'karaoke.hideTranslation' : 'karaoke.showTranslation'),
                     onClick: () => setShowTranslations((shown) => !shown),
                   }
-                : undefined
+                : { label: t('jogo.translation'), pressed: settings.alwaysShowTranslation, onClick: toggleTranslation }
             }
           />
         </div>

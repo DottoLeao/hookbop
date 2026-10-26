@@ -34,14 +34,16 @@ As duas tabelas recebem uma linha por acontecimento e não têm chave estrangeir
 
 Uma linha por pedido de explicação ou tradução que o servidor atendeu, viesse a resposta do modelo, da memória por verso ou de um verso igual (refrão). Um pedido recusado antes (dados inválidos, 400; limite por hora, 429) não grava linha.
 
+Desde 2026-10-26 a tradução é pedida **para a música inteira**, numa chamada só, assim que a música abre (antes de a pessoa tocar em qualquer coisa). Esse pedido grava **uma** linha com `kind = 'translate'` e `line_index = -1`: `source = 'cache'` quando a memória por verso já tinha todos os versos que ela podia dar (0 tokens, custo 0), ou `source = 'model'` quando o modelo foi chamado para os que faltavam (os tokens e o custo da chamada inteira). As linhas de tradução com `line_index` de 0 para cima são de um verso só: o que a tradução da música não trouxe e o app pediu sozinho.
+
 | Coluna | Tipo | Significado |
 |---|---|---|
 | `id` | bigserial | Identificador, crescente. |
 | `created_at` | timestamptz | Quando o pedido foi atendido. |
 | `user_id` | uuid | Quem pediu. |
 | `youtube_id` | text | A música (id do vídeo no YouTube, 11 caracteres). |
-| `line_index` | int | O verso, como posição na letra guardada, **contando do 0**. |
-| `kind` | text | `explain` ("Não entendi") ou `translate` (tradução de um verso). |
+| `line_index` | int | O verso, como posição na letra guardada, **contando do 0**. `-1` quer dizer "a música inteira": uma tradução de todos os versos numa chamada só (veja acima). |
+| `kind` | text | `explain` ("Não entendi") ou `translate` (tradução de um verso, ou da música inteira quando `line_index = -1`). |
 | `source` | text | De onde veio a resposta: `model` (o modelo foi chamado), `cache` (a resposta já guardada para aquele verso) ou `reuse` (a resposta de outro verso com o mesmo texto, como um refrão). `cache` e `reuse` não custam nada. |
 | `model` | text | O modelo chamado (`claude-haiku-5-5`), ou null quando o modelo não foi chamado. |
 | `input_tokens`, `output_tokens` | int | Tokens de entrada e de saída. 0 quando o modelo não foi chamado. |
@@ -75,7 +77,7 @@ Uma linha por ação, de uma lista fechada de nomes. O app junta as ações e as
 | `game_finished` | A partida chegou ao fim. | sim | sim | `pct`, `durationMs`, `totalBlanks` |
 | `game_abandoned` | A pessoa saiu da partida sem terminar: foi para outra tela do app ou fechou a página. Ir para segundo plano não conta. No máximo uma vez por partida. | sim | sim | |
 | `help_explain` | A pessoa tocou em "Não entendi", numa palavra ou em "Não entendi a ordem". | sim | sim | `lineIndex` |
-| `help_translate` | A pessoa tocou em "Traduzir verso". As traduções que aparecem sozinhas (Karaokê, "Mostrar tradução sempre") não gravam. | sim | sim | `lineIndex` |
+| `help_translate` | A pessoa ligou o botão "Tradução" (até 2026-10-25: tocou em "Traduzir verso"). Desligar não grava, e nem os versos que o botão ligado vai mostrando, nem uma partida que já começa com ele ligado, nem as traduções do Karaokê. | sim | sim | `lineIndex` |
 | `continue_after_leave` | A pessoa voltou ao app no meio de uma partida e tocou em "Continuar". | sim | sim | |
 | `install_prompt_shown` | O convite para instalar o app apareceu (a cada vez que aparece). | | | |
 | `install_accepted` | A pessoa aceitou instalar o app. | | | |
@@ -87,7 +89,7 @@ Os `props`:
 - `pct`: a parte das lacunas acertadas na primeira tentativa, de 0 a 100. No Karaokê é sempre 0, porque ele não tem lacunas.
 - `durationMs`: do começo ao fim da partida, em milissegundos, **pelo relógio** (veja os cuidados).
 - `totalBlanks`: quantas lacunas a partida tinha (0 no Karaokê).
-- `lineIndex`: o verso em que a ajuda foi pedida, **contando do 0**.
+- `lineIndex`: o verso em que a ajuda foi pedida, **contando do 0**. No `help_translate`, o verso em jogo quando o botão foi ligado.
 
 Para ler um número de `props` com segurança: `case when jsonb_typeof(props -> 'pct') = 'number' then (props ->> 'pct')::numeric end`.
 
@@ -167,11 +169,14 @@ O painel mostra um período de 7 ou 30 dias (`?dias=7` ou `?dias=30`; qualquer o
 - **Fechar o app no segundo plano pode não contar.** Ir para segundo plano não é saída (o app traz a pessoa de volta). Se o celular encerrar o app lá, nenhuma saída é gravada.
 - **`durationMs` é tempo de relógio.** Vai do começo ao fim da tela da partida e inclui o tempo com o app em segundo plano ou com o clipe parado. Numa partida retomada, conta a partir da retomada. Uma duração muito longa pode ser alguém que saiu do app e voltou horas depois: prefira a mediana à média.
 - **Karaokê não tem acerto.** Termina com `pct = 0` e `totalBlanks = 0`; `avg_pct` o deixa de fora.
-- **Duas contagens de ajuda.** `help_explain` e `help_translate` (em `app_events`, com modo) contam os toques de quem pediu. `ai_usage` conta os pedidos que o servidor atendeu e inclui as traduções que aparecem sozinhas no Karaokê e em "Mostrar tradução sempre", que não geram `help_translate`. Os números não batem, e não devem bater.
+- **Duas contagens de ajuda.** `help_explain` e `help_translate` (em `app_events`, com modo) contam os toques de quem pediu. `ai_usage` conta os pedidos que o servidor atendeu, e inclui a tradução da música inteira, pedida a cada música aberta (uma vez por música enquanto o app fica aberto), mesmo que a pessoa nunca ligue a tradução. Os números não batem, e não devem bater.
+- **A tradução da música inteira (`line_index = -1`) é uma linha só para muitos versos.** Em "Pedidos de ajuda à IA" e em "Da memória" ela conta como um pedido, por mais versos que tenha trazido. Para ver o custo por tipo, separe `line_index = -1` (música inteira) de `line_index >= 0` (um verso).
+- **`help_translate` mudou de sentido em 2026-10-26.** Antes era um toque em "Traduzir verso" (um verso, com a música pausada); desde então é ligar o botão "Tradução", que fica ligado verso a verso e para as próximas músicas. Não compare os dois períodos como se fossem a mesma ação.
 - **`ai_usage` não tem modo.** Para ajuda por modo, use `metrics_help`.
 - **`lineIndex` e `line_index` contam do 0** e são posições na letra, não uma parte relativa da música: o verso 30 é o fim de uma música curta e o meio de uma longa. Por isso `avg_line_index` só faz sentido dentro de uma mesma música, e o painel não mostra média de verso. Para comparar músicas, divida o `lineIndex` pelo número de versos da letra de cada uma.
 - **O custo é estimado** pelos tokens registrados e pelo preço guardado no código, não pela fatura da Anthropic.
 - **A latência de uma linha de erro** é o tempo até falhar. Médias de latência usam só `source = 'model'` e `outcome = 'ok'`.
+- **A latência da música inteira é a da chamada toda**, do pedido ao último verso (vários segundos numa música longa), e não o tempo até o primeiro verso aparecer, que é bem menor. Para o tempo de resposta de um verso, use só `line_index >= 0`; o "Tempo médio de resposta" do painel mistura os dois.
 - **`app_opened`** só é gravado na tela inicial e na tela de uma música, uma vez por sessão. Uma sessão que começa em outra tela só conta quando chega a uma dessas duas.
 - **`mode_selected`** sai junto com cada `game_started`, inclusive em "Jogar de novo".
 - **`install_prompt_shown`** conta cada vez que o convite aparece, não pessoas.

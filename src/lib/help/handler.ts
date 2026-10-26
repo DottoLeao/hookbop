@@ -26,7 +26,9 @@ function answer(body: object, status: number): Response {
 const invalid = () => answer({ error: 'invalid' }, 400);
 
 /**
- * `POST /api/help`: "Não entendi" and "Traduzir verso" for a line of a song in the app. The body is a `HelpRequest`.
+ * `POST /api/help`: "Não entendi", and the translation of one line, for a line of a song in the app (the translation
+ * of the whole song, `POST /api/translate-song`, comes first; this is what a line it did not give falls back on). The
+ * body is a `HelpRequest`.
  *
  * - 200 `{ content }`.
  * - 401 with no session; 403 for someone who is not a member.

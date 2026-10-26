@@ -125,8 +125,9 @@ export const ptBR = {
   // Uma lacuna certa na letra: o resultado só no nome acessível, nunca na tela.
   'jogo.hit': '{palavra}, acertou',
   'jogo.miss': '{palavra}, errou',
-  'jogo.translate': 'Traduzir verso',
-  // Depois de "Traduzir verso", ou ao voltar para o app, a música fica parada; este botão a faz voltar de onde parou.
+  // O botão de ligar e desligar a tradução embaixo do verso em jogo, nas ferramentas dos modos com lacuna.
+  'jogo.translation': 'Tradução',
+  // Ao voltar para o app a música fica parada; este botão a faz voltar de onde parou.
   'jogo.continue': 'Continuar',
   'jogo.explain': 'Não entendi',
   'jogo.slow': '0.75x',
@@ -140,7 +141,7 @@ export const ptBR = {
   'karaoke.hideTranslation': 'Esconder tradução',
   'karaoke.showTranslation': 'Mostrar tradução',
 
-  // Ajuda do DJ Bop: "Não entendi" abre a explicação, "Traduzir verso" mostra a tradução embaixo do verso.
+  // Ajuda do DJ Bop: "Não entendi" abre a explicação, o botão "Tradução" mostra a tradução embaixo do verso.
   // Quando a ajuda não vem, ele fala com calma, sem número de erro e sem culpar ninguém.
   'ajuda.dialog': 'Explicação do DJ Bop',
   'ajuda.wholeLine': 'O verso inteiro',
@@ -295,7 +296,7 @@ export const ptBR = {
   'metricas.songs.untitled': 'Música {id}',
 
   'metricas.help.title': 'Pedidos de ajuda por modo',
-  'metricas.help.line': '{explicar} "Não entendi" · {traduzir} "Traduzir verso"',
+  'metricas.help.line': '{explicar} "Não entendi" · {traduzir} "Tradução"',
   'metricas.help.noMode': 'Sem modo',
 
   'metricas.rate.title': 'Cotação do dólar',
@@ -329,9 +330,9 @@ export const ptBR = {
     'Suas partidas: as músicas que você jogou (o endereço do vídeo no YouTube), o modo, a dificuldade, os acertos, os pontos (XP) e cada resposta, dizendo se foi certa, errada ou com ajuda.',
   'privacidade.guarda.calibracao': 'Ajustes de tempo: o ajuste da letra que você escolhe para cada vídeo.',
   'privacidade.guarda.ajuda':
-    'Pedidos de ajuda: a hora e o tipo de cada "Não entendi" ou "Traduzir verso", para controlar o limite por hora. As explicações e traduções ficam guardadas por verso, sem dizer quem pediu.',
+    'Pedidos de ajuda: a hora e o tipo de cada "Não entendi" e de cada tradução feita pela IA, para controlar o limite por hora. As explicações e traduções ficam guardadas por verso, sem dizer quem pediu.',
   'privacidade.guarda.usoIa':
-    'Registro de uso da IA: a cada pedido de ajuda com IA, guardamos o código da sua conta, o vídeo, o número do verso, se foi explicação ou tradução, se a resposta veio da IA ou de uma resposta já guardada, os tokens usados (a medida de texto da IA), o custo estimado, o tempo de resposta, como terminou e a data e a hora.',
+    'Registro de uso da IA: a cada pedido de ajuda com IA, guardamos o código da sua conta, o vídeo, o número do verso (ou que foi a música inteira), se foi explicação ou tradução, se a resposta veio da IA ou de uma resposta já guardada, os tokens usados (a medida de texto da IA), o custo estimado, o tempo de resposta, como terminou e a data e a hora.',
   'privacidade.guarda.usoApp':
     'Registro de uso do app: o código da sua conta, um código aleatório da sessão, o nome da ação e a data e a hora, às vezes com o vídeo e o modo. As ações são abrir o app, abrir uma música, escolher o modo, começar, terminar ou sair no meio de uma partida, pedir ajuda, continuar depois de sair do app, ver o aviso de instalação (e aceitar), criar um convite e ajustar o tempo da letra. Detalhes, só estes: ao terminar uma partida, a porcentagem de acertos, a duração e o número de lacunas; ao pedir ajuda, o número do verso.',
   'privacidade.guarda.aparelho':
@@ -355,7 +356,7 @@ export const ptBR = {
   'privacidade.terceiros.google':
     'Google: faz o login, se você escolher entrar com o Google, e envia os e-mails com o link e o código de entrada.',
   'privacidade.terceiros.anthropic':
-    'Anthropic (Claude): quando você toca em "Não entendi" ou "Traduzir verso", enviamos só o verso da música e a palavra destacada, e nenhum dado seu vai junto. O criador também pode usar o Claude para analisar os registros de uso; nesse caso, entra o código da sua conta, sem nome e sem e-mail.',
+    'Anthropic (Claude): quando você abre uma música, enviamos a letra dela para traduzir (se a tradução ainda não estiver guardada), e quando você toca em "Não entendi", enviamos só o verso e a palavra destacada. Nenhum dado seu vai junto. O criador também pode usar o Claude para analisar os registros de uso; nesse caso, entra o código da sua conta, sem nome e sem e-mail.',
   'privacidade.terceiros.youtube':
     'YouTube: os clipes tocam no player oficial do YouTube, que segue a política de privacidade do Google. As capinhas das músicas na tela inicial também vêm do YouTube. O pedido das capinhas não diz ao YouTube de qual página ele vem.',
   'privacidade.terceiros.lrclib': 'LRCLIB: é onde buscamos a letra sincronizada, pelo nome da música. Nenhum dado seu vai junto.',

@@ -6,7 +6,7 @@ import type { HelpKind } from './helpService';
 export const EXPLAIN_SYSTEM =
   'Você é o DJ Bop, um amigo gente boa que manja de música e de inglês. Explique em português do Brasil, em no máximo 2 frases curtas, o que a palavra ou expressão destacada quer dizer neste verso de música e por quê. Se for gíria, contração ou phrasal verb, diga isso. Não use palavrão. Não repita o verso inteiro.';
 
-/** "Traduzir verso", and the translations of Karaokê. */
+/** The translation of one line: what a line the translation of the whole song did not give falls back on. */
 export const TRANSLATE_SYSTEM =
   'Traduza este verso de música para um português do Brasil natural, do jeito que uma pessoa falaria. Responda só com a tradução, sem aspas e sem explicação.';
 

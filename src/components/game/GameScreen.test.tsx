@@ -13,6 +13,8 @@ import { makeTiles, tileSeed } from '@/lib/game/tiles';
 import { FADE_IN_MS, FADE_OUT_MS } from '@/lib/game/timing';
 import { HelpError } from '@/lib/help/helpError';
 import type { HelpRequest } from '@/lib/help/helpService';
+import type { LineTranslation } from '@/lib/help/songService';
+import { fetchSongTranslation, type SongTranslationFetcher } from '@/lib/help/songTranslation';
 import type { HelpRequester } from '@/lib/help/useLineHelp';
 import type { VideoRecord } from '@/lib/lyrics/resolveSong';
 import { DEFAULT_STEP_MS, supportsVolume } from '@/lib/player/fade';
@@ -811,25 +813,6 @@ describe('GameScreen: coming back to the app (spec section 6)', () => {
       expect(volumesIn(fake.calls)).toEqual([]);
     });
 
-    it('after "Traduzir verso", shows one "Continuar" only, and it brings the music back', async () => {
-      renderGame({ blanks: [FERRY], requestHelp: helpService() });
-      playTo(1000);
-      fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
-      await settleHelp();
-      finishFadeOut();
-
-      setVisibility('hidden');
-      setVisibility('visible');
-      expect(screen.getAllByRole('button', { name: 'Continuar' })).toHaveLength(1);
-      const before = fake.calls.length;
-
-      fireEvent.click(resumeButton()!);
-      finishFadeIn();
-
-      expect(fake.calls.slice(before)).toEqual(['play', ...FADE_IN_STEPS]);
-      expect(resumeButton()).not.toBeInTheDocument();
-    });
-
     it('goes away when the game itself plays the music again (Repetir verso), and that play is not stopped', () => {
       renderGame({ blanks: [FERRY] });
       playTo(5000);
@@ -1297,257 +1280,49 @@ describe('GameScreen: smooth fades (spec sections 1 and 2)', () => {
     });
   });
 
-  describe('"Traduzir verso"', () => {
-    function renderTranslating(over: Partial<GameScreenProps> = {}) {
-      return renderGame({ requestHelp: helpService(), ...over });
-    }
-
-    function translate() {
-      fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
-    }
-
-    function continueButton() {
-      return screen.queryByRole('button', { name: 'Continuar' });
-    }
-
-    it('fades the music out and pauses it, shows the translation and a "Continuar" button', async () => {
-      renderTranslating();
+  describe('the translation switch, which never touches the music', () => {
+    it('sends nothing to the player when it is turned on and off while the song plays, and shows no "Continuar"', () => {
+      const { song } = songTranslation({ 0: 'Vovô não deixa os gansos dirigirem' });
+      renderGame({ blanks: [FERRY], songTranslation: song });
       playTo(1000);
       const before = fake.calls.length;
 
-      translate();
-      await settleHelp();
-
-      expect(screen.getByTestId('translation')).toHaveTextContent('Tradução 0');
-      expect(continueButton()).toBeVisible();
-      expect(count('pause')).toBe(0);
-
-      finishFadeOut();
-      expect(fake.calls.slice(before)).toEqual([...FADE_OUT_STEPS, 'pause']);
-    });
-
-    it('"Continuar" plays the clip from where it stopped, the volume rising, and goes away', async () => {
-      fake = new SlowToStartPlayer(DURATION_MS);
-      renderTranslating();
-      act(() => fake.emitState('playing'));
-      playTo(1000);
-      translate();
-      await settleHelp();
-      finishFadeOut();
-      const before = fake.calls.length;
-
-      fireEvent.click(continueButton()!);
-      finishFadeIn();
-
-      expect(fake.calls.slice(before)).toEqual(['play', ...FADE_IN_STEPS]);
-      expect(fake.getCurrentTimeMs()).toBe(1000);
-      expect(continueButton()).not.toBeInTheDocument();
-    });
-
-    it('"Continuar" before the music is down turns the fade around: no pause, no play, up from where it was', async () => {
-      renderTranslating();
-      playTo(1000);
-      translate();
-      await settleHelp();
-      act(() => vi.advanceTimersByTime(1000));
-      const level = fake.getVolume();
-      const before = fake.calls.length;
-
-      fireEvent.click(continueButton()!);
-      finishFadeIn();
-      finishFadeOut();
-
-      const after = fake.calls.slice(before);
-      expect(after).not.toContain('pause');
-      expect(after).not.toContain('play');
-      expect(volumesIn(after)[0]).toBeGreaterThan(level);
-      expect(fake.getVolume()).toBe(100);
-      expect(continueButton()).not.toBeInTheDocument();
-    });
-
-    it('on a device that ignores the volume, pauses after 2 s and "Continuar" plays by the tap, with no volume step', async () => {
-      device.canSetVolume = false;
-      renderTranslating();
-      playTo(1000);
-      translate();
-      await settleHelp();
-      finishFadeOut();
-      expect(fake.calls.at(-1)).toBe('pause');
-
-      fireEvent.click(continueButton()!);
-      finishFadeIn();
-
-      expect(fake.calls.at(-1)).toBe('play');
-      expect(volumesIn(fake.calls)).toEqual([]);
-    });
-
-    it('on a device that ignores the volume, "Continuar" before the 2 s are up cancels the pause', async () => {
-      device.canSetVolume = false;
-      renderTranslating();
-      playTo(1000);
-      translate();
-      await settleHelp();
-      act(() => vi.advanceTimersByTime(FADE_OUT_MS / 2));
-      const before = fake.calls.length;
-
-      fireEvent.click(continueButton()!);
-      finishFadeOut();
+      fireEvent.click(translationSwitch());
+      act(() => vi.advanceTimersByTime(FADE_OUT_MS));
+      expect(screen.getByTestId('translation')).toHaveTextContent('Vovô não deixa os gansos dirigirem');
+      fireEvent.click(translationSwitch());
+      act(() => vi.advanceTimersByTime(FADE_OUT_MS));
 
       expect(fake.calls.slice(before)).toEqual([]);
-      expect(continueButton()).not.toBeInTheDocument();
+      expect(fake.getVolume()).toBe(100);
+      expect(screen.queryByRole('button', { name: 'Continuar' })).not.toBeInTheDocument();
     });
 
-    it('moves the focus to "Continuar", since the pill it was on goes away', async () => {
-      renderTranslating();
-      playTo(1000);
-      expect(screen.getByRole('button', { name: 'Traduzir verso' })).not.toHaveFocus();
-
-      translate();
-      await settleHelp();
-
-      expect(continueButton()).toHaveFocus();
-    });
-
-    it('translates and nothing else while the game waits for an answer, and answering still lets the music go', async () => {
-      renderTranslating();
+    it('leaves a wait as it is, and the answer still lets the music go', () => {
+      const { song } = songTranslation({ 0: 'Vovô não deixa os gansos dirigirem' });
+      renderGame({ songTranslation: song });
       playTo(3850);
       finishFadeOut();
       const before = fake.calls.length;
 
-      translate();
-      await settleHelp();
-
-      expect(screen.getByTestId('translation')).toHaveTextContent('Tradução 0');
-      expect(continueButton()).not.toBeInTheDocument();
-      expect(fake.calls.slice(before)).toEqual([]);
-
+      fireEvent.click(translationSwitch());
       fireEvent.click(option('let'));
       finishFadeIn();
+
       expect(fake.calls.slice(before)).toEqual(['play', ...FADE_IN_STEPS]);
+      expect(screen.getByTestId('translation')).toHaveTextContent('Vovô não deixa os gansos dirigirem');
     });
 
-    it('does not start the fade over when "Traduzir verso" is tapped again while the music is going down', async () => {
-      const requestHelp = vi
-        .fn<HelpRequester>()
-        .mockRejectedValueOnce(new HelpError(503))
-        .mockResolvedValueOnce('Tradução 0');
-      renderTranslating({ requestHelp });
-      playTo(1000);
-      const before = fake.calls.length;
-      translate();
-      await settleHelp();
-      act(() => vi.advanceTimersByTime(FADE_OUT_MS / 2));
-
-      translate();
-      await settleHelp();
-      act(() => vi.advanceTimersByTime(FADE_OUT_MS / 2));
-
-      expect(fake.calls.slice(before)).toEqual([...FADE_OUT_STEPS, 'pause']);
-      expect(screen.getByTestId('translation')).toHaveTextContent('Tradução 0');
-    });
-
-    it('drops "Continuar" when DJ Bop’s sheet, opened over the translation, plays the music again on "Valeu"', async () => {
-      fake = new SlowToStartPlayer(DURATION_MS);
-      renderTranslating({ lines: TYPING_LINES, blanks: [GET] });
-      act(() => fake.emitState('playing'));
-      fireEvent.click(option('late'));
-      playTo(1000);
-      translate();
-      await settleHelp();
-      expect(continueButton()).toBeVisible();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Não entendi' }));
-      await settleHelp();
-      finishFadeOut();
-      const sheetOpen = fake.calls.length;
-      fireEvent.click(screen.getByRole('button', { name: 'Valeu' }));
-      finishFadeIn();
-
-      expect(continueButton()).not.toBeInTheDocument();
-      expect(fake.calls.slice(sheetOpen)).toEqual(['play', ...FADE_IN_STEPS]);
-      expect(fake.getVolume()).toBe(100);
-    });
-
-    it('leaves a clip the player had paused alone, and shows no "Continuar" for it', async () => {
-      renderTranslating();
-      playTo(1000);
-      act(() => fake.emitState('paused'));
+    it('lets the song move on to the next line with the translation on, and plays through', () => {
+      const { song } = songTranslation({ 0: 'Vovô não deixa os gansos dirigirem', 1: 'Ela deu um nome a cada pipa' });
+      saveSettings(localStorage, { ...DEFAULT_SETTINGS, alwaysShowTranslation: true });
+      renderGame({ blanks: [FERRY], songTranslation: song });
       const before = fake.calls.length;
 
-      translate();
-      await settleHelp();
-      finishFadeOut();
+      playTo(4500);
 
-      expect(screen.getByTestId('translation')).toBeInTheDocument();
-      expect(continueButton()).not.toBeInTheDocument();
+      expect(screen.getByTestId('translation')).toHaveTextContent('Ela deu um nome a cada pipa');
       expect(fake.calls.slice(before)).toEqual([]);
-    });
-
-    it('hands over to the wait when the line ends during the fade: one pause, no "Continuar", the answer lets go', async () => {
-      renderTranslating();
-      playTo(3000);
-      const before = fake.calls.length;
-      translate();
-      await settleHelp();
-      expect(continueButton()).toBeVisible();
-
-      // The clip goes on for the fade and reaches the end of the line, where a blank waits for its answer.
-      playTo(3850);
-      expect(continueButton()).not.toBeInTheDocument();
-      finishFadeOut();
-      expect(fake.calls.slice(before).filter((call) => call === 'pause')).toHaveLength(1);
-      expect(fake.calls.at(-1)).toBe('pause');
-      const afterWait = fake.calls.length;
-
-      fireEvent.click(option('let'));
-      finishFadeIn();
-      expect(fake.calls.slice(afterWait)).toEqual(['play', ...FADE_IN_STEPS]);
-      expect(fake.getVolume()).toBe(100);
-      expect(continueButton()).not.toBeInTheDocument();
-    });
-
-    it('lets the music go, and drops "Continuar", when a miss plays the line again', async () => {
-      renderTranslating();
-      playTo(1000);
-      translate();
-      await settleHelp();
-      finishFadeOut();
-      const before = fake.calls.length;
-
-      fireEvent.click(option('late'));
-      finishFadeIn();
-
-      expect(fake.calls.slice(before)).toEqual(['seek:0', 'play', ...FADE_IN_STEPS]);
-      expect(continueButton()).not.toBeInTheDocument();
-    });
-
-    it('keeps "Continuar" while the player reads, after a right answer that sends nothing to the clip', async () => {
-      renderTranslating();
-      playTo(1000);
-      translate();
-      await settleHelp();
-      finishFadeOut();
-      const before = fake.calls.length;
-
-      fireEvent.click(option('let'));
-
-      expect(fake.calls.slice(before)).toEqual([]);
-      expect(continueButton()).toBeVisible();
-    });
-
-    it('drops "Continuar" and brings the volume back when the player presses play on its own', async () => {
-      renderTranslating();
-      playTo(1000);
-      translate();
-      await settleHelp();
-      finishFadeOut();
-      expect(fake.getVolume()).toBe(0);
-
-      act(() => fake.emitState('playing'));
-      finishFadeIn();
-
-      expect(continueButton()).not.toBeInTheDocument();
-      expect(fake.getVolume()).toBe(100);
     });
   });
 });
@@ -1590,11 +1365,11 @@ describe('GameScreen: Escolha', () => {
     expect(fake.calls.slice(before)).toEqual(['seek:0', 'play', ...FADE_IN_STEPS]);
   });
 
-  it('has no hint button: the tools are 0.75x and Repetir verso', () => {
+  it('has no hint button: the tools are 0.75x, Repetir verso and Tradução', () => {
     renderGame();
 
     expect(screen.queryByRole('button', { name: /Dica/ })).not.toBeInTheDocument();
-    expect(toolLabels()).toEqual(['0.75x', 'Repetir verso']);
+    expect(toolLabels()).toEqual(['0.75x', 'Repetir verso', 'Tradução']);
     // A game with no hint given: every option is there to pick.
     expect([option('late'), option('lead'), option('let')].filter((button) => button.hasAttribute('disabled'))).toHaveLength(0);
   });
@@ -1720,11 +1495,11 @@ describe('GameScreen: Digitação', () => {
     ]);
   });
 
-  it('has no hint button: the field shows no first letter, and the tools are 0.75x and Repetir verso', async () => {
+  it('has no hint button: the field shows no first letter, and the tools are 0.75x, Repetir verso and Tradução', async () => {
     await renderTyping();
 
     expect(screen.queryByRole('button', { name: /Dica/ })).not.toBeInTheDocument();
-    expect(toolLabels()).toEqual(['0.75x', 'Repetir verso']);
+    expect(toolLabels()).toEqual(['0.75x', 'Repetir verso', 'Tradução']);
     expect(field()).not.toHaveAttribute('placeholder');
 
     // Not even after a miss.
@@ -1820,7 +1595,7 @@ describe('GameScreen: Monte o verso', () => {
     expect(makeDistractors).not.toHaveBeenCalled();
   });
 
-  it('lays the line in play out once: the line before, "Traduzir verso", the row, the tiles, "Não entendi a ordem"', () => {
+  it('lays the line in play out once: the line before, the row, the tiles, "Não entendi a ordem"', () => {
     renderBuild({ blanks: [WHOLE_0, WHOLE_1] });
     placeWords(BUILD_WORDS);
     playTo(4500);
@@ -1830,7 +1605,6 @@ describe('GameScreen: Monte o verso', () => {
     expect(
       inOrder(
         screen.getByTestId('line-previous'),
-        screen.getByRole('button', { name: 'Traduzir verso' }),
         screen.getByTestId('montar-row'),
         screen.getByRole('group', { name: 'Coloque as palavras na ordem' }),
         screen.getByRole('button', { name: 'Não entendi a ordem' }),
@@ -1953,17 +1727,17 @@ describe('GameScreen: Monte o verso', () => {
     expect(screen.getByRole('button', { name: 'Não entendi a ordem' })).toBeInTheDocument();
   });
 
-  it('has no hint button: the tools are 0.75x and Repetir verso, with a miss or a row half built too', () => {
+  it('has no hint button: the tools are 0.75x, Repetir verso and Tradução, with a miss or a row half built too', () => {
     renderBuild();
     expect(screen.queryByRole('button', { name: /Dica/ })).not.toBeInTheDocument();
-    expect(toolLabels()).toEqual(['0.75x', 'Repetir verso']);
+    expect(toolLabels()).toEqual(['0.75x', 'Repetir verso', 'Tradução']);
 
     fireEvent.click(tile('tonight'));
     expect(tile('tonight, errou')).toHaveClass('bg-error');
     placeWords(['Please', 'come']);
 
     expect(screen.queryByRole('button', { name: /Dica/ })).not.toBeInTheDocument();
-    expect(toolLabels()).toEqual(['0.75x', 'Repetir verso']);
+    expect(toolLabels()).toEqual(['0.75x', 'Repetir verso', 'Tradução']);
   });
 
   it('plays no sound at all while "Sons" is off', () => {
@@ -3133,12 +2907,13 @@ describe('GameScreen: lyrics', () => {
     expect(screen.getByTestId('line-next')).toHaveTextContent('Then every ferry horn sings across the bay');
   });
 
-  it('hides the translation and shows "Traduzir verso" while "Mostrar tradução sempre" is off', () => {
+  it('shows no translation while the translation switch is off, even with the song translated', () => {
     saveSettings(localStorage, { ...DEFAULT_SETTINGS, alwaysShowTranslation: false });
-    renderGame();
+    renderGame({ blanks: [GAVE], songTranslation: songTranslation({ 0: 'Vovô não deixa os gansos dirigirem' }).song });
 
-    expect(screen.getByRole('button', { name: 'Traduzir verso' })).toBeVisible();
+    expect(translationSwitch()).toHaveAttribute('aria-pressed', 'false');
     expect(screen.queryByTestId('translation')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Traduzir verso' })).not.toBeInTheDocument();
   });
 
   it('shows "Não entendi" once the blank in play has an answer', () => {
@@ -3157,7 +2932,6 @@ describe('GameScreen: lyrics', () => {
 
       expect(within(screen.getByTestId('line-current')).queryAllByRole('button')).toHaveLength(0);
       expect(screen.queryByRole('button', { name: 'Não entendi' })).not.toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Traduzir verso' })).toBeInTheDocument();
     },
   );
 
@@ -3185,6 +2959,41 @@ async function settleHelp() {
   await act(async () => {});
 }
 
+/**
+ * The translation of the whole song, as the song screen hands it over, with these lines in it already. It is over
+ * (`settled`) unless told otherwise; `give` hands over more lines, and `finish` ends it.
+ */
+function songTranslation(lines: Record<number, string> = {}, { settled = true }: { settled?: boolean } = {}) {
+  let onLines!: (lines: LineTranslation[]) => void;
+  let end!: () => void;
+  const fetcher = vi.fn<SongTranslationFetcher>(
+    (_youtubeId, _lyricsRef, give) =>
+      new Promise<void>((resolve) => {
+        onLines = give;
+        end = resolve;
+      }),
+  );
+  const song = fetchSongTranslation(ID, '777', fetcher);
+  const entries = (more: Record<number, string>) =>
+    Object.entries(more).map(([lineIndex, text]) => ({ lineIndex: Number(lineIndex), text }));
+  if (Object.keys(lines).length > 0) onLines(entries(lines));
+  if (settled) end();
+  return {
+    song,
+    fetcher,
+    give: (more: Record<number, string>) => act(() => onLines(entries(more))),
+    finish: async () => {
+      end();
+      await settleHelp();
+    },
+  };
+}
+
+/** The switch that shows the translation under the line in play, in the tools of the modes with blanks. */
+function translationSwitch() {
+  return screen.getByRole('button', { name: 'Tradução' });
+}
+
 function helpSheet() {
   return screen.getByRole('dialog', { name: 'Explicação do DJ Bop' });
 }
@@ -3193,16 +3002,6 @@ function helpSheet() {
 class SlowToReportPlayer extends FakePlayerAdapter {
   override pause(): void {
     this.calls.push('pause');
-  }
-}
-
-/**
- * A player whose play is not reported back at once, as YouTube's may not be: the game goes on seeing it stopped, so
- * nothing in the test but the game's own command can tell the screen that the music is back.
- */
-class SlowToStartPlayer extends FakePlayerAdapter {
-  override play(): void {
-    this.calls.push('play');
   }
 }
 
@@ -3427,78 +3226,178 @@ describe('GameScreen: help with a line', () => {
     });
   });
 
-  describe('"Traduzir verso" (ruling R64)', () => {
-    it('shows the translation under the line in play, even with "Mostrar tradução sempre" off', async () => {
-      const { requestHelp } = renderHelped();
+  describe('the translation switch', () => {
+    it('is the third tool, after 0.75x and Repetir verso, off at first, and says whether it is on', () => {
+      renderHelped();
 
-      fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
+      expect(toolLabels()).toEqual(['0.75x', 'Repetir verso', 'Tradução']);
+      expect(translationSwitch()).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.queryByRole('button', { name: 'Traduzir verso' })).not.toBeInTheDocument();
+    });
+
+    it('is there in Digitação and Monte o verso too', async () => {
+      await renderTyping();
+      expect(toolLabels()).toEqual(['0.75x', 'Repetir verso', 'Tradução']);
+      cleanup();
+
+      renderBuild();
+      expect(toolLabels()).toEqual(['0.75x', 'Repetir verso', 'Tradução']);
+    });
+
+    it('turned on, shows the translation of the line in play at once, from the song, asking the network nothing', () => {
+      const fetch = vi.spyOn(globalThis, 'fetch');
+      const { song, fetcher } = songTranslation({ 0: 'Logo chegamos lá antes da chuva' });
+      const { requestHelp } = renderHelped({ blanks: [KETTLE], songTranslation: song });
+
+      fireEvent.click(translationSwitch());
+
+      expect(translationSwitch()).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByTestId('translation')).toHaveTextContent('Logo chegamos lá antes da chuva');
+      expect(screen.getByTestId('translation')).toHaveAttribute('lang', 'pt-BR');
+      expect(requestHelp).not.toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled();
+      expect(fetcher).toHaveBeenCalledOnce();
+    });
+
+    it('stays on line by line as the song plays, and goes off and on again at once, asking nothing again', () => {
+      const { song, fetcher } = songTranslation({ 0: 'Logo chegamos lá', 1: 'E a chaleira canta' });
+      const { requestHelp } = renderHelped({ blanks: [], songTranslation: song });
+      fireEvent.click(translationSwitch());
+      expect(screen.getByTestId('translation')).toHaveTextContent('Logo chegamos lá');
+
+      playTo(4500);
+      expect(screen.getByTestId('translation')).toHaveTextContent('E a chaleira canta');
+
+      fireEvent.click(translationSwitch());
+      expect(screen.queryByTestId('translation')).not.toBeInTheDocument();
+      expect(translationSwitch()).toHaveAttribute('aria-pressed', 'false');
+      fireEvent.click(translationSwitch());
+      expect(screen.getByTestId('translation')).toHaveTextContent('E a chaleira canta');
+
+      expect(requestHelp).not.toHaveBeenCalled();
+      expect(fetcher).toHaveBeenCalledOnce();
+    });
+
+    it('is "Mostrar tradução sempre": turning it on saves the setting, and the settings sheet turns it off', () => {
+      renderHelped({ blanks: [], songTranslation: songTranslation({ 0: 'Logo chegamos lá' }).song });
+
+      fireEvent.click(translationSwitch());
+      expect(loadSettings(localStorage)).toEqual({ ...DEFAULT_SETTINGS, alwaysShowTranslation: true });
+
+      openSettings();
+      expect(setting('Mostrar tradução sempre')).toHaveAttribute('aria-checked', 'true');
+      fireEvent.click(setting('Mostrar tradução sempre'));
+      fireEvent.click(screen.getByRole('button', { name: 'Pronto' }));
+
+      expect(translationSwitch()).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.queryByTestId('translation')).not.toBeInTheDocument();
+      expect(loadSettings(localStorage).alwaysShowTranslation).toBe(false);
+    });
+
+    it('comes back on in the next song when it was left on', () => {
+      renderHelped({ blanks: [], songTranslation: songTranslation({ 0: 'Logo chegamos lá' }).song });
+      fireEvent.click(translationSwitch());
+      cleanup();
+
+      renderHelped({ blanks: [], songTranslation: songTranslation({ 0: 'Outra música' }).song });
+
+      expect(translationSwitch()).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByTestId('translation')).toHaveTextContent('Outra música');
+    });
+
+    it.each([
+      ['right', 'get'],
+      ['wrong', 'late'],
+    ])('hides the translation of a line whose blank has no answer yet, and shows it once it is answered %s', (_name, word) => {
+      const { song } = songTranslation({ 0: 'Logo chegamos lá antes da chuva' });
+      renderHelped({ songTranslation: song });
+
+      fireEvent.click(translationSwitch());
+      expect(screen.queryByTestId('translation')).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+      fireEvent.click(option(word));
+
+      expect(screen.getByTestId('translation')).toHaveTextContent('Logo chegamos lá antes da chuva');
+    });
+
+    it('keeps it hidden while one blank of the line still has no answer', () => {
+      const BEFORE: Blank = { id: '0:5', lineIndex: 0, tokenIndex: 5, answer: 'before' };
+      const { song } = songTranslation({ 0: 'Logo chegamos lá antes da chuva' });
+      renderHelped({ blanks: [GET, BEFORE], songTranslation: song });
+      fireEvent.click(translationSwitch());
+
+      fireEvent.click(option('get'));
+      expect(screen.queryByTestId('translation')).not.toBeInTheDocument();
+      fireEvent.click(option('before'));
+
+      expect(screen.getByTestId('translation')).toHaveTextContent('Logo chegamos lá antes da chuva');
+    });
+
+    it('says "Traduzindo..." for a line the song translation has not given yet, and shows it as it comes', () => {
+      const translation = songTranslation({}, { settled: false });
+      const { requestHelp } = renderHelped({ blanks: [], songTranslation: translation.song });
+      fireEvent.click(translationSwitch());
       expect(screen.getByRole('status')).toHaveTextContent('Traduzindo...');
+
+      translation.give({ 0: 'Logo chegamos lá' });
+
+      expect(screen.getByTestId('translation')).toHaveTextContent('Logo chegamos lá');
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+      expect(requestHelp).not.toHaveBeenCalled();
+    });
+
+    it('asks for the line by itself once the song translation is over without it, once, and keeps it', async () => {
+      const translation = songTranslation({ 1: 'E a chaleira canta' }, { settled: false });
+      const { requestHelp } = renderHelped({ blanks: [], songTranslation: translation.song });
+      fireEvent.click(translationSwitch());
       await settleHelp();
+      expect(requestHelp).not.toHaveBeenCalled();
+
+      await translation.finish();
+      await settleHelp();
+      expect(screen.getByTestId('translation')).toHaveTextContent('Tradução 0');
+      fireEvent.click(translationSwitch());
+      fireEvent.click(translationSwitch());
 
       expect(screen.getByTestId('translation')).toHaveTextContent('Tradução 0');
-      expect(screen.queryByRole('button', { name: 'Traduzir verso' })).not.toBeInTheDocument();
       expect(requestHelp).toHaveBeenCalledExactlyOnceWith(
         expect.objectContaining({ lineIndex: 0, kind: 'translate', target: '' }),
       );
     });
 
-    it('asks for no translation by itself while "Mostrar tradução sempre" is off', async () => {
+    it('asks line by line when there is no translation of the song at all', async () => {
+      const { requestHelp } = renderHelped({ blanks: [] });
+
+      fireEvent.click(translationSwitch());
+      await settleHelp();
+
+      expect(screen.getByTestId('translation')).toHaveTextContent('Tradução 0');
+      expect(requestHelp).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ lineIndex: 0, kind: 'translate' }));
+    });
+
+    it('shows nothing, and no error, when the line cannot be had either way', async () => {
+      const { song } = songTranslation();
+      const requestHelp = vi.fn<HelpRequester>(() => Promise.reject(new HelpError(503)));
+      renderHelped({ blanks: [], songTranslation: song, requestHelp });
+
+      fireEvent.click(translationSwitch());
+      await settleHelp();
+      await settleHelp();
+
+      expect(screen.queryByTestId('translation')).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+      expect(visibleText()).not.toMatch(/não rolou|tenta de novo|erro/i);
+      expect(requestHelp).toHaveBeenCalledOnce();
+    });
+
+    it('asks for no translation while it is off', async () => {
       const { requestHelp } = renderHelped({ blanks: [] });
 
       playTo(5000);
       await settleHelp();
 
       expect(requestHelp).not.toHaveBeenCalled();
-    });
-
-    it('gives a calm line when the translation cannot be had, and asks again on a tap', async () => {
-      const requestHelp = vi
-        .fn<HelpRequester>()
-        .mockRejectedValueOnce(new HelpError(503))
-        .mockResolvedValueOnce('Tradução 0');
-      renderHelped({ requestHelp });
-
-      fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
-      await settleHelp();
-      expect(screen.getByRole('status')).toHaveTextContent('Não rolou agora. Tenta de novo?');
-
-      fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
-      await settleHelp();
-
-      expect(screen.getByTestId('translation')).toHaveTextContent('Tradução 0');
-      expect(requestHelp).toHaveBeenCalledTimes(2);
-    });
-
-    describe('with "Mostrar tradução sempre" on', () => {
-      beforeEach(() => {
-        saveSettings(localStorage, { ...DEFAULT_SETTINGS, alwaysShowTranslation: true });
-      });
-
-      it('translates each line as it comes into play, without a tap, and each line once', async () => {
-        const { requestHelp } = renderHelped({ blanks: [] });
-        await settleHelp();
-        expect(screen.getByTestId('translation')).toHaveTextContent('Tradução 0');
-
-        playTo(4500);
-        await settleHelp();
-        expect(screen.getByTestId('translation')).toHaveTextContent('Tradução 1');
-
-        fireEvent.click(screen.getByRole('button', { name: 'Repetir verso' }));
-        act(() => vi.advanceTimersByTime(400));
-        playTo(4500);
-        await settleHelp();
-
-        expect(requestHelp.mock.calls.map(([r]) => r.lineIndex)).toEqual([0, 1]);
-      });
-
-      it('shows nothing, and no error, when a translation it asked for by itself cannot be had', async () => {
-        renderHelped({ blanks: [], requestHelp: vi.fn<HelpRequester>(() => Promise.reject(new HelpError(503))) });
-        await settleHelp();
-
-        expect(screen.queryByTestId('translation')).not.toBeInTheDocument();
-        expect(screen.queryByRole('status')).not.toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Traduzir verso' })).toBeInTheDocument();
-      });
     });
   });
 
@@ -3541,21 +3440,22 @@ describe('GameScreen: help with a line', () => {
       expect(requestHelp).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ lineIndex: 0, target: 'home' }));
     });
 
-    it('translates the line in play, which is still hidden: a translation scores nothing (ruling R60)', async () => {
-      const requestHelp = renderHelpedBuild();
+    it('keeps the translation of the line being built hidden until the line has an answer', () => {
+      const { song } = songTranslation({ 0: 'Por favor, volta pra casa hoje' });
+      renderHelpedBuild({ songTranslation: song });
 
-      fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
-      await settleHelp();
+      fireEvent.click(translationSwitch());
+      expect(screen.queryByTestId('translation')).not.toBeInTheDocument();
+      // A miss: the line has its first answer.
+      fireEvent.click(tile('tonight'));
 
-      expect(screen.getByTestId('translation')).toHaveTextContent('Tradução 0');
-      expect(requestHelp).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ lineIndex: 0, kind: 'translate' }));
+      expect(screen.getByTestId('translation')).toHaveTextContent('Por favor, volta pra casa hoje');
     });
   });
 });
 
 describe('LyricPanel', () => {
   function renderPanel(over: Partial<Parameters<typeof LyricPanel>[0]> = {}) {
-    const onTranslate = vi.fn<(lineIndex: number) => void>();
     const onExplain = vi.fn<(target: string, lineIndex: number, opener: HTMLElement) => void>();
     render(
       <LyricPanel
@@ -3563,12 +3463,11 @@ describe('LyricPanel', () => {
         current={0}
         blanks={[LET]}
         status={{ [LET.id]: 'pending' }}
-        onTranslate={onTranslate}
         onExplain={onExplain}
         {...over}
       />,
     );
-    return { onTranslate, onExplain };
+    return { onExplain };
   }
 
   it('lets the player tap a word of the line in play to have it explained once its blank has an answer', () => {
@@ -3606,55 +3505,23 @@ describe('LyricPanel', () => {
     });
   });
 
-  describe('"Continuar" (the music paused for the translation)', () => {
-    it('is not there unless the panel is given something to do with it', () => {
-      renderPanel();
+  it('has neither "Traduzir verso" nor a "Continuar" of its own: the translation is the switch of the tools', () => {
+    renderPanel({ translation: { status: 'done', text: 'Vovô não deixa os gansos dirigirem' } });
 
-      expect(screen.queryByRole('button', { name: 'Continuar' })).not.toBeInTheDocument();
-    });
-
-    it('is a button of at least 44 px, next to the translation, that does what it was given', () => {
-      const onContinue = vi.fn<() => void>();
-      renderPanel({ onContinue, translation: { status: 'done', text: 'Vovô não deixa os gansos dirigirem' } });
-
-      const button = screen.getByRole('button', { name: 'Continuar' });
-      expect(button).toHaveClass('min-h-11');
-      // The ring is lime and offset from the button: a dark one would vanish on the dark page.
-      expect(button).toHaveClass('focus-visible:outline-2', 'focus-visible:outline-offset-2', 'focus-visible:outline-lime');
-      expect(button).not.toHaveClass('focus-visible:outline-bg');
-      expect(inOrder(screen.getByTestId('translation'), button, screen.getByTestId('line-next'))).toBe(true);
-      fireEvent.click(button);
-      expect(onContinue).toHaveBeenCalledOnce();
-    });
-
-    it('takes the focus when it appears, without scrolling the page to it', () => {
-      const focus = vi.spyOn(HTMLElement.prototype, 'focus');
-      renderPanel({ onContinue: vi.fn() });
-
-      expect(screen.getByRole('button', { name: 'Continuar' })).toHaveFocus();
-      expect(focus).toHaveBeenCalledWith({ preventScroll: true });
-    });
-
-    it('stays while the translation is on its way, next to "Traduzir verso" when that is still there', () => {
-      renderPanel({ onContinue: vi.fn(), translation: { status: 'error', message: 'Não rolou agora. Tenta de novo?' } });
-
-      expect(screen.getByRole('button', { name: 'Continuar' })).toBeVisible();
-      expect(screen.getByRole('button', { name: 'Traduzir verso' })).toBeVisible();
-    });
+    expect(screen.queryByRole('button', { name: 'Traduzir verso' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Continuar' })).not.toBeInTheDocument();
   });
 
   describe('no spoilers from help (ruling R83)', () => {
     const DRIVE: Blank = { id: '0:4', lineIndex: 0, tokenIndex: 4, answer: 'drive' };
 
-    it('a line with one open blank: no word can be tapped and "Não entendi" waits, but "Traduzir verso" is there', () => {
-      const { onTranslate } = renderPanel({ status: { [LET.id]: 'pending' } });
+    it('a line with one open blank: no word can be tapped and "Não entendi" waits', () => {
+      renderPanel({ status: { [LET.id]: 'pending' } });
 
       const line = screen.getByTestId('line-current');
       expect(within(line).queryAllByRole('button')).toHaveLength(0);
       expect(line).toHaveTextContent("Grandpa won't lacuna geese drive");
       expect(screen.queryByRole('button', { name: 'Não entendi' })).not.toBeInTheDocument();
-      fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
-      expect(onTranslate).toHaveBeenCalledExactlyOnceWith(0);
     });
 
     it('a blank skipped by a seek is still open: nothing to tap yet', () => {
@@ -3674,7 +3541,6 @@ describe('LyricPanel', () => {
       const right = within(line).getByText('let, acertou').parentElement!;
       expect(right).toHaveClass('bg-lime', 'text-bg');
       expect(right.querySelector('[data-icon="check"]')).not.toBeNull();
-      expect(screen.getByRole('button', { name: 'Traduzir verso' })).toBeInTheDocument();
     });
 
     it('once every blank of the line has had its first answer, right or wrong, help opens as before', () => {
@@ -3706,16 +3572,8 @@ describe('LyricPanel', () => {
     expect(onExplain.mock.lastCall?.[2]).toBe(pill);
   });
 
-  it('"Traduzir verso" asks for the translation of the line it is under', () => {
-    const { onTranslate } = renderPanel();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
-
-    expect(onTranslate).toHaveBeenCalledExactlyOnceWith(0);
-  });
-
-  it('reports the index of the line it drew, for a word, "Não entendi" and "Traduzir verso"', () => {
-    const { onExplain, onTranslate } = renderPanel({
+  it('reports the index of the line it drew, for a word and for "Não entendi"', () => {
+    const { onExplain } = renderPanel({
       lines: TYPING_LINES,
       current: 1,
       blanks: [KETTLE],
@@ -3726,33 +3584,28 @@ describe('LyricPanel', () => {
     expect(onExplain).toHaveBeenLastCalledWith('sings', 1, expect.any(HTMLButtonElement));
     fireEvent.click(screen.getByRole('button', { name: 'Não entendi' }));
     expect(onExplain).toHaveBeenLastCalledWith('kettle', 1, expect.any(HTMLButtonElement));
-    fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
-    expect(onTranslate).toHaveBeenCalledExactlyOnceWith(1);
   });
 
-  it('shows the translation under the line, in Portuguese, in place of "Traduzir verso"', () => {
+  it('shows the translation under the line, in Portuguese', () => {
     renderPanel({ translation: { status: 'done', text: 'Tradução do verso' } });
 
     expect(screen.getByTestId('translation')).toHaveTextContent('Tradução do verso');
     expect(screen.getByTestId('translation')).toHaveAttribute('lang', 'pt-BR');
-    expect(screen.queryByRole('button', { name: 'Traduzir verso' })).not.toBeInTheDocument();
+    expect(inOrder(screen.getByTestId('line-current'), screen.getByTestId('translation'))).toBe(true);
   });
 
-  it('says the translation is on its way in place of "Traduzir verso"', () => {
+  it('says the translation is on its way', () => {
     renderPanel({ translation: { status: 'loading' } });
 
     expect(screen.getByRole('status')).toHaveTextContent('Traduzindo...');
-    expect(screen.queryByRole('button', { name: 'Traduzir verso' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('translation')).not.toBeInTheDocument();
   });
 
-  it('gives a calm line when the translation cannot be had, and keeps "Traduzir verso" to ask again', () => {
-    const { onTranslate } = renderPanel({ translation: { status: 'error', message: 'Não rolou agora. Tenta de novo?' } });
+  it('shows nothing under the line when there is no translation to show', () => {
+    renderPanel();
 
-    expect(screen.getByRole('status')).toHaveTextContent('Não rolou agora. Tenta de novo?');
     expect(screen.queryByTestId('translation')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Traduzir verso' }));
-    expect(onTranslate).toHaveBeenCalledExactlyOnceWith(0);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it('after an answer, "Não entendi" explains the blank word, and a right blank can be tapped too', () => {
@@ -3856,7 +3709,6 @@ describe('LyricPanel', () => {
               {...WHOLE_LINES}
               current={0}
               status={{ [WHOLE_0.id]: state, [WHOLE_1.id]: 'pending' }}
-              onTranslate={vi.fn()}
               onExplain={vi.fn()}
             />,
           );
@@ -3942,7 +3794,7 @@ describe('LyricPanel', () => {
 
     describe('in play, held by the answer area (ruling R59)', () => {
       it.each(['pending', 'wrong', 'correct'] as const)(
-        'draws neither the line nor the line after it while its blank is %s, and keeps the line before and "Traduzir verso"',
+        'draws neither the line nor the line after it while its blank is %s, and keeps the line before',
         (state) => {
           renderPanel({
             ...WHOLE_LINES,
@@ -3957,7 +3809,6 @@ describe('LyricPanel', () => {
           expect(screen.queryByText('verso escondido')).not.toBeInTheDocument();
           expect(document.body).not.toHaveTextContent(SECOND_LINE_WORDS);
           expect(screen.getByTestId('line-previous')).toHaveTextContent('Please come back home tonight');
-          expect(screen.getByRole('button', { name: 'Traduzir verso' })).toBeInTheDocument();
         },
       );
 
@@ -3967,7 +3818,6 @@ describe('LyricPanel', () => {
           <LyricPanel
             {...props}
             status={{ [WHOLE_0.id]: 'correct', [WHOLE_1.id]: 'pending' }}
-            onTranslate={vi.fn()}
             onExplain={vi.fn()}
           />,
         );
@@ -3977,7 +3827,6 @@ describe('LyricPanel', () => {
           <LyricPanel
             {...props}
             status={{ [WHOLE_0.id]: 'correct', [WHOLE_1.id]: 'correct' }}
-            onTranslate={vi.fn()}
             onExplain={vi.fn()}
           />,
         );
@@ -3985,7 +3834,7 @@ describe('LyricPanel', () => {
         expect(container.innerHTML).toBe(before);
       });
 
-      it('keeps the translation of the line in play where "Traduzir verso" would be', () => {
+      it('keeps the translation of the line in play under the line before', () => {
         renderPanel({
           ...WHOLE_LINES,
           current: 1,
@@ -3995,7 +3844,7 @@ describe('LyricPanel', () => {
         });
 
         expect(screen.getByTestId('translation')).toHaveTextContent('Pendure sua lanterna no velho portão');
-        expect(screen.queryByRole('button', { name: 'Traduzir verso' })).not.toBeInTheDocument();
+        expect(inOrder(screen.getByTestId('line-previous'), screen.getByTestId('translation'))).toBe(true);
         expect(screen.queryByTestId('line-current')).not.toBeInTheDocument();
       });
 
@@ -4263,6 +4112,35 @@ describe('GameScreen: Karaokê', () => {
     ]);
   });
 
+  it('shows the translations from the translation of the whole song, asking the help service for none', async () => {
+    const { song } = songTranslation({ 0: 'Barcos de papel', 1: 'Contando as estrelas', 2: 'Aguenta firme' });
+    const requestHelp = helpService();
+    renderKaraoke({ requestHelp, songTranslation: song });
+    await settleHelp();
+
+    expect(karaokeRows()[0].querySelector('[lang="pt-BR"]')).toHaveTextContent('Barcos de papel');
+    expect(karaokeRows()[1].querySelector('[lang="pt-BR"]')).toHaveTextContent('Contando as estrelas');
+    expect(karaokeRows()[2].querySelector('[lang="pt-BR"]')).toBeNull();
+    expect(requestHelp).not.toHaveBeenCalled();
+  });
+
+  it('waits for a line the translation of the song has not given yet, and asks by line for one it ended without', async () => {
+    const translation = songTranslation({}, { settled: false });
+    const requestHelp = helpService();
+    renderKaraoke({ requestHelp, songTranslation: translation.song });
+    await settleHelp();
+    expect(screen.getByRole('list', { name: 'Letra' }).querySelector('[lang="pt-BR"]')).toBeNull();
+
+    translation.give({ 0: 'Barcos de papel' });
+    await settleHelp();
+    expect(karaokeRows()[0].querySelector('[lang="pt-BR"]')).toHaveTextContent('Barcos de papel');
+    await translation.finish();
+    await settleHelp();
+
+    expect(karaokeRows()[1].querySelector('[lang="pt-BR"]')).toHaveTextContent('Tradução 1');
+    expect(requestHelp.mock.calls.map(([r]) => [r.lineIndex, r.kind])).toEqual([[1, 'translate']]);
+  });
+
   it('shows nothing under the lines, and no error, when the translations cannot be had', async () => {
     renderKaraoke();
     await settleHelp();
@@ -4361,7 +4239,7 @@ describe('GameScreen: Karaokê', () => {
 });
 
 describe('ToolsBar', () => {
-  describe('in the modes with a blank to answer', () => {
+  describe('with no action of the mode', () => {
     function renderTools() {
       const handlers = { onSlow: vi.fn(), onRepeat: vi.fn() };
       render(<ToolsBar {...handlers} slow={false} />);
@@ -4447,6 +4325,33 @@ describe('ToolsBar', () => {
 
       expect(screen.getByRole('button', { name: 'Esconder tradução' })).not.toHaveClass('whitespace-nowrap');
       expect(screen.getByRole('button', { name: 'Repetir verso' })).toHaveClass('whitespace-nowrap');
+    });
+  });
+
+  describe('with a switch of the mode as a third tool', () => {
+    function renderSwitch(pressed: boolean) {
+      const onClick = vi.fn();
+      render(<ToolsBar onSlow={vi.fn()} onRepeat={vi.fn()} slow={false} action={{ label: 'Tradução', onClick, pressed }} />);
+      return onClick;
+    }
+
+    it('says it is off, in the look of a tool that is off', () => {
+      const onClick = renderSwitch(false);
+
+      const toggle = screen.getByRole('button', { name: 'Tradução' });
+      expect(toggle).toHaveAttribute('aria-pressed', 'false');
+      expect(toggle).toHaveClass('bg-card', 'text-text', 'min-h-11');
+      fireEvent.click(toggle);
+      expect(onClick).toHaveBeenCalledOnce();
+    });
+
+    it('says it is on, in the lime of the brand, as 0.75x does', () => {
+      renderSwitch(true);
+
+      const toggle = screen.getByRole('button', { name: 'Tradução' });
+      expect(toggle).toHaveAttribute('aria-pressed', 'true');
+      expect(toggle).toHaveClass('bg-lime', 'text-bg');
+      expect(toggle).not.toHaveClass('bg-card');
     });
   });
 });

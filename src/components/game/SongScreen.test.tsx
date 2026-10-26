@@ -12,6 +12,7 @@ import type { PlayerAdapter } from '@/lib/player/adapter';
 import { FakePlayerAdapter } from '@/lib/player/fakeAdapter';
 import { PlayerLoadError } from '@/lib/player/youtubeAdapter';
 import { FIRST_FINISH_KEY } from '@/lib/pwa/firstFinish';
+import type { SongTranslation } from '@/lib/help/songTranslation';
 import type { AnswerRecord, PlaySummary } from '@/lib/types';
 import { GameScreen } from './GameScreen';
 import { SongScreen, type SongScreenDeps } from './SongScreen';
@@ -88,6 +89,7 @@ interface MockDeps {
   now?: () => number;
   progressStorage?: SongScreenDeps['progressStorage'];
   wallClock?: SongScreenDeps['wallClock'];
+  translateSong?: Mock<NonNullable<SongScreenDeps['translateSong']>>;
 }
 
 function makeDeps(over: Partial<MockDeps> = {}): MockDeps {
@@ -1451,5 +1453,94 @@ describe('SongScreen: the player lifetime', () => {
 
     expect(unsubscribed).toHaveBeenCalledWith('error');
     expect(unsubscribed).toHaveBeenCalledWith('state');
+  });
+});
+
+describe('SongScreen: the translation of the whole song', () => {
+  /** A translation of the song that never ends, as one on its way. */
+  const ON_ITS_WAY: SongTranslation = {
+    getSnapshot: () => ({ lines: new Map(), settled: false }),
+    subscribe: () => () => {},
+    line: () => new Promise(() => {}),
+  };
+
+  function translating() {
+    return vi.fn<NonNullable<SongScreenDeps['translateSong']>>(() => ON_ITS_WAY);
+  }
+
+  it('is asked for in the background as soon as the lyrics are known, before any tap, and the picker does not wait', async () => {
+    const translateSong = translating();
+    render(<SongScreen youtubeId={ID} deps={makeDeps({ translateSong })} />);
+
+    expect(await screen.findByRole('button', { name: 'Jogar' })).toBeInTheDocument();
+    expect(translateSong).toHaveBeenCalledExactlyOnceWith(ID, '777');
+  });
+
+  it('is asked for while the calibration is open, too', async () => {
+    const translateSong = translating();
+    render(<SongScreen youtubeId={ID} deps={makeDeps({ translateSong, resolve: vi.fn().mockResolvedValue(NEEDS_CALIBRATION) })} />);
+
+    expect(await screen.findByRole('button', { name: 'Começou!' })).toBeInTheDocument();
+    expect(translateSong).toHaveBeenCalledExactlyOnceWith(ID, '777');
+  });
+
+  it('is not asked for before the lyrics are known', async () => {
+    const lyrics = deferred<SongResolution>();
+    const translateSong = translating();
+    const deps = makeDeps({ translateSong, resolve: vi.fn<SongScreenDeps['resolve']>().mockReturnValue(lyrics.promise) });
+    render(<SongScreen youtubeId={ID} deps={deps} />);
+
+    await waitFor(() => expect(deps.resolve).toHaveBeenCalled());
+
+    expect(translateSong).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['no lyrics', { status: 'no_lyrics', video: { ...VIDEO, status: 'no_lyrics' } }],
+    ['a lyrics service that is slow', { status: 'lyrics_unavailable' }],
+    ['lyrics with no line in them', { ...READY, lines: [] }],
+  ] as const)('is not asked for a song with %s', async (_name, resolution) => {
+    const translateSong = translating();
+    render(<SongScreen youtubeId={ID} deps={makeDeps({ translateSong, resolve: vi.fn().mockResolvedValue(resolution) })} />);
+
+    await waitFor(() => expect(screen.queryByText('Procurando a letra...')).not.toBeInTheDocument());
+
+    expect(translateSong).not.toHaveBeenCalled();
+  });
+
+  it('is handed to the game screen, the same one through the round, "Jogar de novo" and another mode', async () => {
+    const translateSong = translating();
+    render(<SongScreen youtubeId={ID} deps={makeDeps({ translateSong })} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+
+    pick('Escolha');
+    expect(gameProps().songTranslation).toBe(ON_ITS_WAY);
+    await finishGame();
+    fireEvent.click(screen.getByRole('button', { name: 'Jogar de novo' }));
+
+    expect(gameProps().songTranslation).toBe(ON_ITS_WAY);
+    expect(translateSong).toHaveBeenCalledOnce();
+  });
+
+  it('never stands in the way of the song when asking for it fails at once', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const translateSong = vi.fn<NonNullable<SongScreenDeps['translateSong']>>(() => {
+      throw new Error('no fetch here');
+    });
+    render(<SongScreen youtubeId={ID} deps={makeDeps({ translateSong })} />);
+
+    expect(await screen.findByRole('button', { name: 'Jogar' })).toBeInTheDocument();
+    pick('Escolha');
+    expect(gameProps().songTranslation).toBeNull();
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('is left out, and the game asks line by line, when the screen is given no way to ask for it', async () => {
+    render(<SongScreen youtubeId={ID} deps={makeDeps()} />);
+    await screen.findByRole('button', { name: 'Jogar' });
+
+    pick('Escolha');
+
+    expect(gameProps().songTranslation).toBeNull();
   });
 });

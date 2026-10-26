@@ -28,7 +28,7 @@ function withUsageAfterResponse(store: HelpStore): HelpStore {
 }
 
 /**
- * "Não entendi" and "Traduzir verso" (see `handleHelpRequest`). The member check runs with the person's own session;
+ * "Não entendi", and the translation of a line the song's translation did not give (see `handleHelpRequest`). The member check runs with the person's own session;
  * the help cache, the budgets and the usage log, which no member may write, go through the service key.
  *
  * The session client is made inside the handler, on its first use, so a failure to make it is answered like any
