@@ -2966,11 +2966,13 @@ async function settleHelp() {
 function songTranslation(lines: Record<number, string> = {}, { settled = true }: { settled?: boolean } = {}) {
   let onLines!: (lines: LineTranslation[]) => void;
   let end!: () => void;
+  let failWith!: (error: unknown) => void;
   const fetcher = vi.fn<SongTranslationFetcher>(
     (_youtubeId, _lyricsRef, give) =>
-      new Promise<void>((resolve) => {
+      new Promise<void>((resolve, reject) => {
         onLines = give;
         end = resolve;
+        failWith = reject;
       }),
   );
   const song = fetchSongTranslation(ID, '777', fetcher);
@@ -2984,6 +2986,10 @@ function songTranslation(lines: Record<number, string> = {}, { settled = true }:
     give: (more: Record<number, string>) => act(() => onLines(entries(more))),
     finish: async () => {
       end();
+      await settleHelp();
+    },
+    fail: async (error: unknown) => {
+      failWith(error);
       await settleHelp();
     },
   };
@@ -3406,6 +3412,39 @@ describe('GameScreen: help with a line', () => {
       expect(requestHelp).toHaveBeenCalledExactlyOnceWith(
         expect.objectContaining({ lineIndex: 0, kind: 'translate', target: '' }),
       );
+    });
+
+    it('does not listen to the translation of the song while it is off, so the lines streaming in render nothing', () => {
+      const translation = songTranslation({}, { settled: false });
+      const subscribe = vi.spyOn(translation.song, 'subscribe');
+      renderHelped({ blanks: [], songTranslation: translation.song });
+
+      translation.give({ 0: 'Logo chegamos lá', 1: 'E a chaleira canta' });
+      expect(subscribe).not.toHaveBeenCalled();
+
+      fireEvent.click(translationSwitch());
+
+      expect(subscribe).toHaveBeenCalled();
+      expect(screen.getByTestId('translation')).toHaveTextContent('Logo chegamos lá');
+    });
+
+    it('asks again, once, for a translation of the song that failed with nothing, when it is turned on', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const translation = songTranslation({}, { settled: false });
+      const { requestHelp } = renderHelped({ blanks: [], songTranslation: translation.song });
+      await translation.fail(new TypeError('Failed to fetch'));
+
+      fireEvent.click(translationSwitch());
+      expect(translation.fetcher).toHaveBeenCalledTimes(2);
+      expect(screen.getByRole('status')).toHaveTextContent('Traduzindo...');
+      translation.give({ 0: 'Logo chegamos lá' });
+      expect(screen.getByTestId('translation')).toHaveTextContent('Logo chegamos lá');
+      await translation.finish();
+
+      fireEvent.click(translationSwitch());
+      fireEvent.click(translationSwitch());
+      expect(translation.fetcher).toHaveBeenCalledTimes(2);
+      expect(requestHelp).not.toHaveBeenCalled();
     });
 
     it('asks line by line when there is no translation of the song at all', async () => {

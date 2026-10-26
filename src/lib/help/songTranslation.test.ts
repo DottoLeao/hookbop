@@ -4,7 +4,8 @@ import {
   createSongTranslations,
   fetchSongTranslation,
   postTranslateSong,
-  useSongTranslation,
+  SongTranslationError,
+  useSongLine,
   type SongTranslationFetcher,
 } from './songTranslation';
 import type { LineTranslation } from './songService';
@@ -102,18 +103,23 @@ describe('postTranslateSong', () => {
     ]);
   });
 
-  it.each([429, 400, 503])('fails on a %i', async (status) => {
+  it.each([429, 400, 503])('fails on a %i, saying which', async (status) => {
     respondWith(JSON.stringify({ error: 'x' }), { status });
 
-    await expect(postTranslateSong('aaaaaaaaaaa', '777', () => {})).rejects.toThrow();
+    const failure = await postTranslateSong('aaaaaaaaaaa', '777', () => {}).catch((e: unknown) => e);
+
+    expect(failure).toBeInstanceOf(SongTranslationError);
+    expect((failure as SongTranslationError).status).toBe(status);
   });
 
-  it('fails on the redirect src/proxy.ts gives a request with no session', async () => {
+  it('fails on the redirect src/proxy.ts gives a request with no session, as a 401', async () => {
     const redirect = new Response(null);
     Object.defineProperty(redirect, 'type', { value: 'opaqueredirect' });
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(redirect);
 
-    await expect(postTranslateSong('aaaaaaaaaaa', '777', () => {})).rejects.toThrow();
+    const failure = await postTranslateSong('aaaaaaaaaaa', '777', () => {}).catch((e: unknown) => e);
+
+    expect((failure as SongTranslationError).status).toBe(401);
   });
 });
 
@@ -185,6 +191,80 @@ describe('fetchSongTranslation', () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
+  describe('retryIfFailed', () => {
+    it('asks again, once, for a song whose request failed before any line came', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { fetcher, give, finish, fail } = controlledFetcher();
+      const song = fetchSongTranslation('aaaaaaaaaaa', '777', fetcher);
+      fail(new TypeError('Failed to fetch'));
+      await vi.waitFor(() => expect(song.getSnapshot().settled).toBe(true));
+
+      expect(song.retryIfFailed()).toBe(true);
+      expect(song.getSnapshot()).toEqual({ lines: new Map(), settled: false });
+      give([{ lineIndex: 0, text: 'Barcos' }]);
+      finish();
+      await vi.waitFor(() => expect(song.getSnapshot().settled).toBe(true));
+
+      expect([...song.getSnapshot().lines]).toEqual([[0, 'Barcos']]);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    });
+
+    it('asks again only once in the session, however often it is asked to', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const fetcher = vi.fn<SongTranslationFetcher>(async () => Promise.reject(new SongTranslationError(503)));
+      const song = fetchSongTranslation('aaaaaaaaaaa', '777', fetcher);
+      await vi.waitFor(() => expect(song.getSnapshot().settled).toBe(true));
+
+      expect(song.retryIfFailed()).toBe(true);
+      await vi.waitFor(() => expect(song.getSnapshot().settled).toBe(true));
+      expect(song.retryIfFailed()).toBe(false);
+      expect(song.retryIfFailed()).toBe(false);
+
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    });
+
+    it('asks again for a request that ended well but with no line at all', async () => {
+      const { fetcher, finish } = controlledFetcher();
+      const song = fetchSongTranslation('aaaaaaaaaaa', '777', fetcher);
+      finish();
+      await vi.waitFor(() => expect(song.getSnapshot().settled).toBe(true));
+
+      expect(song.retryIfFailed()).toBe(true);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([400, 429])('never asks again after a %i: the lyrics are not the stored ones, or the budget is used up', async (status) => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { fetcher, fail } = controlledFetcher();
+      const song = fetchSongTranslation('aaaaaaaaaaa', '777', fetcher);
+      fail(new SongTranslationError(status));
+      await vi.waitFor(() => expect(song.getSnapshot().settled).toBe(true));
+
+      expect(song.retryIfFailed()).toBe(false);
+      expect(fetcher).toHaveBeenCalledOnce();
+    });
+
+    it('never asks again for a song that brought lines, even if it broke off after them', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { fetcher, give, fail } = controlledFetcher();
+      const song = fetchSongTranslation('aaaaaaaaaaa', '777', fetcher);
+      give([{ lineIndex: 0, text: 'Barcos' }]);
+      fail(new TypeError('network'));
+      await vi.waitFor(() => expect(song.getSnapshot().settled).toBe(true));
+
+      expect(song.retryIfFailed()).toBe(false);
+      expect(fetcher).toHaveBeenCalledOnce();
+    });
+
+    it('does not ask again while the request is still on its way', () => {
+      const { fetcher } = controlledFetcher();
+      const song = fetchSongTranslation('aaaaaaaaaaa', '777', fetcher);
+
+      expect(song.retryIfFailed()).toBe(false);
+      expect(fetcher).toHaveBeenCalledOnce();
+    });
+  });
+
   describe('line', () => {
     it('gives a line that is there already', async () => {
       const { fetcher, give } = controlledFetcher();
@@ -230,35 +310,85 @@ describe('createSongTranslations', () => {
     expect(fetcher).toHaveBeenCalledTimes(3);
   });
 
-  it('does not ask again for a song whose request failed: the translation by line covers it', async () => {
+  it('asks again, once, for a song whose request failed with nothing, when it is opened again', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const fetcher = vi.fn<SongTranslationFetcher>(async () => Promise.reject(new Error('offline')));
     const translateSong = createSongTranslations(fetcher);
     const song = translateSong('aaaaaaaaaaa', '777');
     await vi.waitFor(() => expect(song.getSnapshot().settled).toBe(true));
 
+    expect(translateSong('aaaaaaaaaaa', '777')).toBe(song);
+    await vi.waitFor(() => expect(song.getSnapshot().settled).toBe(true));
     translateSong('aaaaaaaaaaa', '777');
 
-    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 });
 
-describe('useSongTranslation', () => {
-  it('follows the translation as it comes', () => {
-    const { fetcher, give } = controlledFetcher();
+describe('useSongLine', () => {
+  /** The hook on line 1, and how many times its component rendered. */
+  function renderLine(song: ReturnType<typeof fetchSongTranslation> | null, active = true) {
+    let renders = 0;
+    const view = renderHook(
+      ({ on }) => {
+        renders += 1;
+        return useSongLine(song, 1, on);
+      },
+      { initialProps: { on: active } },
+    );
+    return { ...view, renders: () => renders };
+  }
+
+  it('follows the translation of its line as it comes, and whether the request is over', async () => {
+    const { fetcher, give, finish } = controlledFetcher();
     const song = fetchSongTranslation('aaaaaaaaaaa', '777', fetcher);
 
-    const { result } = renderHook(() => useSongTranslation(song));
-    expect(result.current.lines.size).toBe(0);
+    const { result } = renderLine(song);
+    expect(result.current).toEqual({ text: undefined, settled: false });
+
+    act(() => give([{ lineIndex: 1, text: 'Contando estrelas' }]));
+    expect(result.current).toEqual({ text: 'Contando estrelas', settled: false });
+
+    await act(async () => finish());
+    expect(result.current).toEqual({ text: 'Contando estrelas', settled: true });
+  });
+
+  it('renders again only when its line or the end of the request changes, not for the other lines', async () => {
+    const { fetcher, give, finish } = controlledFetcher();
+    const song = fetchSongTranslation('aaaaaaaaaaa', '777', fetcher);
+    const { renders } = renderLine(song);
+    const first = renders();
 
     act(() => give([{ lineIndex: 0, text: 'Barcos' }]));
+    act(() => give([{ lineIndex: 2, text: 'Aguenta' }]));
+    expect(renders()).toBe(first);
 
-    expect(result.current.lines.get(0)).toBe('Barcos');
+    act(() => give([{ lineIndex: 1, text: 'Contando estrelas' }]));
+    expect(renders()).toBe(first + 1);
+    await act(async () => finish());
+    expect(renders()).toBe(first + 2);
+  });
+
+  it('does not listen at all while it is not active, and catches up when it is', () => {
+    const { fetcher, give } = controlledFetcher();
+    const song = fetchSongTranslation('aaaaaaaaaaa', '777', fetcher);
+    const subscribe = vi.spyOn(song, 'subscribe');
+    const { result, renders, rerender } = renderLine(song, false);
+    const first = renders();
+
+    act(() => give([{ lineIndex: 1, text: 'Contando estrelas' }]));
+    expect(renders()).toBe(first);
+    expect(subscribe).not.toHaveBeenCalled();
+
+    rerender({ on: true });
+
+    expect(subscribe).toHaveBeenCalled();
+    expect(result.current.text).toBe('Contando estrelas');
   });
 
   it('is over and empty when there is no translation of the song at all', () => {
-    const { result } = renderHook(() => useSongTranslation(null));
+    const { result } = renderLine(null);
 
-    expect(result.current).toEqual({ lines: new Map(), settled: true });
+    expect(result.current).toEqual({ text: undefined, settled: true });
   });
 });

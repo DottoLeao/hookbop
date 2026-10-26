@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 import type { LineTranslation } from './songService';
 
 /** What has come of a song's translation so far. */
@@ -18,7 +18,25 @@ export interface SongTranslation {
   subscribe(listener: () => void): () => void;
   /** The translation of the line once it came, or undefined once the request is over without it. */
   line(lineIndex: number): Promise<string | undefined>;
+  /**
+   * Asks again when the request is over with no line at all, for a reason that may not last (the network, the model, a
+   * 503), and only once in the session. Not after a 400 (the lyrics are not the stored ones) or a 429 (the hourly
+   * budget is used up), not while the request is on its way, not once lines came. Says whether it asked.
+   */
+  retryIfFailed(): boolean;
 }
+
+/** A request for the translation of a song that the route answered with something other than its lines. */
+export class SongTranslationError extends Error {
+  override name = 'SongTranslationError';
+
+  constructor(readonly status: number) {
+    super(`The song translation failed with ${status}`);
+  }
+}
+
+/** The answers asking again would not change. */
+const FINAL_STATUSES: ReadonlySet<number> = new Set([400, 429]);
 
 /** Gets the lines of a song from the server, handing them over as they come. Resolves at the end; rejects on failure. */
 export type SongTranslationFetcher = (
@@ -56,9 +74,9 @@ export const postTranslateSong: SongTranslationFetcher = async (youtubeId, lyric
     cache: 'no-store',
     redirect: 'manual',
   });
-  if (response.type === 'opaqueredirect' || !response.ok) {
-    throw new Error(`The song translation failed with ${response.status}`);
-  }
+  // The redirect of src/proxy.ts is what a missing session or membership gets: a 401, as far as this is concerned.
+  if (response.type === 'opaqueredirect') throw new SongTranslationError(401);
+  if (!response.ok) throw new SongTranslationError(response.status);
   if (!response.body) return;
 
   const reader = response.body.getReader();
@@ -83,7 +101,8 @@ export const postTranslateSong: SongTranslationFetcher = async (youtubeId, lyric
 /**
  * Starts the request for a song's translation now, and keeps what comes. The first translation of a line is the one
  * kept. When the request is over, ended or failed, the translation is settled with whatever came: a failure only means
- * there is no translation ready, and is a warning in the console.
+ * there is no translation ready, and is a warning in the console. One that brought no line can be asked again, once
+ * (`retryIfFailed`).
  */
 export function fetchSongTranslation(
   youtubeId: string,
@@ -92,6 +111,9 @@ export function fetchSongTranslation(
 ): SongTranslation {
   let snapshot: SongTranslationSnapshot = { lines: new Map(), settled: false };
   const listeners = new Set<() => void>();
+  // Whether the request is over with nothing, for a reason asking again may change; and whether it was asked again.
+  let worthRetrying = false;
+  let retried = false;
 
   function change(next: SongTranslationSnapshot) {
     snapshot = next;
@@ -105,20 +127,37 @@ export function fetchSongTranslation(
     };
   }
 
-  fetcher(youtubeId, lyricsRef, (lines) => {
-    if (snapshot.settled) return;
-    const known = new Map(snapshot.lines);
-    for (const { lineIndex, text } of lines) if (!known.has(lineIndex)) known.set(lineIndex, text);
-    change({ lines: known, settled: false });
-  })
-    .catch((error: unknown) => {
-      console.warn('Could not get the translation of the song.', error);
+  function start() {
+    let finalFailure = false;
+    fetcher(youtubeId, lyricsRef, (lines) => {
+      if (snapshot.settled) return;
+      const known = new Map(snapshot.lines);
+      for (const { lineIndex, text } of lines) if (!known.has(lineIndex)) known.set(lineIndex, text);
+      change({ lines: known, settled: false });
     })
-    .finally(() => change({ lines: snapshot.lines, settled: true }));
+      .catch((error: unknown) => {
+        finalFailure = error instanceof SongTranslationError && FINAL_STATUSES.has(error.status);
+        console.warn('Could not get the translation of the song.', error);
+      })
+      .finally(() => {
+        worthRetrying = snapshot.lines.size === 0 && !finalFailure;
+        change({ lines: snapshot.lines, settled: true });
+      });
+  }
+
+  start();
 
   return {
     getSnapshot: () => snapshot,
     subscribe,
+    retryIfFailed() {
+      if (!snapshot.settled || !worthRetrying || retried) return false;
+      retried = true;
+      worthRetrying = false;
+      change({ lines: new Map(), settled: false });
+      start();
+      return true;
+    },
     line(lineIndex) {
       return new Promise((resolve) => {
         const settledOn = () => {
@@ -138,17 +177,20 @@ export function fetchSongTranslation(
 
 /**
  * The translations of the songs opened in the app, each asked for once per song and lyrics for as long as the app is
- * open: opening the song again, or a retry of the lyrics, reuses the one there is, even one that failed.
+ * open: opening the song again, or a retry of the lyrics, reuses the one there is. One that failed with nothing is asked
+ * again then, once (`retryIfFailed`).
  */
 export function createSongTranslations(fetcher: SongTranslationFetcher = postTranslateSong) {
   const songs = new Map<string, SongTranslation>();
   return (youtubeId: string, lyricsRef: string): SongTranslation => {
     const key = JSON.stringify([youtubeId, lyricsRef]);
-    let song = songs.get(key);
-    if (!song) {
-      song = fetchSongTranslation(youtubeId, lyricsRef, fetcher);
-      songs.set(key, song);
+    const known = songs.get(key);
+    if (known) {
+      known.retryIfFailed();
+      return known;
     }
+    const song = fetchSongTranslation(youtubeId, lyricsRef, fetcher);
+    songs.set(key, song);
     return song;
   };
 }
@@ -156,16 +198,28 @@ export function createSongTranslations(fetcher: SongTranslationFetcher = postTra
 /** The app's own: `POST /api/translate-song`, once per song for as long as the app is open. */
 export const translateSong = createSongTranslations();
 
-/** No translation of the song: nothing will come, and the lines are asked for one by one. */
-const NONE: SongTranslationSnapshot = { lines: new Map(), settled: true };
-const getNone = () => NONE;
-const subscribeToNothing = () => () => {};
+/** What the translation of the song has for one line, and whether the request is over. */
+export interface SongLine {
+  text: string | undefined;
+  settled: boolean;
+}
 
-/** What has come of the song's translation, following it as it streams in. */
-export function useSongTranslation(song: SongTranslation | null | undefined): SongTranslationSnapshot {
-  return useSyncExternalStore(
-    song ? song.subscribe : subscribeToNothing,
-    song ? song.getSnapshot : getNone,
-    song ? song.getSnapshot : getNone,
+const noListening = () => {};
+
+/**
+ * What the translation of the song has for `lineIndex`, following it as it streams in. The component renders again
+ * only when that line's translation or the end of the request changes, never for the other lines, and not at all
+ * while `active` is false: it then does not listen, and reads the latest when it renders for another reason or when
+ * `active` turns true. With no translation of the song, the request is over and has nothing.
+ */
+export function useSongLine(song: SongTranslation | null | undefined, lineIndex: number, active: boolean): SongLine {
+  const subscribe = useCallback(
+    (listener: () => void) => (song && active ? song.subscribe(listener) : noListening),
+    [song, active],
   );
+  const readText = () => song?.getSnapshot().lines.get(lineIndex);
+  const readSettled = () => (song ? song.getSnapshot().settled : true);
+  const text = useSyncExternalStore(subscribe, readText, readText);
+  const settled = useSyncExternalStore(subscribe, readSettled, readSettled);
+  return { text, settled };
 }

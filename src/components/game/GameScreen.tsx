@@ -532,11 +532,13 @@ export function GameScreen({
 
   /**
    * "Tradução": the switch is "Mostrar tradução sempre", so turning it on or off is kept for the next songs too. It
-   * shows or hides the translation at once and never touches the music. Turning it on tells the owner's panel, with
-   * the line in play; turning it off does not.
+   * shows or hides the translation at once and never touches the music. Turning it on asks again, once in the session,
+   * for a translation of the song that failed with nothing (`retryIfFailed`), and tells the owner's panel, with the line
+   * in play; turning it off does neither.
    */
   function toggleTranslation() {
     const on = !settings.alwaysShowTranslation;
+    if (on) songTranslation?.retryIfFailed();
     changeSettings({ ...settings, alwaysShowTranslation: on });
     if (on) trackEvent('help_translate', { youtubeId: video.youtubeId, mode, props: { lineIndex } });
   }

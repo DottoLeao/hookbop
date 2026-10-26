@@ -1462,6 +1462,7 @@ describe('SongScreen: the translation of the whole song', () => {
     getSnapshot: () => ({ lines: new Map(), settled: false }),
     subscribe: () => () => {},
     line: () => new Promise(() => {}),
+    retryIfFailed: () => false,
   };
 
   function translating() {
