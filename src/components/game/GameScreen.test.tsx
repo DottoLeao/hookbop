@@ -3305,10 +3305,7 @@ describe('GameScreen: help with a line', () => {
       expect(screen.getByTestId('translation')).toHaveTextContent('Outra música');
     });
 
-    it.each([
-      ['right', 'get'],
-      ['wrong', 'late'],
-    ])('hides the translation of a line whose blank has no answer yet, and shows it once it is answered %s', (_name, word) => {
+    it('hides the translation of a line whose blank has no answer yet, and shows it once the blank is right', () => {
       const { song } = songTranslation({ 0: 'Logo chegamos lá antes da chuva' });
       renderHelped({ songTranslation: song });
 
@@ -3316,9 +3313,54 @@ describe('GameScreen: help with a line', () => {
       expect(screen.queryByTestId('translation')).not.toBeInTheDocument();
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
 
-      fireEvent.click(option(word));
+      fireEvent.click(option('get'));
 
       expect(screen.getByTestId('translation')).toHaveTextContent('Logo chegamos lá antes da chuva');
+    });
+
+    it('keeps it hidden after a miss while "Repetir sozinho depois de errar" is on, as the blank waits for its retry', () => {
+      const { song } = songTranslation({ 0: 'Logo chegamos lá antes da chuva' });
+      renderHelped({ songTranslation: song });
+      fireEvent.click(translationSwitch());
+
+      fireEvent.click(option('late'));
+      expect(screen.queryByTestId('translation')).not.toBeInTheDocument();
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+      fireEvent.click(option('get'));
+
+      expect(screen.getByTestId('translation')).toHaveTextContent('Logo chegamos lá antes da chuva');
+    });
+
+    it('shows it after a miss while "Repetir sozinho depois de errar" is off, as the blank waits for nothing more', () => {
+      saveSettings(localStorage, { ...DEFAULT_SETTINGS, autoRepeatOnMiss: false });
+      const { song } = songTranslation({ 0: 'Logo chegamos lá antes da chuva' });
+      renderHelped({ songTranslation: song });
+      fireEvent.click(translationSwitch());
+
+      fireEvent.click(option('late'));
+
+      expect(screen.getByTestId('translation')).toHaveTextContent('Logo chegamos lá antes da chuva');
+    });
+
+    it('keeps it hidden for a blank skipped by a seek, which still waits for its answer', () => {
+      const { song } = songTranslation({ 0: 'Logo chegamos lá antes da chuva', 1: 'E a chaleira canta' });
+      renderHelped({ songTranslation: song });
+      fireEvent.click(translationSwitch());
+      // The player drags the clip past the first line, whose blank goes by with no answer...
+      act(() => {
+        fake.seekTo(5000);
+        vi.advanceTimersByTime(400);
+      });
+      expect(screen.getByTestId('translation')).toHaveTextContent('E a chaleira canta');
+
+      // ...and back to it.
+      act(() => {
+        fake.seekTo(1000);
+        vi.advanceTimersByTime(400);
+      });
+
+      expect(screen.getByTestId('line-current')).toHaveTextContent('Soon we');
+      expect(screen.queryByTestId('translation')).not.toBeInTheDocument();
     });
 
     it('keeps it hidden while one blank of the line still has no answer', () => {
@@ -3440,13 +3482,26 @@ describe('GameScreen: help with a line', () => {
       expect(requestHelp).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ lineIndex: 0, target: 'home' }));
     });
 
-    it('keeps the translation of the line being built hidden until the line has an answer', () => {
+    it('keeps the translation of the line being built hidden after a wrong tile, while it is built again, until it is right', () => {
       const { song } = songTranslation({ 0: 'Por favor, volta pra casa hoje' });
       renderHelpedBuild({ songTranslation: song });
 
       fireEvent.click(translationSwitch());
       expect(screen.queryByTestId('translation')).not.toBeInTheDocument();
-      // A miss: the line has its first answer.
+      // A wrong tile marks the line wrong, and with "Repetir sozinho depois de errar" on it waits to be built again.
+      fireEvent.click(tile('tonight'));
+      expect(screen.queryByTestId('translation')).not.toBeInTheDocument();
+      placeWords(BUILD_WORDS);
+
+      expect(screen.getByTestId('translation')).toHaveTextContent('Por favor, volta pra casa hoje');
+    });
+
+    it('shows the translation of the line after a wrong tile while "Repetir sozinho depois de errar" is off', () => {
+      saveSettings(localStorage, { ...DEFAULT_SETTINGS, autoRepeatOnMiss: false });
+      const { song } = songTranslation({ 0: 'Por favor, volta pra casa hoje' });
+      renderHelpedBuild({ songTranslation: song });
+      fireEvent.click(translationSwitch());
+
       fireEvent.click(tile('tonight'));
 
       expect(screen.getByTestId('translation')).toHaveTextContent('Por favor, volta pra casa hoje');

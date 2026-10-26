@@ -171,8 +171,8 @@ const ANSWER_START = [
  * soon as the lyrics were known; a line it did not give is asked for alone. In the modes with blanks, "Tradução" is the
  * third tool, a switch: on, the line in play shows its translation under it, line by line as the song plays, and the
  * music goes on. It is "Mostrar tradução sempre", the same setting, so it stays as it was left for the next songs. A
- * line with a blank that has not had its first answer shows no translation until it has one, right or wrong, since it
- * would give the meaning of the word away. Karaokê shows the translations of the current and next lines, from the same
+ * line shows no translation while any blank of it still awaits an answer (the retry after a miss included, while
+ * "Repetir sozinho depois de errar" is on), since it would give the meaning of the word away. Karaokê shows the translations of the current and next lines, from the same
  * translation of the song, with its own switch.
  *
  * DJ Bop's explanation (`useLineHelp`) runs only when the player asks: "Não entendi", a tapped word and "Não entendi a
@@ -456,11 +456,10 @@ export function GameScreen({
     help.open(target, lineIndex, opener);
   };
 
-  // The translation under the line in play, while the switch is on. A line with a blank that has not had its first
-  // answer (right or wrong) shows none yet: the translation would give the meaning of the word away.
-  const lineAnswered = game.blanks
-    .filter((one) => one.lineIndex === lineIndex)
-    .every((one) => game.status[one.id] === 'correct' || game.status[one.id] === 'wrong');
+  // The translation under the line in play, while the switch is on. A line shows none while any blank of it still
+  // awaits an answer (`awaitsAnswer`: pending, skipped, or missed with "Repetir sozinho depois de errar" on, which is
+  // the retry): the translation would give the meaning of the word away while it can still be answered.
+  const lineAnswered = !game.blanks.some((one) => one.lineIndex === lineIndex && awaitsAnswer(game, one));
   const translation = useLineTranslation({
     song: songTranslation,
     translate: lineHelp.translate,

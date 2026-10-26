@@ -32,7 +32,7 @@ interface LyricPanelProps {
   corrected?: Record<string, number[]>;
   /**
    * The translation of the line in play, as far as it got: on its way, or there. The game screen gives one only while
-   * its translation switch is on and the line may show it (no blank of it waits for its first answer); without one,
+   * its translation switch is on and the line may show it (no blank of it awaits an answer); without one,
    * nothing is drawn for it.
    */
   translation?: TranslationView;
