@@ -9,6 +9,7 @@ import {
   type ModeRow,
   type PanelInput,
   type SongRow,
+  type WholeSongRow,
 } from './summary';
 
 // Invented numbers only. Today is 25/10/2026 in Brasília and the period is 7 days (19/10 to 25/10); the month runs
@@ -188,8 +189,14 @@ function input(overrides: Partial<PanelInput> = {}): PanelInput {
     people: { people: 4, games_started: 16, games_finished: 10 },
     people30: { people: 8, games_started: 40, games_finished: 25 },
     latenciesMs: [1000, 2000, 1500],
+    wholeSongs: [],
     ...overrides,
   };
+}
+
+/** One row of ai_usage for the translation of a whole song (`line_index = -1`), as the panel reads it. */
+function wholeSong(youtubeId: string, source: 'model' | 'cache', costUsd: number): WholeSongRow {
+  return { youtube_id: youtubeId, source, cost_usd: costUsd };
 }
 
 describe('buildPanel: spend and averages', () => {
@@ -269,6 +276,46 @@ describe('buildPanel: the AI', () => {
 
   it('averages the latency it is given', () => {
     expect(buildPanel(input()).ai.avgLatencyMs).toBe(1500);
+  });
+
+  it('counts the calls, the share from memory and the cache by line only, leaving out the songs translated whole', () => {
+    const { ai } = buildPanel(
+      input({
+        wholeSongs: [
+          wholeSong('aaaaaaaaaaa', 'model', 0.004),
+          wholeSong('aaaaaaaaaaa', 'cache', 0),
+          wholeSong('bbbbbbbbbbb', 'cache', 0),
+          wholeSong('ccccccccccc', 'model', 0.003),
+        ],
+      }),
+    );
+
+    // 70 calls in the views, 4 of them for whole songs: 2 from the model, 2 from the cache.
+    expect(ai).toMatchObject({ calls: 66, model: 14, cache: 43, reuse: 9 });
+    expect(ai.memoryShare).toBeCloseTo(52 / 66, 6);
+    // The tokens and the failures still count every call.
+    expect(ai).toMatchObject({ declined: 1, errors: 2, inputTokens: 4800, outputTokens: 1600 });
+  });
+
+  it('says how many songs were translated whole, by how many calls, and what they cost', () => {
+    const { ai } = buildPanel(
+      input({
+        wholeSongs: [
+          wholeSong('aaaaaaaaaaa', 'model', 0.004),
+          wholeSong('aaaaaaaaaaa', 'cache', 0),
+          wholeSong('bbbbbbbbbbb', 'cache', 0),
+        ],
+      }),
+    );
+
+    expect(ai.wholeSong).toEqual({ songs: 2, calls: 3, costUsd: 0.004 });
+  });
+
+  it('has no song translated whole when there is none, and keeps the cost of the period as it was', () => {
+    const panel = buildPanel(input());
+
+    expect(panel.ai.wholeSong).toEqual({ songs: 0, calls: 0, costUsd: 0 });
+    expect(panel.spend.periodUsd).toBeCloseTo(1.28, 6);
   });
 });
 

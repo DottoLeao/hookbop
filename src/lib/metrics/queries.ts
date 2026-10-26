@@ -11,7 +11,7 @@ import {
   type Period,
   type PeriodDays,
 } from './period';
-import { brlRateOrDefault, buildPanel, type ActivePeople, type PanelData } from './summary';
+import { brlRateOrDefault, buildPanel, type ActivePeople, type PanelData, type WholeSongRow } from './summary';
 
 /**
  * The reads of the owner's panel and of its export. Every one goes through the service client, the only one that may
@@ -121,8 +121,9 @@ function readHelp(admin: Admin, { firstDay, lastDay }: Period) {
 }
 
 /**
- * How long each answer of the model took in the period. Only `source = 'model'` and `outcome = 'ok'`: the cache and
- * reused lines took no model time, and an error's latency means something else (how long until it failed).
+ * How long each answer of the model about one line took in the period. Only `source = 'model'` and `outcome = 'ok'`:
+ * the cache and reused lines took no model time, and an error's latency means something else (how long until it
+ * failed). Only `line_index >= 0`: the translation of a whole song (`-1`) takes the time of every line of it.
  */
 async function readLatencies(admin: Admin, period: Period): Promise<number[]> {
   const rows = await readAll<{ latency_ms: number | null }>('ai_usage latency', (from, to) =>
@@ -131,6 +132,7 @@ async function readLatencies(admin: Admin, period: Period): Promise<number[]> {
       .select('latency_ms')
       .eq('source', 'model')
       .eq('outcome', 'ok')
+      .gte('line_index', 0)
       .not('latency_ms', 'is', null)
       .gte('created_at', period.from)
       .lt('created_at', period.to)
@@ -138,6 +140,23 @@ async function readLatencies(admin: Admin, period: Period): Promise<number[]> {
       .range(from, to),
   );
   return rows.map((row) => Number(row.latency_ms));
+}
+
+/**
+ * The translations of whole songs in the period (`ai_usage.line_index = -1`, see docs/analytics.md): the views count
+ * them with the calls by line, and the panel shows them apart.
+ */
+function readWholeSongs(admin: Admin, period: Period) {
+  return readAll<WholeSongRow>('ai_usage whole songs', (from, to) =>
+    admin
+      .from('ai_usage')
+      .select('youtube_id, source, cost_usd')
+      .eq('line_index', -1)
+      .gte('created_at', period.from)
+      .lt('created_at', period.to)
+      .order('id')
+      .range(from, to),
+  );
 }
 
 /** Everything on the panel for the last `days` days in Brasília, with the month so far and the last 30 days. */
@@ -149,7 +168,7 @@ export async function readPanelData(admin: Admin, { days, now }: { days: PeriodD
   // The cost by day covers the period (inside the last 30 days), the month and the last 30 days in one read.
   const aiFrom = month.firstDay < last30.firstDay ? month.firstDay : last30.firstDay;
 
-  const [aiDaily, modes, songs, help, people, people30, latenciesMs, brlRate] = await Promise.all([
+  const [aiDaily, modes, songs, help, people, people30, latenciesMs, wholeSongs, brlRate] = await Promise.all([
     readAiDaily(admin, aiFrom, today),
     readModes(admin, period),
     readSongs(admin, period),
@@ -157,6 +176,7 @@ export async function readPanelData(admin: Admin, { days, now }: { days: PeriodD
     activePeople(admin, period),
     days === PROJECTION_DAYS ? null : activePeople(admin, last30),
     readLatencies(admin, period),
+    readWholeSongs(admin, period),
     readBrlRate(admin),
   ]);
 
@@ -171,6 +191,7 @@ export async function readPanelData(admin: Admin, { days, now }: { days: PeriodD
     people,
     people30: people30 ?? people,
     latenciesMs,
+    wholeSongs,
   });
 }
 

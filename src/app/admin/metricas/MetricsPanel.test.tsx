@@ -22,13 +22,13 @@ function event(id: number, userId: string, name: string, at = '2026-10-20T15:00:
   return { id, created_at: at, user_id: userId, session_id: SESSION, name, youtube_id: null, mode: null, props: {} };
 }
 
-function usage(id: number, latencyMs: number) {
+function usage(id: number, latencyMs: number, lineIndex = 3, youtubeId = 'aaaaaaaaaaa') {
   return {
     id,
     created_at: '2026-10-20T15:00:00Z',
     user_id: 'user-a',
-    youtube_id: 'aaaaaaaaaaa',
-    line_index: 3,
+    youtube_id: youtubeId,
+    line_index: lineIndex,
     kind: 'translate',
     source: 'model',
     model: 'claude-haiku-5-5',
@@ -83,7 +83,14 @@ function seeded() {
     ...Array.from({ length: 8 }, (_, index) => event(10 + index, index < 4 ? 'user-a' : 'user-b', 'game_started')),
     ...Array.from({ length: 5 }, (_, index) => event(20 + index, 'user-a', 'game_finished')),
   ];
-  db.tables.ai_usage = [usage(1, 1000), usage(2, 1200), usage(3, 1400)];
+  db.tables.ai_usage = [
+    usage(1, 1000),
+    usage(2, 1200),
+    usage(3, 1400),
+    // Two songs translated whole by the model, on 20/10: in the views' 30 calls, and not in the latency.
+    usage(4, 15_000, -1, 'aaaaaaaaaaa'),
+    usage(5, 9_000, -1, 'bbbbbbbbbbb'),
+  ];
   return db;
 }
 
@@ -152,9 +159,12 @@ describe('MetricsPanel', () => {
     await renderPanel(seeded());
 
     const ai = card('Tokens e memória');
-    expect(ai.getByText('Pedidos de ajuda à IA').nextElementSibling).toHaveTextContent('40');
-    expect(ai.getByText('Da memória').nextElementSibling).toHaveTextContent('55%');
-    expect(ai.getByText('18 do cache por verso · 4 reaproveitados do refrão · 18 do modelo')).toBeInTheDocument();
+    // 40 calls in the views, 2 of them for whole songs: by line, 38, 16 of the model, 22 from memory.
+    expect(ai.getByText('Pedidos de ajuda à IA').nextElementSibling).toHaveTextContent('38');
+    expect(ai.getByText('Por verso. A tradução da música inteira conta à parte.')).toBeInTheDocument();
+    expect(ai.getByText('Da memória').nextElementSibling).toHaveTextContent('57,9%');
+    expect(ai.getByText('18 do cache por verso · 4 reaproveitados do refrão · 16 do modelo')).toBeInTheDocument();
+    expect(ai.getByText('Tradução da música inteira: 2 músicas · US$ 0,00016')).toBeInTheDocument();
     expect(ai.getByText('Tokens de entrada').nextElementSibling).toHaveTextContent('4.800');
     expect(ai.getByText('Tokens de saída').nextElementSibling).toHaveTextContent('1.600');
     expect(ai.getByText('Tempo médio de resposta').nextElementSibling).toHaveTextContent(`1,2 s`);

@@ -14,11 +14,14 @@ import { inPeriod, lastDays, monthSoFar, PROJECTION_DAYS, type Day, type Period,
  */
 
 type Views = Database['public']['Views'];
+type Tables = Database['public']['Tables'];
 export type AiDailyRow = Views['metrics_ai_daily']['Row'];
 export type UsageDailyRow = Views['metrics_usage_daily']['Row'];
 export type ModeRow = Views['metrics_modes']['Row'];
 export type SongRow = Views['metrics_songs']['Row'];
 export type HelpRow = Views['metrics_help']['Row'];
+/** One translation of a whole song (`ai_usage.line_index = -1`): the song, where it came from and what it cost. */
+export type WholeSongRow = Pick<Tables['ai_usage']['Row'], 'youtube_id' | 'source' | 'cost_usd'>;
 /** The one row of `metrics_active_people(p_from, p_to)`. */
 export type ActivePeople = Database['public']['Functions']['metrics_active_people']['Returns'][number];
 
@@ -62,8 +65,10 @@ export interface PanelInput {
   people: ActivePeople;
   /** ...and of the last 30 days, for the projection. */
   people30: ActivePeople;
-  /** The latency of each answer the model gave in the period (`source = 'model'` and `outcome = 'ok'` only). */
+  /** The latency of each answer the model gave in the period about one line (`source = 'model'`, `outcome = 'ok'`). */
   latenciesMs: number[];
+  /** The translations of whole songs in the period, which the views count with the calls by line. */
+  wholeSongs: WholeSongRow[];
 }
 
 export interface ModeSummary {
@@ -115,6 +120,10 @@ export interface PanelData {
   };
   /** The last 30 days: their cost and people, and the cost per person the projection multiplies. */
   projection: { people: number; costUsd: number; perPersonUsd: number | null };
+  /**
+   * The AI of the period. `calls`, `model`, `cache`, `reuse` and `memoryShare` are of the calls about one line
+   * (`line_index >= 0`); the translations of whole songs are in `wholeSong`. The failures and the tokens count every call.
+   */
   ai: {
     calls: number;
     model: number;
@@ -124,9 +133,11 @@ export interface PanelData {
     errors: number;
     inputTokens: number;
     outputTokens: number;
-    /** The calls answered from memory (the per-line cache and reused lines) over all calls. */
+    /** The calls by line answered from memory (the per-line cache and reused lines) over the calls by line. */
     memoryShare: number | null;
     avgLatencyMs: number | null;
+    /** The songs translated whole (distinct videos), the calls that did it, and their cost. */
+    wholeSong: { songs: number; calls: number; costUsd: number };
   };
   /** Most started first. */
   modes: ModeSummary[];
@@ -174,14 +185,20 @@ function costOf(rows: AiDailyRow[], period: Period): number {
   return roundUsd(rows.filter((row) => inPeriod(row.day, period)).reduce((sum, row) => sum + n(row.cost_usd), 0));
 }
 
-function summarizeAi(rows: AiDailyRow[], latenciesMs: number[]): PanelData['ai'] {
+/**
+ * The views count a translation of a whole song as one call, from the model or the cache, with the calls by line. The
+ * counts by line are the views' counts without them (a whole song is never 'reuse'), and never below 0.
+ */
+function summarizeAi(rows: AiDailyRow[], latenciesMs: number[], wholeSongs: WholeSongRow[]): PanelData['ai'] {
   const total = (column: keyof AiDailyRow) => rows.reduce((sum, row) => sum + n(row[column] as number | null), 0);
-  const calls = total('calls');
-  const cache = total('calls_cache');
+  const whole = (source: string) => wholeSongs.filter((row) => row.source === source).length;
+  const byLine = (all: number, ofWholeSongs: number) => Math.max(0, all - ofWholeSongs);
+  const calls = byLine(total('calls'), wholeSongs.length);
+  const cache = byLine(total('calls_cache'), whole('cache'));
   const reuse = total('calls_reuse');
   return {
     calls,
-    model: total('calls_model'),
+    model: byLine(total('calls_model'), whole('model')),
     cache,
     reuse,
     declined: total('calls_declined'),
@@ -193,6 +210,11 @@ function summarizeAi(rows: AiDailyRow[], latenciesMs: number[]): PanelData['ai']
       latenciesMs.reduce((sum, ms) => sum + ms, 0),
       latenciesMs.length,
     ),
+    wholeSong: {
+      songs: new Set(wholeSongs.map((row) => row.youtube_id)).size,
+      calls: wholeSongs.length,
+      costUsd: roundUsd(wholeSongs.reduce((sum, row) => sum + n(row.cost_usd), 0)),
+    },
   };
 }
 
@@ -313,6 +335,7 @@ export function buildPanel(input: PanelInput): PanelData {
     ai: summarizeAi(
       input.aiDaily.filter((row) => inPeriod(row.day, period)),
       input.latenciesMs,
+      input.wholeSongs,
     ),
     modes: summarizeModes(input.modes.filter((row) => inPeriod(row.day, period))),
     songs: songs.slice(0, TOP_SONGS),

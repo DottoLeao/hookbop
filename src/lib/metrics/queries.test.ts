@@ -136,6 +136,11 @@ describe('readPanelData', () => {
       ...aiUsageRows(3, '2026-10-22T15:00:00Z'),
       { ...aiUsageRows(1, '2026-10-22T16:00:00Z')[0], id: 50, source: 'model', outcome: 'error', latency_ms: 30_000 },
       { ...aiUsageRows(1, '2026-10-22T16:00:00Z')[0], id: 51, source: 'cache', model: null, latency_ms: null },
+      // Two translations of a whole song: a long call of the model, and one the cache answered.
+      { ...aiUsageRows(1, '2026-10-22T17:00:00Z')[0], id: 52, line_index: -1, cost_usd: 0.003, latency_ms: 12_000 },
+      { ...aiUsageRows(1, '2026-10-22T17:30:00Z')[0], id: 53, line_index: -1, source: 'cache', model: null, cost_usd: 0, latency_ms: null },
+      // One of a whole song before the period.
+      { ...aiUsageRows(1, '2026-10-01T17:00:00Z')[0], id: 54, line_index: -1, youtube_id: 'bbbbbbbbbbb', cost_usd: 0.005 },
     ];
     return db;
   }
@@ -180,22 +185,40 @@ describe('readPanelData', () => {
     expect(db.rpcs).toHaveLength(1);
   });
 
-  it('averages the latency of the answers the model gave, and of nothing else', async () => {
+  it('averages the latency of the answers the model gave for one line, and of nothing else', async () => {
     const db = seeded();
 
     const panel = await readPanelData(db.asClient(), { days: 7, now: NOW });
 
-    const [latency] = db.readsOf('ai_usage');
-    expect(latency.select).toBe('latency_ms');
+    const latency = db.readsOf('ai_usage').find((call) => call.select === 'latency_ms')!;
     expect(latency.filters).toEqual([
       'source=eq.model',
       'outcome=eq.ok',
+      'line_index=gte.0',
       'latency_ms=not.is.null',
       'created_at=gte.2026-10-19 00:00:00 America/Sao_Paulo',
       'created_at=lt.2026-10-26 00:00:00 America/Sao_Paulo',
     ]);
-    // 1000, 1500 and 2000 ms; the error row's 30 s and the cache row are left out.
+    // 1000, 1500 and 2000 ms; the error row's 30 s, the cache row and the whole song's 12 s are left out.
     expect(panel.ai.avgLatencyMs).toBe(1500);
+  });
+
+  it('reads the translations of whole songs of the period apart, and counts the calls by line without them', async () => {
+    const db = seeded();
+
+    const panel = await readPanelData(db.asClient(), { days: 7, now: NOW });
+
+    const whole = db.readsOf('ai_usage').find((call) => call.select === 'youtube_id, source, cost_usd')!;
+    expect(whole.filters).toEqual([
+      'line_index=eq.-1',
+      'created_at=gte.2026-10-19 00:00:00 America/Sao_Paulo',
+      'created_at=lt.2026-10-26 00:00:00 America/Sao_Paulo',
+    ]);
+    expect(panel.ai.wholeSong).toEqual({ songs: 1, calls: 2, costUsd: 0.003 });
+    // The view has 4 calls on 22/10 (1 of the model, 3 of the cache); 2 of them were for a whole song.
+    expect(panel.ai).toMatchObject({ calls: 2, model: 0, cache: 2 });
+    // The cost of the period still has everything.
+    expect(panel.spend.periodUsd).toBeCloseTo(0.2, 6);
   });
 
   it('puts the reads together into the panel, with the rate in app_config', async () => {

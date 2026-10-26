@@ -253,6 +253,8 @@ export const ptBR = {
   'metricas.n.opens.other': '{n} aberturas',
   'metricas.n.selections.one': '{n} escolha do modo',
   'metricas.n.selections.other': '{n} escolhas do modo',
+  'metricas.n.songs.one': '{n} música',
+  'metricas.n.songs.other': '{n} músicas',
   'metricas.n.reused.one': '{n} reaproveitado do refrão',
   'metricas.n.reused.other': '{n} reaproveitados do refrão',
 
@@ -274,6 +276,9 @@ export const ptBR = {
 
   'metricas.ai.title': 'Tokens e memória',
   'metricas.ai.calls': 'Pedidos de ajuda à IA',
+  'metricas.ai.callsDetail': 'Por verso. A tradução da música inteira conta à parte.',
+  // A tradução da música inteira (ai_usage.line_index = -1): quantas músicas e quanto custaram no período.
+  'metricas.ai.wholeSong': 'Tradução da música inteira: {musicas} · {custo}',
   'metricas.ai.memory': 'Da memória',
   'metricas.ai.memoryDetail': '{cache} do cache por verso · {reuse} · {model} do modelo',
   'metricas.ai.inputTokens': 'Tokens de entrada',

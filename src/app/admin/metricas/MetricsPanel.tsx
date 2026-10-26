@@ -106,7 +106,7 @@ function Ai({ panel, caption }: { panel: PanelData; caption: string }) {
   return (
     <MetricCard id="tokens" title={t('metricas.ai.title')} caption={caption}>
       <Stats>
-        <Stat label={t('metricas.ai.calls')} value={formatCount(ai.calls)} />
+        <Stat label={t('metricas.ai.calls')} value={formatCount(ai.calls)} detail={t('metricas.ai.callsDetail')} />
         <Stat
           label={t('metricas.ai.memory')}
           value={percentOrNone(ai.memoryShare)}
@@ -125,6 +125,12 @@ function Ai({ panel, caption }: { panel: PanelData; caption: string }) {
           size="small"
         />
       </Stats>
+      <p className="text-label text-muted">
+        {t('metricas.ai.wholeSong', {
+          musicas: count('metricas.n.songs', ai.wholeSong.songs),
+          custo: formatUsd(ai.wholeSong.costUsd),
+        })}
+      </p>
       <p className="text-label text-muted">
         {t('metricas.ai.failures', { recusados: formatCount(ai.declined), erros: formatCount(ai.errors) })}
       </p>

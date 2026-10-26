@@ -148,11 +148,12 @@ O painel mostra um período de 7 ou 30 dias (`?dias=7` ou `?dias=30`; qualquer o
 | Custo médio por partida | Gasto do período ÷ `games_started` de `metrics_active_people` no período (partidas começadas). |
 | Custo médio por música | Gasto do período ÷ músicas distintas com pelo menos uma partida começada no período (`metrics_songs`, `games_started > 0`). |
 | Projeção | "Pessoas por mês" (o dono digita; começa em 50) × (gasto dos **últimos 30 dias** ÷ `people` dos últimos 30 dias), qualquer que seja o período na tela. |
-| Pedidos de ajuda à IA | Soma de `calls`. |
-| Da memória | (soma de `calls_cache` + soma de `calls_reuse`) ÷ soma de `calls`. É a parte dos pedidos que não chamou o modelo. |
+| Pedidos de ajuda à IA | Pedidos **por verso**: soma de `calls` menos as linhas de `ai_usage` com `line_index = -1` do período (a tradução da música inteira, que vem à parte). |
+| Da memória | Também só por verso: (soma de `calls_cache` − linhas `line_index = -1` com `source = 'cache'` + soma de `calls_reuse`) ÷ os pedidos por verso. É a parte dos pedidos por verso que não chamou o modelo. O detalhe ("do cache por verso", "do modelo") desconta do mesmo jeito. |
+| Tradução da música inteira | Das linhas de `ai_usage` com `line_index = -1` do período: quantas músicas distintas (`youtube_id`) e a soma de `cost_usd`. Esse custo já está no gasto do período. |
 | Tokens de entrada e de saída | Somas de `input_tokens` e `output_tokens`. |
 | Recusados e com erro | Somas de `calls_declined` e `calls_error`. |
-| Tempo médio de resposta | Média de `ai_usage.latency_ms` só nas linhas com `source = 'model'` e `outcome = 'ok'` do período. |
+| Tempo médio de resposta | Média de `ai_usage.latency_ms` só nas linhas com `source = 'model'`, `outcome = 'ok'` e `line_index >= 0` do período (o tempo de um verso; a música inteira fica de fora). |
 | Modos mais jogados | Por modo, soma de `games_started` (e de `mode_selections`), do maior para o menor. |
 | Partidas por modo: começadas, terminadas, saídas | Somas de `games_started`, `games_finished` e `games_abandoned` por modo. |
 | Conclusão | `games_finished ÷ games_started` do modo. **Nunca** terminadas ÷ (terminadas + saídas). O painel mostra no máximo 100%, porque uma partida retomada não grava `game_started` de novo e pode terminar num período depois daquele em que começou, e aí as terminadas passam das começadas. |
@@ -170,13 +171,13 @@ O painel mostra um período de 7 ou 30 dias (`?dias=7` ou `?dias=30`; qualquer o
 - **`durationMs` é tempo de relógio.** Vai do começo ao fim da tela da partida e inclui o tempo com o app em segundo plano ou com o clipe parado. Numa partida retomada, conta a partir da retomada. Uma duração muito longa pode ser alguém que saiu do app e voltou horas depois: prefira a mediana à média.
 - **Karaokê não tem acerto.** Termina com `pct = 0` e `totalBlanks = 0`; `avg_pct` o deixa de fora.
 - **Duas contagens de ajuda.** `help_explain` e `help_translate` (em `app_events`, com modo) contam os toques de quem pediu. `ai_usage` conta os pedidos que o servidor atendeu, e inclui a tradução da música inteira, pedida a cada música aberta (uma vez por música enquanto o app fica aberto), mesmo que a pessoa nunca ligue a tradução. Os números não batem, e não devem bater.
-- **A tradução da música inteira (`line_index = -1`) é uma linha só para muitos versos.** Em "Pedidos de ajuda à IA" e em "Da memória" ela conta como um pedido, por mais versos que tenha trazido. Para ver o custo por tipo, separe `line_index = -1` (música inteira) de `line_index >= 0` (um verso).
+- **A tradução da música inteira (`line_index = -1`) é uma linha só para muitos versos.** Nas views (`metrics_ai_daily`) ela conta como um pedido, por mais versos que tenha trazido; o painel a tira de "Pedidos de ajuda à IA" e de "Da memória" e a mostra à parte. Os tokens, os recusados e com erro e todos os gastos contam tudo. Numa análise direta, separe `line_index = -1` (música inteira) de `line_index >= 0` (um verso).
 - **`help_translate` mudou de sentido em 2026-10-26.** Antes era um toque em "Traduzir verso" (um verso, com a música pausada); desde então é ligar o botão "Tradução", que fica ligado verso a verso e para as próximas músicas. Não compare os dois períodos como se fossem a mesma ação.
 - **`ai_usage` não tem modo.** Para ajuda por modo, use `metrics_help`.
 - **`lineIndex` e `line_index` contam do 0** e são posições na letra, não uma parte relativa da música: o verso 30 é o fim de uma música curta e o meio de uma longa. Por isso `avg_line_index` só faz sentido dentro de uma mesma música, e o painel não mostra média de verso. Para comparar músicas, divida o `lineIndex` pelo número de versos da letra de cada uma.
 - **O custo é estimado** pelos tokens registrados e pelo preço guardado no código, não pela fatura da Anthropic.
 - **A latência de uma linha de erro** é o tempo até falhar. Médias de latência usam só `source = 'model'` e `outcome = 'ok'`.
-- **A latência da música inteira é a da chamada toda**, do pedido ao último verso (vários segundos numa música longa), e não o tempo até o primeiro verso aparecer, que é bem menor. Para o tempo de resposta de um verso, use só `line_index >= 0`; o "Tempo médio de resposta" do painel mistura os dois.
+- **A latência da música inteira é a da chamada toda**, do pedido ao último verso (vários segundos numa música longa), e não o tempo até o primeiro verso aparecer, que é bem menor. Para o tempo de resposta de um verso, use só `line_index >= 0`, como faz o "Tempo médio de resposta" do painel.
 - **`app_opened`** só é gravado na tela inicial e na tela de uma música, uma vez por sessão. Uma sessão que começa em outra tela só conta quando chega a uma dessas duas.
 - **`mode_selected`** sai junto com cada `game_started`, inclusive em "Jogar de novo".
 - **`install_prompt_shown`** conta cada vez que o convite aparece, não pessoas.
