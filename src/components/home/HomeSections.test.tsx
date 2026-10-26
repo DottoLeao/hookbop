@@ -4,7 +4,7 @@ import { currentUserId } from '@/lib/auth/currentUser';
 import type { VideoRecord } from '@/lib/lyrics/resolveSong';
 import { listActiveMembers, type Member } from '@/lib/supabase/members';
 import { recentSongs } from '@/lib/supabase/plays';
-import { GangSongs, HomeShortcuts, PasteLinkWithShareError } from './HomeSections';
+import { GangSongs, HomeShortcuts, PasteLinkWithShareError, PolicyNoticeForMember } from './HomeSections';
 
 // The sections read the signed-in member's data on the server; here the reads are fakes.
 const SUPABASE = { fake: 'client' };
@@ -164,5 +164,50 @@ describe('PasteLinkWithShareError', () => {
 
     expect(screen.getByLabelText('Link do YouTube')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});
+
+describe('PolicyNoticeForMember', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('hands the notice the day the signed-in member joined, read with their own session', async () => {
+    // Joana joined on 21/10, before the policy changed.
+    render(await PolicyNoticeForMember());
+
+    expect(listActiveMembers).toHaveBeenCalledWith(SUPABASE);
+    expect(currentUserId).toHaveBeenCalledWith(SUPABASE);
+    expect(screen.getByRole('status')).toHaveTextContent('A política de privacidade mudou.');
+  });
+
+  it('shows nothing to a member who joined after the policy changed', async () => {
+    vi.mocked(listActiveMembers).mockResolvedValue([
+      ...MEMBERS,
+      { id: 'user-3', displayName: 'Bia', joinedAt: '2026-11-02T12:00:00Z', isOwner: false },
+    ]);
+    vi.mocked(currentUserId).mockResolvedValue('user-3');
+
+    render(await PolicyNoticeForMember());
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('shows nothing, and does not fail the page, when who joined when cannot be read', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(listActiveMembers).mockRejectedValue(new Error('offline'));
+
+    const { container } = render(await PolicyNoticeForMember());
+
+    expect(container).toBeEmptyDOMElement();
+    expect(log).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows nothing for someone who is not among the members', async () => {
+    vi.mocked(currentUserId).mockResolvedValue('someone-else');
+
+    const { container } = render(await PolicyNoticeForMember());
+
+    expect(container).toBeEmptyDOMElement();
   });
 });

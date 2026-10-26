@@ -30,6 +30,10 @@ export const ptBR = {
   'home.admin': 'Admin',
   'home.metrics': 'Métricas',
   'home.licenses': 'Licenças de terceiros',
+  // Na tela inicial, uma vez a cada mudança da política de privacidade, para quem já conhecia a anterior.
+  'avisoPolitica.text': 'A política de privacidade mudou.',
+  'avisoPolitica.link': 'Ler a política',
+  'avisoPolitica.ok': 'Ok',
 
   // Convite para instalar o app, na tela inicial depois da primeira música terminada.
   'install.title': 'Quer o Hookbop na tela inicial?',
@@ -313,7 +317,7 @@ export const ptBR = {
   // Política de privacidade (/privacidade). Rascunho para o criador revisar.
   'privacidade.link': 'Privacidade',
   'privacidade.title': 'Política de privacidade',
-  'privacidade.updated': 'Atualizada em 25 de outubro de 2026.',
+  'privacidade.updated': 'Atualizada em 26 de outubro de 2026.',
   'privacidade.back': 'Voltar para o Hookbop',
   'privacidade.contactEmail': 'dottodeveloper@gmail.com',
 
@@ -332,11 +336,11 @@ export const ptBR = {
   'privacidade.guarda.ajuda':
     'Pedidos de ajuda: a hora e o tipo de cada "Não entendi" e de cada tradução feita pela IA, para controlar o limite por hora. As explicações e traduções ficam guardadas por verso, sem dizer quem pediu.',
   'privacidade.guarda.usoIa':
-    'Registro de uso da IA: a cada pedido de ajuda com IA, guardamos o código da sua conta, o vídeo, o número do verso (ou que foi a música inteira), se foi explicação ou tradução, se a resposta veio da IA ou de uma resposta já guardada, os tokens usados (a medida de texto da IA), o custo estimado, o tempo de resposta, como terminou e a data e a hora.',
+    'Registro de uso da IA: quando você abre uma música (para a tradução) e a cada pedido de ajuda, guardamos o código da sua conta, o vídeo, o número do verso (ou que foi a música inteira), se foi explicação ou tradução, se a resposta veio da IA ou de uma resposta já guardada, os tokens usados (a medida de texto da IA), o custo estimado, o tempo de resposta, como terminou e a data e a hora.',
   'privacidade.guarda.usoApp':
     'Registro de uso do app: o código da sua conta, um código aleatório da sessão, o nome da ação e a data e a hora, às vezes com o vídeo e o modo. As ações são abrir o app, abrir uma música, escolher o modo, começar, terminar ou sair no meio de uma partida, pedir ajuda, continuar depois de sair do app, ver o aviso de instalação (e aceitar), criar um convite e ajustar o tempo da letra. Detalhes, só estes: ao terminar uma partida, a porcentagem de acertos, a duração e o número de lacunas; ao pedir ajuda, o número do verso.',
   'privacidade.guarda.aparelho':
-    'No seu aparelho: os cookies que mantêm você conectado e guardam o convite; as suas configurações do jogo; a partida em andamento de cada música, para você continuar de onde parou; duas marcas do aviso para instalar o app (que você já terminou uma música e que tocou em "Agora não"); um código aleatório da sessão e a marca de que o app já foi aberto, que somem quando você fecha a aba; e as páginas guardadas para o app abrir sem internet.',
+    'No seu aparelho: os cookies que mantêm você conectado e guardam o convite; as suas configurações do jogo; a partida em andamento de cada música, para você continuar de onde parou; duas marcas do aviso para instalar o app (que você já terminou uma música e que tocou em "Agora não"); a marca de que você já viu o aviso da última mudança desta política; um código aleatório da sessão e a marca de que o app já foi aberto, que somem quando você fecha a aba; e as páginas guardadas para o app abrir sem internet.',
 
   'privacidade.uso.title': 'Para que usamos',
   'privacidade.uso.p1':
@@ -356,7 +360,7 @@ export const ptBR = {
   'privacidade.terceiros.google':
     'Google: faz o login, se você escolher entrar com o Google, e envia os e-mails com o link e o código de entrada.',
   'privacidade.terceiros.anthropic':
-    'Anthropic (Claude): quando você abre uma música, enviamos a letra dela para traduzir (se a tradução ainda não estiver guardada), e quando você toca em "Não entendi", enviamos só o verso e a palavra destacada. Nenhum dado seu vai junto. O criador também pode usar o Claude para analisar os registros de uso; nesse caso, entra o código da sua conta, sem nome e sem e-mail.',
+    'Anthropic (Claude): quando você abre uma música, enviamos para traduzir só os versos dela que ainda não têm tradução guardada, e um verso sozinho quando falta a tradução dele; quando você toca em "Não entendi", enviamos só o verso e a palavra destacada. Nenhum dado seu vai junto. O criador também pode usar o Claude para analisar os registros de uso; nesse caso, entra o código da sua conta, sem nome e sem e-mail.',
   'privacidade.terceiros.youtube':
     'YouTube: os clipes tocam no player oficial do YouTube, que segue a política de privacidade do Google. As capinhas das músicas na tela inicial também vêm do YouTube. O pedido das capinhas não diz ao YouTube de qual página ele vem.',
   'privacidade.terceiros.lrclib': 'LRCLIB: é onde buscamos a letra sincronizada, pelo nome da música. Nenhum dado seu vai junto.',

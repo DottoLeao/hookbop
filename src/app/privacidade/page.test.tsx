@@ -16,7 +16,7 @@ describe('PrivacidadePage', () => {
     render(<PrivacidadePage />);
 
     expect(screen.getByRole('heading', { level: 1, name: 'Política de privacidade' })).toBeInTheDocument();
-    expect(screen.getByText('Atualizada em 25 de outubro de 2026.')).toBeInTheDocument();
+    expect(screen.getByText('Atualizada em 26 de outubro de 2026.')).toBeInTheDocument();
   });
 
   it('gives each topic its own heading, in order', () => {
@@ -43,6 +43,7 @@ describe('PrivacidadePage', () => {
       expect(screen.getAllByText(new RegExp(service)).length).toBeGreaterThan(0);
     }
     expect(screen.getByText(/só o verso e a palavra destacada/)).toBeInTheDocument();
+    expect(screen.getByText(/os versos dela que ainda não têm tradução guardada/)).toBeInTheDocument();
   });
 
   it('says the player and the covers of the songs on the home screen both come from YouTube, and the covers are asked for without saying which page', () => {
@@ -74,6 +75,9 @@ describe('PrivacidadePage: usage records', () => {
 
     const record = topic('O que guardamos').getByText(/^Registro de uso da IA:/);
     expect(record.tagName).toBe('LI');
+    // Records are written when a song opens, for its translation, and not only when help is asked for.
+    expect(record).toHaveTextContent('Registro de uso da IA: quando você abre uma música (para a tradução) e a cada pedido de ajuda');
+    expect(record).not.toHaveTextContent('a cada pedido de ajuda com IA');
     for (const part of [
       'o código da sua conta',
       'o vídeo',
@@ -141,8 +145,9 @@ describe('PrivacidadePage: usage records', () => {
 
     const anthropic = topic('Quem mais recebe dados').getByText(/^Anthropic \(Claude\):/);
     expect(anthropic).toHaveTextContent(
-      'quando você abre uma música, enviamos a letra dela para traduzir (se a tradução ainda não estiver guardada)',
+      'quando você abre uma música, enviamos para traduzir só os versos dela que ainda não têm tradução guardada',
     );
+    expect(anthropic).toHaveTextContent('e um verso sozinho quando falta a tradução dele');
     expect(anthropic).toHaveTextContent('quando você toca em "Não entendi", enviamos só o verso e a palavra destacada');
     expect(anthropic).toHaveTextContent('Nenhum dado seu vai junto.');
     expect(anthropic).toHaveTextContent('O criador também pode usar o Claude para analisar os registros de uso');
@@ -193,6 +198,8 @@ describe('PrivacidadePage: usage records', () => {
     expect(aparelho).toHaveTextContent(
       'duas marcas do aviso para instalar o app (que você já terminou uma música e que tocou em "Agora não")',
     );
+    // The notice of a change of this policy, once per change.
+    expect(aparelho).toHaveTextContent('a marca de que você já viu o aviso da última mudança desta política');
     // In the tab only: the session code and the mark that the app was opened.
     expect(aparelho).toHaveTextContent(
       'um código aleatório da sessão e a marca de que o app já foi aberto, que somem quando você fecha a aba',

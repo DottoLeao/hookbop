@@ -1,6 +1,6 @@
 import { Suspense } from 'react';
 import { Logo } from '@/components/brand/Logo';
-import { GangSongs, HomeShortcuts, PasteLinkWithShareError } from '@/components/home/HomeSections';
+import { GangSongs, HomeShortcuts, PasteLinkWithShareError, PolicyNoticeForMember } from '@/components/home/HomeSections';
 import { HomeLinks } from '@/components/home/HomeLinks';
 import { PasteLink } from '@/components/home/PasteLink';
 import { AppOpened } from '@/components/metrics/AppOpened';
@@ -19,6 +19,10 @@ export default function Home({ searchParams }: { searchParams: Promise<{ erro?: 
         <h1 className="sr-only">{t('home.title')}</h1>
         <Logo size={48} decorative />
       </header>
+      {/* Once per change of the privacy policy, to the members who knew the older one. */}
+      <Suspense fallback={null}>
+        <PolicyNoticeForMember />
+      </Suspense>
       <Suspense fallback={<PasteLink />}>
         <PasteLinkWithShareError searchParams={searchParams} />
       </Suspense>

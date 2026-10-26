@@ -5,6 +5,7 @@ import { recentSongs } from '@/lib/supabase/plays';
 import { createServerSupabase } from '@/lib/supabase/server';
 import { HomeLinks } from './HomeLinks';
 import { PasteLink } from './PasteLink';
+import { PolicyNotice } from './PolicyNotice';
 import { SongList, SongListUnavailable } from './SongList';
 
 /**
@@ -31,6 +32,22 @@ export async function GangSongs() {
     return <SongListUnavailable />;
   }
   return <SongList songs={songs} />;
+}
+
+/**
+ * The notice that the privacy policy changed, for the signed-in member: it needs the day they joined, since only those
+ * who joined before the change knew an older policy. When that cannot be read there is simply no notice.
+ */
+export async function PolicyNoticeForMember() {
+  const supabase = await createServerSupabase();
+  let joinedAt: string | undefined;
+  try {
+    const [members, userId] = await Promise.all([listActiveMembers(supabase), currentUserId(supabase)]);
+    joinedAt = members.find((member) => member.id === userId)?.joinedAt;
+  } catch (error) {
+    console.error('Could not tell when this member joined.', error);
+  }
+  return joinedAt ? <PolicyNotice joinedAt={joinedAt} /> : null;
 }
 
 /**
