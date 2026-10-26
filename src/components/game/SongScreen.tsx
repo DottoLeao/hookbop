@@ -16,8 +16,8 @@ import {
   type SavedProgress,
 } from '@/lib/game/savedProgress';
 import { helpedBlanks } from '@/lib/game/scoring';
-import { translateSong as translateWholeSong, type SongTranslation } from '@/lib/help/songTranslation';
 import { selectTileLines } from '@/lib/game/tiles';
+import { translateSong as translateWholeSong, type SongTranslation } from '@/lib/help/songTranslation';
 import { cleanTitle } from '@/lib/lyrics/cleanTitle';
 import { linesOfVideo } from '@/lib/lyrics/linesOfVideo';
 import { applyOffset } from '@/lib/lyrics/lrc';

@@ -34,7 +34,7 @@ As duas tabelas recebem uma linha por acontecimento e não têm chave estrangeir
 
 Uma linha por pedido de explicação ou tradução que o servidor atendeu, viesse a resposta do modelo, da memória por verso ou de um verso igual (refrão). Um pedido recusado antes (dados inválidos, 400; limite por hora, 429) não grava linha.
 
-Desde 2026-10-26 a tradução é pedida **para a música inteira**, numa chamada só, assim que a música abre (antes de a pessoa tocar em qualquer coisa). Esse pedido grava **uma** linha com `kind = 'translate'` e `line_index = -1`: `source = 'cache'` quando a memória por verso já tinha todos os versos que ela podia dar (0 tokens, custo 0), ou `source = 'model'` quando o modelo foi chamado para os que faltavam (os tokens e o custo da chamada inteira). As linhas de tradução com `line_index` de 0 para cima são de um verso só: o que a tradução da música não trouxe e o app pediu sozinho.
+Desde 2026-10-26 a tradução é pedida **para a música inteira**, numa chamada só, assim que a música abre (antes de a pessoa tocar em qualquer coisa). Esse pedido grava **uma** linha com `kind = 'translate'` e `line_index = -1`: `source = 'cache'` quando o modelo não foi chamado (a memória por verso já tinha todos os versos, ou o limite por hora tinha acabado e foram só os versos que ela tinha; 0 tokens, custo 0), ou `source = 'model'` quando o modelo foi chamado para os que faltavam (os tokens e o custo da chamada inteira, que conta como **um** pedido no limite por hora). As linhas de tradução com `line_index` de 0 para cima são de um verso só: o que a tradução da música não trouxe e o app pediu sozinho.
 
 | Coluna | Tipo | Significado |
 |---|---|---|

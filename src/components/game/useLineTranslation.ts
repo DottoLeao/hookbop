@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import type { LineHelp } from '@/lib/help/useLineHelp';
 import { useSongTranslation, type SongTranslation } from '@/lib/help/songTranslation';
+import type { LineHelp } from '@/lib/help/useLineHelp';
 import type { TranslationView } from './LyricPanel';
 
 interface LineTranslationOptions {
