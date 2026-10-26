@@ -22,3 +22,16 @@ export function explainUserMessage(lineText: string, target: string): string {
 export function translateUserMessage(lineText: string): string {
   return `Verso: ${lineText}`;
 }
+
+/**
+ * The translation of a whole song in one call (`songService`). Written for this feature, not in an earlier brief: the
+ * owner asked for natural Brazilian Portuguese that keeps the sense of slang and expressions, one translation per line
+ * and no comments. The structured output (`SONG_TRANSLATION_SCHEMA`) holds the shape; this holds the voice.
+ */
+export const SONG_TRANSLATE_SYSTEM =
+  'Traduza os versos desta música para um português do Brasil natural, do jeito que uma pessoa falaria. Mantenha o sentido das gírias e das expressões em vez de traduzir palavra por palavra. Cada verso vem com um número: devolva uma tradução para cada verso, com o mesmo número, sem aspas, sem explicação e sem comentário.';
+
+/** The texts to translate, numbered from 1, one per line. Each text is a line of the song, so it has no line break. */
+export function songTranslateUserMessage(texts: readonly string[]): string {
+  return ['Versos:', ...texts.map((text, i) => `${i + 1}. ${text}`)].join('\n');
+}

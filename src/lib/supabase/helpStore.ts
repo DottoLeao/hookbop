@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { HELP_BUDGET_PER_HOUR, type HelpDeps } from '@/lib/help/helpService';
+import type { SongDeps } from '@/lib/help/songService';
 import type { StoredVideo } from '@/lib/help/validate';
 import type { Database } from './database.types';
 
@@ -99,6 +100,46 @@ export function createSupabaseHelpStore(admin: Client): HelpStore {
         lyricsLrc: data.lyrics_lrc,
         lyricsDurationS: data.lyrics_duration_s,
       };
+    },
+  };
+}
+
+/** The per-line translations of a song, as the whole-song translation reads and writes them. */
+export type TranslationCache = Pick<SongDeps, 'getCachedTranslations' | 'saveTranslations'>;
+
+/**
+ * The translations of `line_help` read and written a whole song at a time, through the service client. They are the
+ * rows the translation by line uses (kind 'translate', target ''), so each side finds what the other saved.
+ */
+export function createSupabaseTranslationCache(admin: Client): TranslationCache {
+  return {
+    async getCachedTranslations(youtubeId, lyricsRef) {
+      const { data, error } = await admin
+        .from('line_help')
+        .select('line_index, content')
+        .eq('youtube_id', youtubeId)
+        .eq('lyrics_ref', lyricsRef)
+        .eq('kind', 'translate')
+        .eq('target', '');
+      if (error) throw new Error(`Could not read the song translations: ${error.message}`);
+      return new Map((data ?? []).map((row) => [row.line_index, row.content]));
+    },
+
+    async saveTranslations(youtubeId, lyricsRef, rows) {
+      if (rows.length === 0) return;
+      // As one line at a time does: a row another member saved first stays, this one is dropped.
+      const { error } = await admin.from('line_help').upsert(
+        rows.map((row) => ({
+          youtube_id: youtubeId,
+          lyrics_ref: lyricsRef,
+          line_index: row.lineIndex,
+          kind: 'translate',
+          target: '',
+          content: row.text,
+        })),
+        { onConflict: LINE_HELP_KEY, ignoreDuplicates: true },
+      );
+      if (error) throw new Error(`Could not save the song translations: ${error.message}`);
     },
   };
 }

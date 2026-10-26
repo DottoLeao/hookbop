@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { describe, expect, it, vi } from 'vitest';
 import { type AiUsageEntry, HELP_BUDGET_PER_HOUR, type HelpRequest } from '@/lib/help/helpService';
 import type { Database } from './database.types';
-import { createSupabaseHelpStore } from './helpStore';
+import { createSupabaseHelpStore, createSupabaseTranslationCache } from './helpStore';
 
 type Client = SupabaseClient<Database>;
 
@@ -293,6 +293,100 @@ describe('createSupabaseHelpStore', () => {
       const { admin } = fakeAdmin({ error: { message: 'gone' } });
 
       await expect(createSupabaseHelpStore(admin).getVideo('aaaaaaaaaaa')).rejects.toThrow(/gone/);
+    });
+  });
+});
+
+describe('createSupabaseTranslationCache', () => {
+  describe('getCachedTranslations', () => {
+    it('reads every translation line_help has for these lyrics, in one query, by line index', async () => {
+      const { admin, calls } = fakeAdmin({
+        data: [
+          { line_index: 3, content: 'Lanternas zumbem' },
+          { line_index: 0, content: 'Barcos de papel' },
+        ],
+      });
+
+      const cached = await createSupabaseTranslationCache(admin).getCachedTranslations('aaaaaaaaaaa', '777');
+
+      expect([...cached]).toEqual([
+        [3, 'Lanternas zumbem'],
+        [0, 'Barcos de papel'],
+      ]);
+      expect(calls).toEqual([
+        {
+          table: 'line_help',
+          steps: [
+            ['select', 'line_index, content'],
+            ['eq', 'youtube_id', 'aaaaaaaaaaa'],
+            ['eq', 'lyrics_ref', '777'],
+            ['eq', 'kind', 'translate'],
+            ['eq', 'target', ''],
+          ],
+        },
+      ]);
+    });
+
+    it('is empty when the song has no translation yet', async () => {
+      const { admin } = fakeAdmin({ data: [] });
+
+      expect((await createSupabaseTranslationCache(admin).getCachedTranslations('aaaaaaaaaaa', '777')).size).toBe(0);
+    });
+
+    it('fails when the cache cannot be read', async () => {
+      const { admin } = fakeAdmin({ error: { message: 'permission denied' } });
+
+      await expect(
+        createSupabaseTranslationCache(admin).getCachedTranslations('aaaaaaaaaaa', '777'),
+      ).rejects.toThrow(/permission denied/);
+    });
+  });
+
+  describe('saveTranslations', () => {
+    it('adds every line in one upsert, as the translation by line keys them, leaving rows saved first as they are', async () => {
+      const { admin, calls } = fakeAdmin({});
+
+      await createSupabaseTranslationCache(admin).saveTranslations('aaaaaaaaaaa', '777', [
+        { lineIndex: 0, text: 'Barcos de papel' },
+        { lineIndex: 2, text: 'Barcos de papel' },
+      ]);
+
+      const row = (lineIndex: number) => ({
+        youtube_id: 'aaaaaaaaaaa',
+        lyrics_ref: '777',
+        line_index: lineIndex,
+        kind: 'translate',
+        target: '',
+        content: 'Barcos de papel',
+      });
+      expect(calls).toEqual([
+        {
+          table: 'line_help',
+          steps: [
+            [
+              'upsert',
+              [row(0), row(2)],
+              { onConflict: 'youtube_id,lyrics_ref,line_index,kind,target', ignoreDuplicates: true },
+            ],
+          ],
+        },
+      ]);
+    });
+
+    it('writes nothing when there is nothing to save', async () => {
+      const { admin, calls } = fakeAdmin({});
+
+      await createSupabaseTranslationCache(admin).saveTranslations('aaaaaaaaaaa', '777', []);
+
+      expect(calls).toEqual([]);
+    });
+
+    it('fails when the translations cannot be saved', async () => {
+      const { admin } = fakeAdmin({ error: { message: 'disk full' } });
+
+      await expect(
+        createSupabaseTranslationCache(admin).saveTranslations('aaaaaaaaaaa', '777', [{ lineIndex: 0, text: 'x' }]),
+      ).rejects.toThrow(/disk full/);
     });
   });
 });

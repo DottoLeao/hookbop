@@ -2,12 +2,14 @@
 import { readFileSync } from 'node:fs';
 import Anthropic from '@anthropic-ai/sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { callModel } from './model';
+import { MessageStream } from '@anthropic-ai/sdk/lib/MessageStream';
+import { callModel, streamModel } from './model';
 import { ModelError } from './modelError';
 import { HELP_MODEL } from './pricing';
 
 // No test reaches the real API: the client is always a fake, and the SDK constructor is replaced too.
 const create = vi.hoisted(() => vi.fn());
+const stream = vi.hoisted(() => vi.fn());
 const constructed = vi.hoisted(() => vi.fn());
 vi.mock('@anthropic-ai/sdk', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@anthropic-ai/sdk')>();
@@ -16,6 +18,7 @@ vi.mock('@anthropic-ai/sdk', async (importOriginal) => {
       super({ ...options, apiKey: 'test-key' });
       constructed(options);
       this.messages.create = create as never;
+      this.messages.stream = stream as never;
     }
   }
   return { ...actual, default: FakeAnthropic };
@@ -60,6 +63,7 @@ async function withClock<T>(run: (tick: (ms: number) => void) => Promise<T>): Pr
 
 afterEach(() => {
   create.mockReset();
+  stream.mockReset();
 });
 
 describe('callModel', () => {
@@ -274,5 +278,187 @@ describe('callModel', () => {
     expect(example).toMatch(/^ANTHROPIC_API_KEY=\s*$/m);
     expect(example).not.toMatch(/NEXT_PUBLIC_\w*ANTHROPIC/i);
     expect(readFileSync('src/lib/help/model.ts', 'utf8')).toMatch(/^import 'server-only';/m);
+  });
+});
+
+/** The events of a streamed answer whose text comes in `pieces`, as the API sends them. */
+function streamEvents(
+  pieces: string[],
+  {
+    stopReason = 'end_turn',
+    inputTokens = 300,
+    outputTokens = 90,
+  }: { stopReason?: string; inputTokens?: number; outputTokens?: number } = {},
+) {
+  return [
+    {
+      type: 'message_start',
+      message: {
+        id: 'msg_1',
+        type: 'message',
+        role: 'assistant',
+        model: HELP_MODEL,
+        content: [],
+        stop_reason: null,
+        stop_sequence: null,
+        usage: { input_tokens: inputTokens, output_tokens: 1 },
+      },
+    },
+    { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '', citations: null } },
+    ...pieces.map((text) => ({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } })),
+    { type: 'content_block_stop', index: 0 },
+    {
+      type: 'message_delta',
+      delta: { stop_reason: stopReason, stop_sequence: null },
+      usage: { output_tokens: outputTokens },
+    },
+    { type: 'message_stop' },
+  ];
+}
+
+/**
+ * A real SDK MessageStream fed with `events`, one at a time, that fails with `failWith` once they are out (when given).
+ * `onEnd` runs once the last event has been read, for a test that moves the clock.
+ */
+function messageStream(events: object[], { failWith, onEnd }: { failWith?: unknown; onEnd?: () => void } = {}) {
+  const encoder = new TextEncoder();
+  let next = 0;
+  return MessageStream.fromReadableStream(
+    new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (next < events.length) {
+          controller.enqueue(encoder.encode(JSON.stringify(events[next]) + '\n'));
+          next += 1;
+          return;
+        }
+        onEnd?.();
+        if (failWith === undefined) controller.close();
+        else controller.error(failWith);
+      },
+    }),
+  );
+}
+
+const SONG_REQUEST = {
+  system: 'song system prompt',
+  user: 'Versos:\n1. Paper boats on a river of light',
+  maxTokens: 260,
+  schema: { type: 'object', properties: {}, additionalProperties: false },
+};
+
+describe('streamModel', () => {
+  it('streams from Haiku 5.5 with no thinking, low effort and the structured output asked for', async () => {
+    stream.mockReturnValue(messageStream(streamEvents(['{}'])));
+
+    await streamModel(SONG_REQUEST, () => {});
+
+    expect(stream).toHaveBeenCalledExactlyOnceWith(
+      {
+        model: 'claude-haiku-5-5',
+        max_tokens: 260,
+        thinking: { type: 'disabled' },
+        output_config: { effort: 'low', format: { type: 'json_schema', schema: SONG_REQUEST.schema } },
+        system: 'song system prompt',
+        messages: [{ role: 'user', content: 'Versos:\n1. Paper boats on a river of light' }],
+      },
+      { signal: expect.any(AbortSignal) },
+    );
+  });
+
+  it('gives the whole call 50 s, through the signal it hands the SDK', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    stream.mockReturnValue(messageStream(streamEvents(['{}'])));
+
+    await streamModel(SONG_REQUEST, () => {});
+
+    expect(timeout).toHaveBeenCalledExactlyOnceWith(50_000);
+    expect(stream.mock.calls[0][1]).toEqual({ signal: timeout.mock.results[0].value });
+    timeout.mockRestore();
+  });
+
+  it('hands over each piece of the text as it comes, then the tokens and the time of the call', async () => {
+    const seen: string[] = [];
+    const pieces = ['{"lines":[', '{"n":1,', '"translation":"Barcos"}]}'];
+    const result = await withClock(async (tick) => {
+      stream.mockImplementation(() =>
+        messageStream(streamEvents(pieces, { inputTokens: 420, outputTokens: 33 }), { onEnd: () => tick(1_500.6) }),
+      );
+      return streamModel(SONG_REQUEST, (piece) => seen.push(piece));
+    });
+
+    expect(seen).toEqual(pieces);
+    expect(result).toEqual({ usage: { inputTokens: 420, outputTokens: 33 }, latencyMs: 1_501 });
+  });
+
+  it.each(['refusal', 'max_tokens'] as const)(
+    'fails as declined and answered when the model stopped with %s, after handing over what it gave',
+    async (stopReason) => {
+      const seen: string[] = [];
+      stream.mockReturnValue(
+        messageStream(streamEvents(['{"lines":['], { stopReason, inputTokens: 300, outputTokens: 8000 })),
+      );
+
+      const failure = await streamModel(SONG_REQUEST, (piece) => seen.push(piece)).catch((e: unknown) => e);
+
+      expect(seen).toEqual(['{"lines":[']);
+      expect(failure).toBeInstanceOf(ModelError);
+      expect((failure as ModelError).declined).toBe(true);
+      expect((failure as ModelError).answered).toBe(true);
+      expect((failure as ModelError).usage).toEqual({ inputTokens: 300, outputTokens: 8000 });
+    },
+  );
+
+  it.each(['pause_turn', 'stop_sequence'] as const)(
+    'fails as answered, not declined, when the model stopped with %s',
+    async (stopReason) => {
+      stream.mockReturnValue(messageStream(streamEvents(['{}'], { stopReason })));
+
+      const failure = await streamModel(SONG_REQUEST, () => {}).catch((e: unknown) => e);
+
+      expect((failure as ModelError).declined).toBe(false);
+      expect((failure as ModelError).answered).toBe(true);
+    },
+  );
+
+  it('fails with no answer, so the budget goes back, when the call broke before anything came', async () => {
+    const failure = await withClock(async (tick) => {
+      stream.mockImplementation(() =>
+        messageStream([], {
+          failWith: new Anthropic.APIConnectionError({ message: 'offline' }),
+          onEnd: () => tick(700),
+        }),
+      );
+      return streamModel(SONG_REQUEST, () => {}).catch((e: unknown) => e);
+    });
+
+    expect(failure).toBeInstanceOf(ModelError);
+    expect((failure as ModelError).message).toMatch(/reached/);
+    expect((failure as ModelError).answered).toBe(false);
+    expect((failure as ModelError).usage).toBeUndefined();
+    expect((failure as ModelError).latencyMs).toBe(700);
+  });
+
+  it('fails as answered, with the tokens so far, when the call broke after the model had started', async () => {
+    const seen: string[] = [];
+    const events = streamEvents(['{"lines":[{"n":1,"translation":"Barcos"},'], { inputTokens: 250 }).slice(0, 3);
+    stream.mockReturnValue(messageStream(events, { failWith: new Anthropic.APIConnectionError({ message: 'reset' }) }));
+
+    const failure = await streamModel(SONG_REQUEST, (piece) => seen.push(piece)).catch((e: unknown) => e);
+
+    expect(seen).toEqual(['{"lines":[{"n":1,"translation":"Barcos"},']);
+    expect((failure as ModelError).answered).toBe(true);
+    expect((failure as ModelError).declined).toBe(false);
+    expect((failure as ModelError).usage).toEqual({ inputTokens: 250, outputTokens: 1 });
+  });
+
+  it('says the 50 s are up when the deadline aborts the call', async () => {
+    stream.mockReturnValue(
+      messageStream(streamEvents(['{']).slice(0, 2), { failWith: new Anthropic.APIUserAbortError() }),
+    );
+
+    const failure = await streamModel(SONG_REQUEST, () => {}).catch((e: unknown) => e);
+
+    expect((failure as ModelError).message).toMatch(/50 s/);
+    expect((failure as ModelError).answered).toBe(true);
   });
 });

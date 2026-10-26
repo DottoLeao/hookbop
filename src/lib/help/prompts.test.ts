@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { EXPLAIN_SYSTEM, TRANSLATE_SYSTEM, explainUserMessage, systemFor, translateUserMessage } from './prompts';
+import {
+  EXPLAIN_SYSTEM,
+  SONG_TRANSLATE_SYSTEM,
+  TRANSLATE_SYSTEM,
+  explainUserMessage,
+  songTranslateUserMessage,
+  systemFor,
+  translateUserMessage,
+} from './prompts';
 
 // Invented lines, not lyrics.
 describe('prompts', () => {
@@ -34,5 +42,17 @@ describe('prompts', () => {
   it('picks the system prompt of each kind of help', () => {
     expect(systemFor('explain')).toBe(EXPLAIN_SYSTEM);
     expect(systemFor('translate')).toBe(TRANSLATE_SYSTEM);
+  });
+
+  it('asks for the whole song in natural Brazilian Portuguese, slang kept in its sense, one translation per line', () => {
+    expect(SONG_TRANSLATE_SYSTEM).toBe(
+      'Traduza os versos desta música para um português do Brasil natural, do jeito que uma pessoa falaria. Mantenha o sentido das gírias e das expressões em vez de traduzir palavra por palavra. Cada verso vem com um número: devolva uma tradução para cada verso, com o mesmo número, sem aspas, sem explicação e sem comentário.',
+    );
+  });
+
+  it('sends the lines of the song numbered from 1, one per line', () => {
+    expect(songTranslateUserMessage(['Paper boats on a river of light', 'Hold the line till the morning comes'])).toBe(
+      'Versos:\n1. Paper boats on a river of light\n2. Hold the line till the morning comes',
+    );
   });
 });

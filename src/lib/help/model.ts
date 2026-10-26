@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { ModelAnswer } from './helpService';
 import { ModelError } from './modelError';
 import { HELP_MODEL, type TokenUsage } from './pricing';
+import type { SongModelRequest, StreamedAnswer } from './songService';
 
 // The marker import above makes the build fail if a Client Component ever pulls this module in, so the key
 // (ANTHROPIC_API_KEY, which the SDK reads from the environment) is only ever read on the server.
@@ -13,6 +14,12 @@ const MAX_TOKENS = 300;
 /** The whole call, its retry and any `retry-after` wait included, never takes longer than this. */
 const DEADLINE_MS = 20_000;
 
+/**
+ * The whole streamed call for a song, from the request to the last line. The route has 60 s (`maxDuration`), and
+ * saving and logging what came need a few of them after the stream.
+ */
+const SONG_DEADLINE_MS = 50_000;
+
 let shared: Anthropic | undefined;
 
 /** One client for the server, made on first use: 15 s per try, and one retry. */
@@ -22,9 +29,9 @@ function client(): Anthropic {
 }
 
 /** What went wrong, by the SDK's error types, for the server log. */
-function reasonOf(error: unknown): string {
+function reasonOf(error: unknown, deadlineMs: number): string {
   // The deadline aborting the call. It is an APIError too, so it is checked first.
-  if (error instanceof Anthropic.APIUserAbortError) return 'The model gave no answer in 20 s';
+  if (error instanceof Anthropic.APIUserAbortError) return `The model gave no answer in ${deadlineMs / 1000} s`;
   if (error instanceof Anthropic.RateLimitError) return 'The model service is rate limiting the app';
   // A timeout of one try is a connection error too.
   if (error instanceof Anthropic.APIConnectionError) return 'The model service could not be reached';
@@ -40,6 +47,20 @@ function reasonOf(error: unknown): string {
 function tokensOf(response: Anthropic.Message): TokenUsage {
   const usage: Partial<Anthropic.Usage> | undefined = response.usage;
   return { inputTokens: usage?.input_tokens ?? 0, outputTokens: usage?.output_tokens ?? 0 };
+}
+
+/**
+ * A finished answer stops with `end_turn`. A refusal or an answer cut short (`max_tokens`) is declined: asking again
+ * would not change it. Any other stop may work the next time. Either way the model answered.
+ */
+function checkStop(response: Anthropic.Message, usage: TokenUsage, latencyMs: number): void {
+  const stopReason = response.stop_reason;
+  if (stopReason === 'refusal' || stopReason === 'max_tokens') {
+    throw new ModelError(`The model stopped with ${stopReason}`, { declined: true, usage, latencyMs });
+  }
+  if (stopReason !== 'end_turn') {
+    throw new ModelError(`The model stopped with ${stopReason}`, { answered: true, usage, latencyMs });
+  }
 }
 
 /**
@@ -71,20 +92,17 @@ export async function callModel(system: string, user: string): Promise<ModelAnsw
       { signal: AbortSignal.timeout(DEADLINE_MS) },
     );
   } catch (error) {
-    throw new ModelError(reasonOf(error), { cause: error, latencyMs: Math.round(performance.now() - startedAt) });
+    throw new ModelError(reasonOf(error, DEADLINE_MS), {
+      cause: error,
+      latencyMs: Math.round(performance.now() - startedAt),
+    });
   }
 
   // The call, retries included, is over here; the rest is reading the answer.
   const latencyMs = Math.round(performance.now() - startedAt);
   const usage = tokensOf(response);
 
-  const stopReason = response.stop_reason;
-  if (stopReason === 'refusal' || stopReason === 'max_tokens') {
-    throw new ModelError(`The model stopped with ${stopReason}`, { declined: true, usage, latencyMs });
-  }
-  if (stopReason !== 'end_turn') {
-    throw new ModelError(`The model stopped with ${stopReason}`, { answered: true, usage, latencyMs });
-  }
+  checkStop(response, usage, latencyMs);
 
   const text = response.content
     .filter((block) => block.type === 'text')
@@ -93,4 +111,56 @@ export async function callModel(system: string, user: string): Promise<ModelAnsw
     .trim();
   if (!text) throw new ModelError('The model answered with no text', { answered: true, usage, latencyMs });
   return { text, usage, latencyMs };
+}
+
+/**
+ * Asks Haiku 5.5 once about a whole song (`songService`), streaming: each piece of the text goes to `onText` as it
+ * comes, and the answer follows `request.schema` (structured outputs, `output_config.format`), so the lines can be
+ * read one by one while it streams. Thinking is off and effort low, as for one line, and there is no sampling
+ * parameter. The whole call has 50 s.
+ *
+ * It resolves with the tokens the answer took and how long the call ran once the answer is finished. Anything else is
+ * a ModelError, as in `callModel`: declined for a refusal or an answer cut short, answered for any other stop. A call
+ * that broke off is answered once the model started (its first event came, and the input was billed), with the tokens
+ * counted so far; without any event it is not, and the budget it took goes back (ruling R75). The pieces handed to
+ * `onText` before a failure stay good.
+ */
+export async function streamModel(request: SongModelRequest, onText: (delta: string) => void): Promise<StreamedAnswer> {
+  const startedAt = performance.now();
+  const elapsedMs = () => Math.round(performance.now() - startedAt);
+
+  const stream = client().messages.stream(
+    {
+      model: HELP_MODEL,
+      max_tokens: request.maxTokens,
+      thinking: { type: 'disabled' },
+      output_config: { effort: 'low', format: { type: 'json_schema', schema: request.schema } },
+      system: request.system,
+      messages: [{ role: 'user', content: request.user }],
+    },
+    { signal: AbortSignal.timeout(SONG_DEADLINE_MS) },
+  );
+
+  let started = false;
+  let response: Anthropic.Message;
+  try {
+    for await (const event of stream) {
+      started = true;
+      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') onText(event.delta.text);
+    }
+    response = await stream.finalMessage();
+  } catch (error) {
+    const sofar = stream.currentMessage;
+    throw new ModelError(reasonOf(error, SONG_DEADLINE_MS), {
+      cause: error,
+      answered: started,
+      usage: started && sofar ? tokensOf(sofar) : undefined,
+      latencyMs: elapsedMs(),
+    });
+  }
+
+  const latencyMs = elapsedMs();
+  const usage = tokensOf(response);
+  checkStop(response, usage, latencyMs);
+  return { usage, latencyMs };
 }
