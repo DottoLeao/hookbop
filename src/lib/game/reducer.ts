@@ -160,8 +160,8 @@ function lineOf(s: GameState, blank: Blank): LyricLine {
 }
 
 /**
- * The clip plays, as far as the game knows, with no wait holding it: what a pause of the game's own (the translation,
- * DJ Bop's sheet) can stop. A clip that is stopped, or fading out for a wait, is not.
+ * The clip plays, as far as the game knows, with no wait holding it: what a pause of the game's own (DJ Bop's sheet)
+ * can stop. A clip that is stopped, or fading out for a wait, is not.
  */
 export function clipPlays(s: GameState): boolean {
   return s.phase === 'playing' && (s.playerState === 'playing' || s.playerState === 'buffering');
